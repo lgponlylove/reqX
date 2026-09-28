@@ -1,0 +1,27 @@
+# Deps & build
+node_modules/
+dist/
+*.local
+
+# Tauri / Rust
+src-tauri/target/
+src-tauri/gen/
+*.exe
+*.msi
+*.AppImage
+*.dmg
+*.deb
+
+# Dữ liệu local của app (có thể chứa URL/key thật) — không đẩy lên GitHub
+src-tauri/target/**/reqx-*.json
+SSO-*.json
+reqx-*.json
+*.reqx-flow.json
+reqx-backup.json
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.log

@@ -1,0 +1,22 @@
+[package]
+name = "reqx"
+version = "0.1.0"
+description = "ReqX — API client (Tauri + React)"
+authors = ["you"]
+edition = "2021"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# HTTP native (không CORS): rustls để khỏi phụ thuộc schannel khi build GNU
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls-webpki-roots", "json", "multipart"] }
+# base64 để trả body nhị phân (ảnh/PDF/zip...) về frontend
+base64 = "0.22"
+
+[features]
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]

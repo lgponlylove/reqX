@@ -1,0 +1,31 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  @apply bg-slate-950 text-slate-100;
+}
+
+/* Scrollbar cùng tone dark: track slate-950, thumb slate-700, hover emerald */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #334155 #020617;
+}
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-track {
+  background: #020617;
+}
+*::-webkit-scrollbar-thumb {
+  background: #334155;
+  border-radius: 8px;
+  border: 2px solid #020617;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: #059669;
+}
+*::-webkit-scrollbar-corner {
+  background: #020617;
+}
