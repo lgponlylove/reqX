@@ -3,13 +3,14 @@ import { useAppStore, type AiChatMsg } from '../stores/app';
 import { useFlowStore } from '../stores/flow';
 import { useRequestStore } from '../stores/request';
 import { generateContent, isQuotaError, sanitizeContents, GEMINI_DEFAULT_MODEL, type GeminiContent, type GeminiFunctionDecl } from '../lib/ai/gemini';
-import { AI_PROVIDERS, providerDef, buildBaseURL, pickOrder, type AiChainEntry } from '../lib/ai/ai-providers';
+import { AI_PROVIDERS, providerDef, buildBaseURL, orderChain, entryTier, entryRpm, TierBucket, adaptiveInit, adaptOnSuccess, adaptOnRateLimit, type AdaptiveState, type AiChainEntry, type AiRateLimit, type AiUsage } from '../lib/ai/ai-providers';
 import { openaiChat, fetchProviderModels } from '../lib/ai/openai-chat';
-import { runOneRequest, type RunnerHooks } from '../lib/runner';
+import { runOneRequest, runRequestList, collectRequests, type RunnerHooks } from '../lib/runner';
 import { runFlow } from '../lib/flow';
 import { confirmUntrustedScripts } from '../lib/scripts';
 import { importAnyJson, summarizeImport } from '../lib/import-any';
-import { getBody } from '../lib/bodyStore';
+import { getBody, saveBodies, pruneBodies } from '../lib/bodyStore';
+import { summarize } from '../lib/scheduleEngine';
 import { recordManualFlowRun } from '../lib/flow-runs';
 import { uid } from '../lib/variables';
 import type { ApiRequest, HttpMethod } from '../types/api';
@@ -21,6 +22,8 @@ Bạn có tools để xem và điều khiển app. Quy tắc:
 - Tóm tắt kết quả gọn: status, thời gian, tests pass/fail, biến trích được. Không dán cả body dài.
 - Không bịa tên — chỉ dùng tên/id do tool trả về.
 - Muốn nhập collection/flow: nhờ người dùng dán nguyên văn JSON vào chat, rồi gọi import_json (không tự bịa JSON).
+- Muốn TẠO flow mới từ request có sẵn: gọi list_requests lấy tên đúng trước, rồi gọi create_flow (extract dạng "tenBien=duongDan"). Xong thì tóm tắt các bước + hỏi có chạy thử không.
+- Muốn CHẠY collection: gọi run_collection (kết quả tự lưu lịch sử tab Runner). Tóm tắt gọn từng request, không dán body dài.
 - Muốn đọc body response của step: gọi get_step_body (có phân trang offset/limit, đừng đoán nội dung body).`;
 
 const TOOLS: GeminiFunctionDecl[] = [
@@ -37,6 +40,8 @@ const TOOLS: GeminiFunctionDecl[] = [
   { name: 'set_variable', description: 'Gán biến (env = env đang active, global = dùng chung).', parameters: { type: 'OBJECT', properties: { scope: { type: 'STRING', enum: ['env', 'global'] }, key: { type: 'STRING' }, value: { type: 'STRING' } }, required: ['scope', 'key', 'value'] } },
   { name: 'create_request', description: 'Tạo request mới trong collection.', parameters: { type: 'OBJECT', properties: { collection_ref: { type: 'STRING', description: 'id/tên collection (trống = đầu tiên)' }, name: { type: 'STRING' }, method: { type: 'STRING', description: 'GET POST PUT PATCH DELETE HEAD OPTIONS' }, url: { type: 'STRING' }, body: { type: 'STRING', description: 'body raw (nếu có)' } }, required: ['name', 'method', 'url'] } },
   { name: 'import_json', description: 'Nhập collection/flow từ JSON do người dùng dán vào chat (Postman v2.1, flow ReqX, file gộp, backup).', parameters: { type: 'OBJECT', properties: { content: { type: 'STRING', description: 'Nguyên văn JSON cần nhập (dưới ~200KB)' } }, required: ['content'] } },
+  { name: 'create_flow', description: 'Tạo flow mới từ các request có sẵn (nối nhiều bước, trích biến bước trước cho bước sau). Mỗi step: request_ref (id/tên request) + extract (mảng "tenBien=duongDan", VD "token=access_token"). Luôn gọi list_requests trước để lấy tên request đúng, không bịa request.', parameters: { type: 'OBJECT', properties: { name: { type: 'STRING', description: 'Tên flow' }, steps: { type: 'STRING', description: 'JSON mảng step: [{"request":"tên/id request","extract":["token=access_token"]}]' } }, required: ['name', 'steps'] } },
+  { name: 'run_collection', description: 'Chạy Runner cho 1 collection/folder (tuần tự từng request kèm pre-request + tests). Collection dài quá 20 request thì chỉ chạy 20 cái đầu. Kết quả tự lưu vào lịch sử chạy của collection.', parameters: { type: 'OBJECT', properties: { collection_ref: { type: 'STRING', description: 'id hoặc tên collection' }, folder_ref: { type: 'STRING', description: 'id/tên folder, hoặc "root", trống = tất cả' } }, required: ['collection_ref'] } },
 ];
 
 const METHODS: HttpMethod[] = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'];
@@ -64,9 +69,9 @@ function aiHooks(): RunnerHooks {
 }
 
 export default function AiAssistant({ onGoBuilder }: { onGoBuilder: () => void }) {
-  const { aiChain, setAiChain, bumpAiRr, aiChat, pushAiChat, aiContents, setAiContents, clearAiChat } = useAppStore();
+  const { aiChain, setAiChain, bumpAiRr, aiStrategy, setAiStrategy, aiStats, recordAiUsage, clearAiStats, aiChat, pushAiChat, aiContents, setAiContents, clearAiChat } = useAppStore();
   // Khung chain xếp gọn được — có provider dùng được thì mặc định gọn để chat chiếm hết chỗ
-  const [showKeys, setShowKeys] = useState(() => pickOrder(useAppStore.getState().aiChain, 0).length === 0);
+  const [showKeys, setShowKeys] = useState(() => orderChain(useAppStore.getState().aiChain, 0, useAppStore.getState().aiStrategy).length === 0);
   // Seed 1 lần từ key Gemini cũ (aiKey/aiKeyBackup) sang chain mới để không mất cấu hình
   useEffect(() => {
     const s = useAppStore.getState();
@@ -115,6 +120,10 @@ export default function AiAssistant({ onGoBuilder }: { onGoBuilder: () => void }
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
   const contentsRef = useRef<GeminiContent[]>(sanitizeContents(aiContents));
+  /** Bucket đếm RPM + trạng thái học trần (AIMD) + breaker khóa tạm — giữ suốt session */
+  const bucketsRef = useRef<Record<string, { b: TierBucket; rpm: number }>>({});
+  const breakersRef = useRef<Record<string, number>>({});
+  const adaptiveRef = useRef<Record<string, AdaptiveState>>({});
   const boxRef = useRef<HTMLDivElement | null>(null);
 
   const scrollDown = () => requestAnimationFrame(() => boxRef.current?.scrollTo({ top: 1e9 }));
@@ -297,6 +306,102 @@ export default function AiAssistant({ onGoBuilder }: { onGoBuilder: () => void }
         const r = importAnyJson(json, 'chat');
         return { ok: r.errors.length === 0, summary: summarizeImport(r) };
       }
+      case 'create_flow': {
+        const name = str(args.name, 'Flow mới');
+        let rawSteps: unknown;
+        try {
+          rawSteps = JSON.parse(str(args.steps, '[]'));
+        } catch {
+          return { ok: false, error: 'steps không phải JSON hợp lệ — phải là mảng [{"request":"tên/id","extract":["bien=duongDan"]}]' };
+        }
+        if (!Array.isArray(rawSteps) || rawSteps.length === 0) {
+          return { ok: false, error: 'steps trống — cần ít nhất 1 step. Gọi list_requests trước để lấy tên request đúng.' };
+        }
+        const allReqs = Object.values(app.requests);
+        const steps: { requestId: string; extract: { name: string; from: 'body-json'; path: string }[] }[] = [];
+        const missing: string[] = [];
+        rawSteps.slice(0, 20).forEach((s: unknown) => {
+          const o = (s ?? {}) as Record<string, unknown>;
+          const req = matchByRef(allReqs, typeof o.request === 'string' ? o.request : '', (r) => r);
+          if (!req) { missing.push(String(o.request ?? '?')); return; }
+          const extract = Array.isArray(o.extract) ? o.extract : [];
+          steps.push({
+            requestId: req.id,
+            extract: extract
+              .map((e) => String(e ?? ''))
+              .map((e) => {
+                const i = e.indexOf('=');
+                return i > 0
+                  ? { name: e.slice(0, i).trim(), from: 'body-json' as const, path: e.slice(i + 1).trim() }
+                  : { name: e.trim(), from: 'body-json' as const, path: e.trim() };
+              })
+              .filter((e) => e.name && e.path),
+          });
+        });
+        if (steps.length === 0) return { ok: false, error: `Không khớp request nào (${missing.join(', ')}) — gọi list_requests để lấy tên đúng.` };
+        useFlowStore.getState().importFlow(
+          { name, steps },
+          (rid) => app.requests[rid]?.collectionId,
+        );
+        const created = useFlowStore.getState().flows[useFlowStore.getState().flows.length - 1];
+        return {
+          ok: true, id: created.id, name: created.name,
+          steps: steps.map((s) => ({
+            request: app.requests[s.requestId]?.name ?? s.requestId,
+            extract: s.extract.map((e) => `${e.name}=${e.path}`),
+          })),
+          skipped: missing,
+          note: 'Đã tạo flow (mở tab Flow để xem). Muốn chạy thử thì gọi run_flow.',
+        };
+      }
+      case 'run_collection': {
+        const col = matchByRef(app.collections, str(args.collection_ref), (c) => c);
+        if (!col) return { ok: false, error: 'Không tìm thấy collection.' };
+        const fref = str(args.folder_ref).trim().toLowerCase();
+        let folderId = 'all';
+        if (fref === 'root') folderId = 'root';
+        else if (fref) {
+          const f = col.folders.find((x) => x.id === args.folder_ref || x.name.toLowerCase().includes(fref));
+          if (!f) return { ok: false, error: `Không thấy folder “${args.folder_ref}” (có: ${col.folders.map((x) => x.name).join(', ') || 'không có folder'}).` };
+          folderId = f.id;
+        }
+        const full = collectRequests(col, app.requests, folderId);
+        if (full.length === 0) return { ok: false, error: 'Phạm vi này không có request nào.' };
+        const capped = full.length > 20;
+        const runList = full.slice(0, 20);
+        if (!confirmUntrustedScripts(runList, `AI chạy Collection “${col.name}”`)) {
+          return { ok: false, error: 'Người dùng từ chối chạy script chưa rõ nguồn gốc.' };
+        }
+        const hooks = aiHooks();
+        const t0 = performance.now();
+        const at = Date.now();
+        const collected = await runRequestList(runList, hooks, {
+          timeoutMs: 30000, delayMs: 0, stopOnError: false,
+        });
+        // Lưu lịch sử như bấm chạy ở tab Runner
+        const refId = `${col.id}:${folderId}`;
+        const { steps, bodies } = summarize(`manual-col:${refId}`, at, collected);
+        await saveBodies(bodies);
+        useFlowStore.getState().pushRun({
+          kind: 'collection', refId,
+          refName: `${col.name} • AI chạy`,
+          at,
+          ok: collected.filter((r) => r.ok).length,
+          total: collected.length,
+          timeMs: Math.round(performance.now() - t0),
+          steps,
+        });
+        void pruneBodies(
+          `manual-col:${refId}`,
+          new Set(useFlowStore.getState().runs.filter((r) => r.kind === 'collection' && r.refId === refId).map((r) => r.at)),
+        );
+        return {
+          ok: collected.every((r) => r.ok),
+          ran: `${collected.length}/${full.length}${capped ? ' (collection dài, chỉ chạy 20 cái đầu)' : ''}`,
+          items: collected.map((r) => ({ name: r.name, ok: r.ok, status: r.status, timeMs: r.timeMs, tests: `${r.testsPassed}/${r.testsTotal}`, error: r.error?.slice(0, 300) })),
+          saved: 'Đã lưu vào lịch sử chạy của collection (tab Runner).',
+        };
+      }
       default:
         return { ok: false, error: `Không có tool ${name}.` };
     }
@@ -306,7 +411,7 @@ export default function AiAssistant({ onGoBuilder }: { onGoBuilder: () => void }
     const text = input.trim();
     if (!text || busy) return;
     const live = useAppStore.getState();
-    if (pickOrder(live.aiChain, live.aiRrIndex).length === 0) {
+    if (orderChain(live.aiChain, live.aiRrIndex, live.aiStrategy).length === 0) {
       setShowKeys(true);
       push({ role: 'model', text: '⚠ Chưa có provider nào dùng được — thêm key ở khung 🔑 (Gemini / Groq / Mistral / OpenRouter / Cloudflare) rồi chat.' });
       return;
@@ -317,52 +422,110 @@ export default function AiAssistant({ onGoBuilder }: { onGoBuilder: () => void }
     // Dọn history trước mỗi lượt gửi: vết cắt cap-30 có thể để lại cặp call/response gãy.
     contentsRef.current = sanitizeContents(contentsRef.current);
     setBusy(true);
-    // Chain: xoay vòng chia tải (rrIndex) + nấc nào lỗi thì thử nấc tiếp theo trong cùng lượt chat
+    // Chain: xoay vòng + strategy + admission từng nấc + breaker từng nấc + failover
     const complained = new Set<string>();
-    let waitedThisTurn = false; // gói free hay 429 vì gọi dồn — chỉ đợi lùi 1 lần/lượt
+    let waitedThisTurn = false; // chỉ đợi lùi 1 lần/lượt, và chỉ cho nấc paid
+    /** Số lượt chừa lại khi gần chạm trần (khóa tạm trước khi dính 429 thật) */
+    const HEADROOM = 2;
+    const bucketFor = (entry: AiChainEntry, rpm: number) => {
+      const b = bucketsRef.current[entry.id];
+      if (!b || b.rpm !== rpm) bucketsRef.current[entry.id] = { b: new TierBucket(rpm), rpm };
+      return bucketsRef.current[entry.id].b;
+    };
     const callEntry = async (entry: AiChainEntry) => {
       const def = providerDef(entry.providerId);
       if (!def) throw new Error(`Provider lạ: ${entry.providerId}`);
       const model = entry.model.trim() || def.defaultModel;
-      if (def.style === 'gemini')
-        return await generateContent(entry.key, model, SYSTEM, contentsRef.current, TOOLS);
+      if (def.style === 'gemini') {
+        const r = await generateContent(entry.key, model, SYSTEM, contentsRef.current, TOOLS);
+        return { parts: r.parts, usage: r.usage, rateLimit: undefined as AiRateLimit | undefined, entry };
+      }
       const base = buildBaseURL(def, entry.accountId);
       if (!base) throw new Error(`${def.name}: thiếu Account ID.`);
-      return await openaiChat({
+      const r = await openaiChat({
         baseURL: base, key: entry.key, model,
         system: SYSTEM, contents: contentsRef.current, tools: TOOLS,
         maxTokens: Math.min(4096, def.maxTokensCap ?? 4096),
         extraHeaders: def.id === 'openrouter' ? { 'HTTP-Referer': 'https://reqx.app', 'X-Title': 'ReqX' } : undefined,
       });
+      return { parts: r.parts, usage: r.usage, rateLimit: r.rateLimit, entry };
     };
     const gen = async () => {
       const st = useAppStore.getState();
-      const order = pickOrder(st.aiChain, st.aiRrIndex);
+      const order = orderChain(st.aiChain, st.aiRrIndex, st.aiStrategy);
       let lastErr: unknown = new Error('Chain trống.');
       for (const entry of order) {
         const def = providerDef(entry.providerId);
-        const label = `${def?.name ?? entry.providerId} (${entry.model.trim() || (def?.defaultModel ?? '?')})`;
+        const tier = entryTier(entry, def);
+        const badge = tier === 'paid' ? '💰' : '🆓';
+        const label = `${badge} ${def?.name ?? entry.providerId} (${entry.model.trim() || (def?.defaultModel ?? '?')})`;
+        // Breaker: nấc đang khóa tạm (vừa sập) thì bỏ qua hẳn
+        const now = Date.now();
+        const lockedUntil = breakersRef.current[entry.id] ?? 0;
+        if (lockedUntil > now) {
+          if (!complained.has(`lock:${entry.id}`)) {
+            complained.add(`lock:${entry.id}`);
+            push({ role: 'tool', text: `🔒 ${label} đang khóa tạm (~${Math.ceil((lockedUntil - now) / 1000)}s nữa) — nhảy xuống nấc tiếp.` });
+          }
+          continue;
+        }
+        // Admission từng nấc: trần = số đã học (AIMD), khởi đầu = trần cấu hình.
+        // Gần chạm trần thì khóa tạm để lượt sau nhảy xuống nấc kế (né 429 trước khi dính).
+        const configured = entryRpm(entry, def);
+        const ad = adaptiveRef.current[entry.id] ?? (adaptiveRef.current[entry.id] = adaptiveInit(configured));
+        const effectiveRpm = Math.min(ad.learned, configured);
+        const bucket = bucketFor(entry, effectiveRpm);
+        if (bucket.left(now) < Math.min(HEADROOM, effectiveRpm)) {
+          if (!complained.has(`near:${entry.id}`)) {
+            complained.add(`near:${entry.id}`);
+            push({ role: 'tool', text: `🔒 ${label} gần chạm trần (~${effectiveRpm}/phút, đang tự học) — khóa tạm, nhảy xuống nấc tiếp.` });
+          }
+          continue;
+        }
+        bucket.take(now);
         try {
-          return await callEntry(entry);
+          const r = await callEntry(entry);
+          delete breakersRef.current[entry.id]; // thành công → mở lại breaker
+          // Học trần: header hãng cho số thật thì theo, không thì AIMD tăng dần
+          const hl = r.rateLimit?.limit;
+          adaptiveRef.current[entry.id] = hl && hl > 0 && hl <= configured
+            ? { learned: hl }
+            : adaptOnSuccess(ad, configured);
+          if (r.rateLimit?.resetMs && r.rateLimit.resetMs > Date.now())
+            breakersRef.current[entry.id] = r.rateLimit.resetMs; // hãng báo hết lượt tới giờ X
+          st.recordAiUsage(entry.id, r.usage, true);
+          return r.parts;
         } catch (e) {
           lastErr = e;
+          st.recordAiUsage(entry.id, { prompt: 0, completion: 0 } as AiUsage, false);
           const msg = (e instanceof Error ? e.message : String(e)).slice(0, 160);
-          // 429 vì gọi dồn dập → đợi lùi rồi thử lại đúng nấc đó 1 lần trước khi bỏ qua
-          if (!waitedThisTurn && /429|rate.?limit|too many requests/i.test(msg)) {
+          // Sập quota/rate limit → AIMD giảm trần + khóa nấc này để các lượt sau khỏi nện vào
+          if (isQuotaError(e)) {
+            adaptiveRef.current[entry.id] = adaptOnRateLimit(ad, undefined);
+            const m = msg.match(/retry[ -]?after[: ]?(\d+)/i)?.[1];
+            const lockSec = Math.min(300, Math.max(60, parseInt(m ?? '60', 10) || 60));
+            breakersRef.current[entry.id] = Date.now() + lockSec * 1000;
+          }
+          // Nấc paid 429 vì gọi dồn → đợi lùi rồi thử lại đúng nấc đó 1 lần; nấc free thì bỏ qua nhanh
+          if (tier === 'paid' && !waitedThisTurn && /429|rate.?limit|too many requests/i.test(msg)) {
             waitedThisTurn = true;
             const sec = Math.min(30, Math.max(5, parseInt(msg.match(/retry[ -]?after[: ]?(\d+)/i)?.[1] ?? '10', 10) || 10));
             push({ role: 'tool', text: `⏳ ${label} giới hạn tốc độ — đợi ${sec}s thử lại 1 lần…` });
             await new Promise((r) => setTimeout(r, sec));
             try {
-              return await callEntry(entry);
+              const r2 = await callEntry(entry);
+              st.recordAiUsage(entry.id, r2.usage, true);
+              return r2.parts;
             } catch (e2) {
               lastErr = e2;
+              st.recordAiUsage(entry.id, { prompt: 0, completion: 0 } as AiUsage, false);
             }
           }
           // Báo 1 lần/entry/lượt để vòng tool-loop (tối đa 6 vòng) không spam
           if (!complained.has(entry.id)) {
             complained.add(entry.id);
-            push({ role: 'tool', text: `⚠ ${label} lỗi → thử tiếp: ${(lastErr instanceof Error ? lastErr.message : String(lastErr)).slice(0, 160)}` });
+            const locked = isQuotaError(lastErr) ? ' (đã khóa tạm nấc này)' : '';
+            push({ role: 'tool', text: `⚠ ${label} lỗi → thử tiếp${locked}: ${(lastErr instanceof Error ? lastErr.message : String(lastErr)).slice(0, 160)}` });
           }
         }
       }
@@ -418,23 +581,49 @@ export default function AiAssistant({ onGoBuilder }: { onGoBuilder: () => void }
           className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-slate-300 hover:bg-slate-800/60 rounded"
         >
           <span>{showKeys ? '▾' : '▸'}</span>
-          <span>🔑 AI chain ({enabledList.length} bật)</span>
+          <span>🔑 AI chain ({enabledList.length} bật: {enabledList.filter((e) => entryTier(e, providerDef(e.providerId)) === 'paid').length}💰 + {enabledList.filter((e) => entryTier(e, providerDef(e.providerId)) !== 'paid').length}🆓)</span>
           {enabledList[0] && (
             <span className="text-xs text-slate-500 font-mono">
-              {providerDef(enabledList[0].providerId)?.name ?? ''} · {enabledList[0].model || '…'}
+              {aiStrategy === 'stable' ? 'paid trước' : 'free trước'} · {providerDef(enabledList[0].providerId)?.name ?? ''} · {enabledList[0].model || '…'}
             </span>
           )}
         </button>
         {showKeys && (
           <div className="p-3 pt-1 flex flex-col gap-2">
+            <div className="flex flex-wrap items-center gap-2 text-xs text-slate-400">
+              <span>Chiến lược:</span>
+              <label className="flex items-center gap-1 cursor-pointer" title="Gọi free trước, tràn mới sang paid — rẻ nhất">
+                <input type="radio" checked={aiStrategy === 'save-cost'} onChange={() => setAiStrategy('save-cost')} />
+                Tiết kiệm (free → paid)
+              </label>
+              <label className="flex items-center gap-1 cursor-pointer" title="Gọi paid trước, free chỉ dự phòng — ổn định nhất">
+                <input type="radio" checked={aiStrategy === 'stable'} onChange={() => setAiStrategy('stable')} />
+                Ổn định (paid → free)
+              </label>
+            </div>
             {aiChain.map((e, i) => {
               const def = providerDef(e.providerId) ?? AI_PROVIDERS[0];
               const suggestions = [...new Set([...def.models, ...(fetched[e.id] ?? [])])];
+              const tier = entryTier(e, def);
+              const st = aiStats[e.id];
+              const statTip = st ? `gọi ${st.calls} • lỗi ${st.fails} • tokens ${st.prompt + st.completion} (vào ${st.prompt}/ra ${st.completion})` : 'chưa gọi lần nào';
               return (
-                <div key={e.id} className="flex flex-wrap items-end gap-2 border border-slate-800 rounded p-2">
+                <div key={e.id} className="flex flex-wrap items-end gap-2 border border-slate-800 rounded p-2" title={statTip}>
                   <label className="flex items-center gap-1 text-xs text-slate-400" title="Bật/tắt nấc này (tắt = bỏ qua khi xoay vòng)">
                     <input type="checkbox" checked={e.enabled} onChange={(ev) => updEntry(e.id, { enabled: ev.target.checked })} />
                     #{i + 1}
+                  </label>
+                  <label className="flex flex-col gap-1 text-xs text-slate-400" title="Bậc dùng: free (trần thấp) hay paid (trần cao, tốn tiền)">
+                    Bậc
+                    <select
+                      value={e.tier ?? ''}
+                      onChange={(ev) => updEntry(e.id, { tier: (ev.target.value || undefined) as AiChainEntry['tier'] })}
+                      className="bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-sm text-slate-200"
+                    >
+                      <option value="">Theo hãng ({def.tier === 'paid' ? '💰' : '🆓'})</option>
+                      <option value="free">🆓 Free</option>
+                      <option value="paid">💰 Paid</option>
+                    </select>
                   </label>
                   <label className="flex flex-col gap-1 text-xs text-slate-400">
                     Provider
@@ -511,6 +700,19 @@ export default function AiAssistant({ onGoBuilder }: { onGoBuilder: () => void }
                       />
                     </label>
                   )}
+                  <label className="flex flex-col gap-1 text-xs text-slate-400" title="Trần gọi/phút của nấc này. Để trống = tự học + mặc định bậc. Biết số trong console hãng thì nhập vào.">
+                    RPM
+                    <input
+                      value={e.rpm ?? ''}
+                      onChange={(ev) => {
+                        const n = parseInt(ev.target.value, 10);
+                        updEntry(e.id, { rpm: Number.isFinite(n) && n > 0 ? n : undefined });
+                      }}
+                      placeholder={String(entryRpm({ ...e, rpm: undefined }, def))}
+                      inputMode="numeric"
+                      className="bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-sm font-mono w-20"
+                    />
+                  </label>
                   <div className="flex gap-1">
                     <button onClick={() => moveEntry(e.id, -1)} title="Lên trên" className="bg-slate-800 hover:bg-slate-700 rounded px-2 py-1.5 text-sm">↑</button>
                     <button onClick={() => moveEntry(e.id, 1)} title="Xuống dưới" className="bg-slate-800 hover:bg-slate-700 rounded px-2 py-1.5 text-sm">↓</button>
@@ -525,10 +727,25 @@ export default function AiAssistant({ onGoBuilder }: { onGoBuilder: () => void }
               </button>
             </div>
             <p className="text-[11px] text-slate-500">
-              Mỗi lượt chat bắt đầu ở nấc khác nhau (xoay vòng chia tải); nấc nào lỗi/quota thì tự nhảy sang nấc tiếp theo trong cùng lượt (có dòng báo ⚠).
-              Chỉ nấc nào bật + có key + model mới được dùng. Key lưu trong máy này. Thứ tự ưu tiên = thứ tự từ trên xuống khi xoay vòng quay lại.
+              Mỗi nấc đếm RPM riêng và tự học trần thật (gọi OK tăng dần, 429 giảm nửa; hãng nào trả header
+              rate-limit thì theo số thật). Gần chạm trần thì khóa tạm để lượt sau nhảy xuống nấc kế (báo 🔒).
+              Ô RPM để trống = tự học; biết số trong console hãng thì nhập vào. Nấc nào sập quota thì khóa 60s.
+              Nấc free lỗi bỏ qua nhanh, chỉ nấc paid 429 mới đợi lùi thử lại 1 lần.
+              Chỉ nấc nào bật + có key + model mới được dùng. Key lưu trong máy này.
               AI được gửi/ chạy flow / đổi biến trong app — gặp script từ file import vẫn hỏi xác nhận như thường.
             </p>
+            {Object.keys(aiStats).length > 0 && (
+              <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
+                <span>
+                  Đã dùng: {Object.values(aiStats).reduce((a, s) => a + s.prompt + s.completion, 0).toLocaleString('vi-VN')} tokens
+                  (vào {Object.values(aiStats).reduce((a, s) => a + s.prompt, 0).toLocaleString('vi-VN')} / ra {Object.values(aiStats).reduce((a, s) => a + s.completion, 0).toLocaleString('vi-VN')},
+                  lỗi {Object.values(aiStats).reduce((a, s) => a + s.fails, 0)})
+                </span>
+                <button onClick={clearAiStats} title="Xóa thống kê tokens" className="text-slate-500 hover:text-slate-300 underline">
+                  reset
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>

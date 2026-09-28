@@ -4,7 +4,7 @@
  */
 import type { GeminiContent, GeminiFunctionDecl, GeminiPart } from './gemini';
 import { aiFetch } from './ai-fetch';
-import { buildBaseURL, type AiProviderDef } from './ai-providers';
+import { buildBaseURL, parseRateLimitHeaders, type AiProviderDef, type AiRateLimit, type AiUsage } from './ai-providers';
 
 // ---------------------------------------------------------------------------
 // Convert tools Gemini-format (type VIẾT HOA) → OpenAI function tools (type thường)
@@ -96,13 +96,15 @@ export interface OpenAIChatOpts {
 
 interface OpenAIResp {
   choices?: { message?: { content?: string | null; tool_calls?: { id?: string; function?: { name?: string; arguments?: string } }[] } ; finish_reason?: string }[];
+  usage?: { prompt_tokens?: number; completion_tokens?: number };
   error?: { message?: string; code?: string };
 }
 
-export async function openaiChat(o: OpenAIChatOpts): Promise<GeminiPart[]> {
+export async function openaiChat(o: OpenAIChatOpts): Promise<{ parts: GeminiPart[]; usage: AiUsage; rateLimit?: AiRateLimit }> {
   const url = `${o.baseURL.replace(/\/$/, '')}/chat/completions`;
   let status = 0;
   let data: OpenAIResp | null = null;
+  let respHeaders: Record<string, string> = {};
   try {
     const r = await aiFetch(url, {
       method: 'POST',
@@ -117,6 +119,7 @@ export async function openaiChat(o: OpenAIChatOpts): Promise<GeminiPart[]> {
       timeoutMs: 30000,
     });
     status = r.status;
+    respHeaders = r.headers;
     try {
       data = JSON.parse(r.text) as OpenAIResp;
     } catch {
@@ -140,7 +143,11 @@ export async function openaiChat(o: OpenAIChatOpts): Promise<GeminiPart[]> {
     parts.push({ functionCall: { name: tc.function.name, args } });
   }
   if (parts.length === 0) throw new Error('AI không trả về nội dung.');
-  return parts;
+  return {
+    parts,
+    usage: { prompt: data?.usage?.prompt_tokens ?? 0, completion: data?.usage?.completion_tokens ?? 0 },
+    rateLimit: parseRateLimitHeaders(respHeaders),
+  };
 }
 
 // ---------------------------------------------------------------------------

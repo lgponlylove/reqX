@@ -27,11 +27,15 @@ Copy nguyên thư mục này sang project khác được (không import gì từ
 
 ## 3. Chain: vừa xoay vòng vừa backup
 
-- Mỗi nấc = provider + model + key (+ Account ID nếu Cloudflare), có công tắc bật/tắt, nút ↑↓ xếp thứ tự.
-- Mỗi lượt chat bắt đầu ở nấc khác nhau (xoay vòng chia tải, theo `aiRrIndex`).
-- Nấc nào lỗi/quota/timeout → tự thử nấc tiếp theo trong cùng lượt, có dòng báo ⚠.
-- Gặp 429 vì gọi dồn → đợi lùi rồi thử lại đúng nấc đó 1 lần/lượt trước khi bỏ qua.
-- Key Gemini cũ (`aiKey`/`aiKeyBackup`) tự seed sang chain lần đầu mở tab, không mất cấu hình.
+- Mỗi nấc = provider + model + key (+ Account ID nếu Cloudflare), có công tắc bật/tắt, nút ↑↓ xếp thứ tự, chọn bậc 🆓/💰.
+- Chiến lược gọi: `Tiết kiệm` (free trước, tràn mới sang paid) hoặc `Ổn định` (paid trước).
+- **Admission từng nấc:** mỗi nấc đếm RPM riêng (ô RPM để trống = tự học + mặc định bậc:
+  free 10/phút, paid 1000/phút; biết số trong console hãng thì nhập vào). Hệ thống tự học trần thật:
+  đọc header `x-ratelimit-*` khi hãng trả về, nếu không thì AIMD (OK tăng dần, 429 giảm nửa).
+  Gần chạm trần thì khóa tạm để lượt sau nhảy xuống nấc kế (báo 🔒) — né 429 trước khi dính.
+- **Breaker từng nấc:** sập quota/rate limit thì khóa 60s; thành công thì mở lại ngay.
+  Nấc free lỗi bỏ qua nhanh, chỉ nấc paid 429 mới đợi lùi thử lại 1 lần/lượt.
+- Cuối panel đếm tokens đã dùng theo nấc (để ước tính chi phí paid) + nút reset.
 
 ## 4. Nút ↻ lấy danh sách model
 

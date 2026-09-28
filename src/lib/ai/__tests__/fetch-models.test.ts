@@ -4,8 +4,12 @@ import { providerDef } from '../ai-providers';
 
 afterEach(() => vi.unstubAllGlobals());
 
-function mockFetch(ok: boolean, body: unknown, status = 200) {
-  vi.stubGlobal('fetch', vi.fn(async () => ({ ok, status, text: async () => JSON.stringify(body) })));
+function mockFetch(ok: boolean, body: unknown, status = 200, headers: Record<string, string> = {}) {
+  vi.stubGlobal('fetch', vi.fn(async () => ({
+    ok, status,
+    text: async () => JSON.stringify(body),
+    headers: { forEach: (fn: (v: string, k: string) => void) => Object.entries(headers).forEach(([k, v]) => fn(v, k)) },
+  })));
 }
 
 describe('fetchProviderModels', () => {

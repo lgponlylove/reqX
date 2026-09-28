@@ -1,4 +1,6 @@
-import type { ApiRequest, ApiResponse } from '../types/api';
+import type { ApiRequest, ApiResponse, KeyValue } from '../types/api';
+import { sendRequest } from './http-client';
+import { uid } from './variables';
 
 export interface TestResult {
   name: string;
@@ -84,33 +86,208 @@ function captureConsole(logs: string[]) {
   };
 }
 
+// AsyncFunction để script dùng được `await` (code sync cũ vẫn chạy bình thường).
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const AsyncFn: new (...args: string[]) => (...a: any[]) => Promise<unknown> =
+  Object.getPrototypeOf(async function () {}).constructor;
+
+/** Tổng thời gian tối đa cho 1 script (kể cả pm.sendRequest lồng nhau). */
+const SCRIPT_TIMEOUT_MS = 30000;
+
+/** Input của pm.sendRequest — tương thích Postman (dạng rút gọn). */
+export interface PmSendRequestInput {
+  url: string;
+  method?: string;
+  header?: Record<string, string> | { key: string; value?: string }[];
+  headers?: Record<string, string> | { key: string; value?: string }[];
+  body?: string | { mode?: string; raw?: string; urlencoded?: { key: string; value?: string }[] };
+}
+
+export interface PmSendResponse {
+  code: number;
+  status: string;
+  headers: Record<string, string> & { get: (name: string) => string | undefined };
+  responseTime: number;
+  responseSize: number;
+  text: () => string;
+  json: <T = unknown>() => T;
+}
+
+export type PmSendCallback = (err: unknown, res?: PmSendResponse) => void;
+
+interface PmBase {
+  pending: Set<Promise<unknown>>;
+  sendRequest: {
+    (req: string | PmSendRequestInput, cb: PmSendCallback): Promise<PmSendResponse | undefined>;
+    (req: string | PmSendRequestInput): Promise<PmSendResponse>;
+  };
+}
+
+function toKeyValues(input: PmSendRequestInput['header']): KeyValue[] {
+  if (!input) return [];
+  if (Array.isArray(input)) {
+    return input
+      .filter((h) => h.key?.trim())
+      .map((h) => ({ id: uid('kv'), key: h.key, value: h.value ?? '', enabled: true }));
+  }
+  return Object.entries(input)
+    .filter(([k]) => k.trim() !== '')
+    .map(([key, value]) => ({ id: uid('kv'), key, value: value ?? '', enabled: true }));
+}
+
+/** Phần `pm` dùng chung: biến + sendRequest + iterationData. */
+function buildPmBase(ctx: {
+  env: VarStore;
+  globals: VarStore;
+  merged: Record<string, string>;
+  signal?: AbortSignal;
+  data?: Record<string, string>;
+}): {
+  variables: VarStore;
+  environment: VarStore;
+  globals: VarStore;
+  iterationData: { get: (k: string) => string | undefined; toObject: () => Record<string, string> };
+  sendRequest: PmBase['sendRequest'];
+  pending: Set<Promise<unknown>>;
+} {
+  const pending = new Set<Promise<unknown>>();
+
+  const doSend = async (req: string | PmSendRequestInput): Promise<PmSendResponse> => {
+    const input: PmSendRequestInput = typeof req === 'string' ? { url: req } : (req ?? {});
+    if (!input.url?.trim()) throw new Error('pm.sendRequest: thiếu url');
+    const method = (input.method ?? 'GET').toUpperCase() as ApiRequest['method'];
+    const headers = toKeyValues(input.header ?? input.headers);
+
+    // Body: chuỗi thô (gửi nguyên văn) hoặc { mode:'urlencoded', urlencoded:[...] }.
+    // form-data chưa hỗ trợ trong sendRequest — cần thì dùng request chính.
+    let body = '';
+    let bodyType: ApiRequest['bodyType'] = 'none';
+    if (typeof input.body === 'string' && input.body !== '') {
+      body = input.body;
+      bodyType = 'json'; // gửi thô; tự set Content-Type nếu không phải JSON
+    } else if (input.body && typeof input.body === 'object') {
+      const b = input.body;
+      if (b.mode === 'urlencoded' && Array.isArray(b.urlencoded)) {
+        body = b.urlencoded
+          .filter((p) => p.key?.trim())
+          .map((p) => `${encodeURIComponent(p.key)}=${encodeURIComponent(p.value ?? '')}`)
+          .join('&');
+        bodyType = 'urlencoded';
+      } else if (b.raw !== undefined) {
+        body = b.raw;
+        bodyType = 'json';
+      } else if (b.mode === 'formdata' || b.mode === 'form-data') {
+        throw new Error('pm.sendRequest: chưa hỗ trợ form-data, dùng body chuỗi hoặc urlencoded');
+      }
+    }
+
+    const apiReq: ApiRequest = {
+      id: uid('sreq'),
+      name: 'pm.sendRequest',
+      method,
+      url: input.url,
+      params: [],
+      headers,
+      bodyType,
+      body,
+      auth: { type: 'none' },
+      preRequest: '',
+      tests: '',
+      updatedAt: Date.now(),
+    };
+    // resolveVariables nhận (env, globals) — merged đã gộp sẵn nên truyền 1 lần là đủ.
+    const res = await sendRequest(apiReq, ctx.merged, {}, SCRIPT_TIMEOUT_MS, ctx.signal);
+    const lower: Record<string, string> = {};
+    for (const [k, v] of Object.entries(res.headers)) lower[k.toLowerCase()] = v;
+    return {
+      code: res.status,
+      status: res.statusText,
+      headers: Object.assign({ ...res.headers }, { get: (n: string) => lower[n.toLowerCase()] }),
+      responseTime: res.timeMs,
+      responseSize: res.sizeBytes,
+      text: () => res.body,
+      json: <T = unknown>() => JSON.parse(res.body) as T,
+    };
+  };
+
+  const sendRequestFn = ((req: string | PmSendRequestInput, cb?: PmSendCallback) => {
+    const p = doSend(req);
+    // Track bản nuốt lỗi: callback-style không được làm drain nổ,
+    // await-style vẫn ném ở chỗ user await. Tránh unhandled rejection.
+    const tracked: Promise<unknown> = p.then(
+      () => { pending.delete(tracked); },
+      () => { pending.delete(tracked); },
+    );
+    pending.add(tracked);
+    if (cb) {
+      // Kiểu callback Postman: lỗi vào cb, promise nuốt để khỏi unhandled rejection.
+      return p.then(
+        (res) => { cb(null, res); return res; },
+        (err) => { cb(err); return undefined; },
+      );
+    }
+    return p;
+  }) as PmBase['sendRequest'];
+
+  return {
+    variables: {
+      get: (k: string) => ctx.merged[k],
+      set: (k: string, v: string) => ctx.env.set(k, String(v)),
+    },
+    environment: {
+      get: (k: string) => ctx.env.get(k),
+      set: (k: string, v: string) => ctx.env.set(k, String(v)),
+    },
+    globals: {
+      get: (k: string) => ctx.globals.get(k),
+      set: (k: string, v: string) => ctx.globals.set(k, String(v)),
+    },
+    // Dữ liệu dòng hiện tại khi Runner chạy file data (Postman: pm.iterationData).
+    iterationData: {
+      get: (k: string) => ctx.data?.[k],
+      toObject: () => ({ ...(ctx.data ?? {}) }),
+    },
+    sendRequest: sendRequestFn,
+    pending,
+  };
+}
+
+/**
+ * Chạy script async rồi chờ hết các pm.sendRequest còn treo (kể cả gọi lồng nhau
+ * trong callback). Ném lỗi nếu quá SCRIPT_TIMEOUT_MS.
+ */
+async function runWithDrain(
+  fn: (...a: unknown[]) => Promise<unknown>,
+  args: unknown[],
+  pm: { pending?: Set<Promise<unknown>> },
+): Promise<void> {
+  const t0 = Date.now();
+  await fn(...args);
+  const pending = pm.pending;
+  if (!pending) return;
+  while (pending.size > 0) {
+    if (Date.now() - t0 > SCRIPT_TIMEOUT_MS) {
+      throw new Error(`Script timeout sau ${SCRIPT_TIMEOUT_MS / 1000}s (pm.sendRequest chưa xong?)`);
+    }
+    await Promise.race([...pending]);
+  }
+}
+
 /**
  * Chạy pre-request script. Script dùng `pm` + `request` (mutable).
+ * Hỗ trợ `await pm.sendRequest(...)` lẫn callback kiểu Postman.
  * LƯU Ý: chạy bằng new Function trên máy user — chỉ chạy script do chính bạn viết.
  */
-export function runPreRequest(
+export async function runPreRequest(
   code: string,
-  ctx: { env: VarStore; globals: VarStore; merged: Record<string, string>; request: MutableRequest },
-): { logs: string[]; error?: string } {
+  ctx: { env: VarStore; globals: VarStore; merged: Record<string, string>; request: MutableRequest; signal?: AbortSignal; data?: Record<string, string> },
+): Promise<{ logs: string[]; error?: string }> {
   const logs: string[] = [];
   if (!code.trim()) return { logs };
   try {
-    const pm = {
-      variables: {
-        get: (k: string) => ctx.merged[k],
-        set: (k: string, v: string) => ctx.env.set(k, String(v)),
-      },
-      environment: {
-        get: (k: string) => ctx.env.get(k),
-        set: (k: string, v: string) => ctx.env.set(k, String(v)),
-      },
-      globals: {
-        get: (k: string) => ctx.globals.get(k),
-        set: (k: string, v: string) => ctx.globals.set(k, String(v)),
-      },
-    };
-    const fn = new Function('pm', 'request', 'console', `"use strict";\n${code}`);
-    fn(pm, ctx.request, captureConsole(logs));
+    const pm = buildPmBase(ctx);
+    const fn = new AsyncFn('pm', 'request', 'console', `"use strict";\n${code}`);
+    await runWithDrain(fn, [pm, ctx.request, captureConsole(logs)], pm);
     return { logs };
   } catch (e) {
     return { logs, error: e instanceof Error ? e.message : String(e) };
@@ -118,11 +295,11 @@ export function runPreRequest(
 }
 
 /** Chạy tests script với `pm.response`, thu kết quả từng pm.test. */
-export function runTests(
+export async function runTests(
   code: string,
   res: ApiResponse,
-  ctx: { env: VarStore; globals: VarStore; merged: Record<string, string> },
-): ScriptOutcome {
+  ctx: { env: VarStore; globals: VarStore; merged: Record<string, string>; signal?: AbortSignal; data?: Record<string, string> },
+): Promise<ScriptOutcome> {
   const logs: string[] = [];
   const results: TestResult[] = [];
   if (!code.trim()) return { results, logs };
@@ -130,6 +307,7 @@ export function runTests(
     let jsonCache: unknown;
     let jsonTried = false;
     const pm = {
+      ...buildPmBase(ctx),
       test: (name: string, fn: () => void) => {
         try {
           fn();
@@ -154,30 +332,23 @@ export function runTests(
           return jsonCache;
         },
       },
-      variables: {
-        get: (k: string) => ctx.merged[k],
-        set: (k: string, v: string) => ctx.env.set(k, String(v)),
-      },
-      environment: {
-        get: (k: string) => ctx.env.get(k),
-        set: (k: string, v: string) => ctx.env.set(k, String(v)),
-      },
-      globals: {
-        get: (k: string) => ctx.globals.get(k),
-        set: (k: string, v: string) => ctx.globals.set(k, String(v)),
-      },
     };
-    const fn = new Function('pm', 'console', `"use strict";\n${code}`);
-    fn(pm, captureConsole(logs));
+    const fn = new AsyncFn('pm', 'console', `"use strict";\n${code}`);
+    await runWithDrain(fn, [pm, captureConsole(logs)], pm);
     return { results, logs };
   } catch (e) {
     return { results, logs, error: e instanceof Error ? e.message : String(e) };
   }
 }
 
-export const PRE_REQUEST_SAMPLE = `// Chạy TRƯỚC khi gửi — đọc/ghi biến, sửa request.
-// Ví dụ: gắn timestamp để chống cache
+export const PRE_REQUEST_SAMPLE = `// Chạy TRƯỚC khi gửi — đọc/ghi biến, sửa request, gọi API phụ.
 pm.environment.set('ts', Date.now().toString());
+// Login lấy token rồi gắn cho request chính (callback kiểu Postman):
+// pm.sendRequest({ url: pm.variables.get('baseUrl') + '/login', method: 'POST',
+//   header: { 'Content-Type': 'application/json' },
+//   body: JSON.stringify({ username: 'admin', password: '123' }) },
+//   (err, res) => { if (!err) pm.environment.set('token', res.json().access_token); });
+// Hoặc dùng await: const res = await pm.sendRequest('https://api/login');
 // Đọc: pm.variables.get('baseUrl')
 // Sửa request: request.url = 'https://...'; request.headers['X-Trace'] = '1';
 `;

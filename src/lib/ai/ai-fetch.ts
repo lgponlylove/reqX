@@ -10,6 +10,8 @@ export interface AiFetchResult {
   ok: boolean;
   status: number;
   text: string;
+  /** Headers response (key viết thường) — để đọc rate-limit còn lại */
+  headers: Record<string, string>;
 }
 
 export async function aiFetch(
@@ -31,7 +33,7 @@ export async function aiFetch(
     }
     try {
       const { invoke } = await import('@tauri-apps/api/core');
-      const res = await invoke<{ status: number; body: string; body_kind: string }>('http_send', {
+      const res = await invoke<{ status: number; body: string; body_kind: string; headers: [string, string][] }>('http_send', {
         req: {
           method,
           url,
@@ -40,7 +42,9 @@ export async function aiFetch(
           timeout_secs: Math.max(1, Math.round(timeoutMs / 1000)),
         },
       });
-      return { ok: res.status >= 200 && res.status < 300, status: res.status, text: res.body_kind === 'text' ? res.body : '' };
+      const rh: Record<string, string> = {};
+      for (const [k, v] of res.headers ?? []) rh[k.toLowerCase()] = v;
+      return { ok: res.status >= 200 && res.status < 300, status: res.status, text: res.body_kind === 'text' ? res.body : '', headers: rh };
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e ?? '');
       if (/timeout/i.test(msg)) throw new DOMException('API quá hạn không phản hồi (timeout)', 'TimeoutError');
@@ -52,7 +56,9 @@ export async function aiFetch(
   const t = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
     const res = await fetch(url, { method, headers, body: opts.body, signal: ctrl.signal });
-    return { ok: res.ok, status: res.status, text: await res.text() };
+    const rh: Record<string, string> = {};
+    res.headers.forEach((v, k) => { rh[k.toLowerCase()] = v; });
+    return { ok: res.ok, status: res.status, text: await res.text(), headers: rh };
   } catch (e) {
     if (e instanceof DOMException && (e.name === 'AbortError' || e.name === 'TimeoutError'))
       throw new DOMException('API quá hạn không phản hồi (timeout)', 'TimeoutError');

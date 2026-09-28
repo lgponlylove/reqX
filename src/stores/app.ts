@@ -4,7 +4,7 @@ import { useRequestStore } from './request';
 import type { ApiRequest, ApiResponse, Collection, Dir, Environment, HistoryItem } from '../types/api';
 import { uid } from '../lib/variables';
 import { GEMINI_DEFAULT_MODEL, sanitizeContents, type GeminiContent } from '../lib/ai/gemini';
-import type { AiChainEntry } from '../lib/ai/ai-providers';
+import type { AiChainEntry, AiStrategy, AiUsage } from '../lib/ai/ai-providers';
 import { stripRequestSecrets } from '../lib/secrets';
 import type { ScriptOutcome } from '../lib/scripts';
 
@@ -84,6 +84,13 @@ interface AppState {
   aiRrIndex: number;
   setAiChain: (c: AiChainEntry[]) => void;
   bumpAiRr: () => void;
+  /** Chiến lược gọi chain: save-cost (free trước) hay stable (paid trước) */
+  aiStrategy: AiStrategy;
+  setAiStrategy: (s: AiStrategy) => void;
+  /** Thống kê tokens theo entry chain (để ước tính chi phí nấc paid) */
+  aiStats: Record<string, AiEntryStats>;
+  recordAiUsage: (id: string, u: AiUsage, ok: boolean) => void;
+  clearAiStats: () => void;
   /** Lịch sử chat tab AI (persist, tối đa 100 dòng — đổi tab/tắt app vẫn còn) */
   aiChat: AiChatMsg[];
   /** Ngữ cảnh hội thoại gửi kèm cho Gemini (persist, tối đa 30 lượt) */
@@ -91,6 +98,14 @@ interface AppState {
   pushAiChat: (m: AiChatMsg) => void;
   setAiContents: (c: GeminiContent[]) => void;
   clearAiChat: () => void;
+}
+
+/** Thống kê 1 nấc chain: số lần gọi/lỗi + tokens (cộng dồn, có nút reset) */
+export interface AiEntryStats {
+  calls: number;
+  fails: number;
+  prompt: number;
+  completion: number;
 }
 
 /** 1 dòng chat tab AI */
@@ -121,6 +136,8 @@ export const useAppStore = create<AppState>()(
   aiModel: GEMINI_DEFAULT_MODEL,
   aiChain: [],
   aiRrIndex: 0,
+  aiStrategy: 'save-cost',
+  aiStats: {},
   aiChat: [],
   aiContents: [],
   history: [],
@@ -445,6 +462,23 @@ export const useAppStore = create<AppState>()(
   setAiModel: (m) => set({ aiModel: m || GEMINI_DEFAULT_MODEL }),
   setAiChain: (c) => set({ aiChain: c }),
   bumpAiRr: () => set((s) => ({ aiRrIndex: s.aiRrIndex + 1 })),
+  setAiStrategy: (s) => set({ aiStrategy: s }),
+  recordAiUsage: (id, u, ok) =>
+    set((s) => {
+      const prev = s.aiStats[id] ?? { calls: 0, fails: 0, prompt: 0, completion: 0 };
+      return {
+        aiStats: {
+          ...s.aiStats,
+          [id]: {
+            calls: prev.calls + 1,
+            fails: prev.fails + (ok ? 0 : 1),
+            prompt: prev.prompt + (u?.prompt ?? 0),
+            completion: prev.completion + (u?.completion ?? 0),
+          },
+        },
+      };
+    }),
+  clearAiStats: () => set({ aiStats: {} }),
   pushAiChat: (m) => set((s) => ({ aiChat: [...s.aiChat, m].slice(-100) })),
   setAiContents: (c) => set({ aiContents: sanitizeContents(c.slice(-30)) }),
   clearAiChat: () => set({ aiChat: [], aiContents: [] }),
@@ -499,6 +533,8 @@ export const useAppStore = create<AppState>()(
           aiModel: s.aiModel,
           aiChain: s.aiChain,
           aiRrIndex: s.aiRrIndex,
+          aiStrategy: s.aiStrategy,
+          aiStats: s.aiStats,
           aiChat: s.aiChat.slice(-100),
           aiContents: s.aiContents.slice(-30),
         };

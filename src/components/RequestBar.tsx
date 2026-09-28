@@ -139,7 +139,7 @@ export default function RequestBar() {
           merged: merged(),
         };
       };
-      const pre = runPreRequest(current.preRequest ?? '', { ...varCtx(), request: mutable });
+      const pre = await runPreRequest(current.preRequest ?? '', { ...varCtx(), request: mutable });
       if (pre.error) {
         setError(`Pre-request lỗi: ${pre.error}`);
         return;
@@ -171,7 +171,7 @@ export default function RequestBar() {
       // 3. Tests script
       const testsCode = current.tests ?? '';
       if (testsCode.trim()) {
-        const outcome = runTests(testsCode, res, varCtx());
+        const outcome = await runTests(testsCode, res, varCtx());
         setTestRun(outcome);
       }
 

@@ -1,3 +1,5 @@
+import type { AiUsage } from './ai-providers';
+
 /** Client gọi Google AI Studio (Gemini) qua REST, không cần SDK. Key chỉ gửi tới googleapis.com. */
 import { aiFetch } from './ai-fetch';
 
@@ -85,14 +87,14 @@ export function sanitizeContents(turns: GeminiContent[]): GeminiContent[] {
   return out;
 }
 
-/** Một lượt gọi generateContent — trả về các parts (text và/hoặc functionCall) của model. */
+/** Một lượt gọi generateContent — parts (text/call) + usage để ước tính chi phí. */
 export async function generateContent(
   apiKey: string,
   model: string,
   system: string,
   contents: GeminiContent[],
   tools: GeminiFunctionDecl[],
-): Promise<GeminiPart[]> {
+): Promise<{ parts: GeminiPart[]; usage: AiUsage }> {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
   let status = 0;
   let data: unknown = null;
@@ -126,5 +128,6 @@ export async function generateContent(
   const parts = (data as { candidates?: { content?: { parts?: GeminiPart[] } }[] })?.candidates?.[0]
     ?.content?.parts;
   if (!parts) throw new Error('Gemini không trả về nội dung (có thể bị bộ lọc an toàn chặn).');
-  return parts;
+  const um = (data as { usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number } })?.usageMetadata;
+  return { parts, usage: { prompt: um?.promptTokenCount ?? 0, completion: um?.candidatesTokenCount ?? 0 } };
 }

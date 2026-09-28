@@ -26,18 +26,20 @@ export interface RunnerHooks {
   setGlobal: (k: string, v: string) => void;
 }
 
-function varCtx(hooks: RunnerHooks) {
+function varCtx(hooks: RunnerHooks, dataRow?: Record<string, string>) {
   const { envVars, globals } = hooks.getVars();
+  const env = dataRow ? { ...envVars, ...dataRow } : envVars;
   return {
     env: {
-      get: (k: string) => hooks.getVars().envVars[k],
+      get: (k: string) => (dataRow && k in dataRow ? dataRow[k] : hooks.getVars().envVars[k]),
       set: (k: string, v: string) => hooks.setEnv(k, v),
     },
     globals: {
       get: (k: string) => hooks.getVars().globals[k],
       set: (k: string, v: string) => hooks.setGlobal(k, v),
     },
-    merged: { ...globals, ...envVars },
+    merged: { ...globals, ...env },
+    data: dataRow,
   };
 }
 
@@ -61,12 +63,14 @@ function pickRes(res: ApiResponse): Pick<ApiResponse, 'status' | 'headers' | 'bo
   return { status: res.status, headers: res.headers, body: res.body, bodyKind: res.bodyKind };
 }
 
-/** Chạy 1 request: pre-request → gửi → tests (pipeline y hệt RequestBar). */
+/** Chạy 1 request: pre-request → gửi → tests (pipeline y hệt RequestBar).
+ * dataRow: dòng data file của iteration (thắng env khi đọc, set vẫn ghi vào env thật). */
 export async function runOneRequest(
   req: ApiRequest,
   hooks: RunnerHooks,
   timeoutMs: number,
   signal?: AbortSignal,
+  dataRow?: Record<string, string>,
 ): Promise<RunItemResult> {
   const base = { requestId: req.id, name: req.name, method: req.method, url: req.url, logs: [] as string[] };
   try {
@@ -77,7 +81,7 @@ export async function runOneRequest(
       ),
       body: req.body,
     };
-    const pre = runPreRequest(req.preRequest ?? '', { ...varCtx(hooks), request: mutable });
+    const pre = await runPreRequest(req.preRequest ?? '', { ...varCtx(hooks, dataRow), request: mutable });
     if (pre.error) return { ...base, ok: false, testsPassed: 0, testsTotal: 0, error: `Pre-request lỗi: ${pre.error}`, logs: pre.logs };
 
     const effective: ApiRequest = { ...req, url: mutable.url, body: mutable.body };
@@ -95,13 +99,15 @@ export async function runOneRequest(
     effective.headers = nextHeaders;
 
     const { envVars, globals } = hooks.getVars();
-    const res = await sendRequest(effective, envVars, globals, timeoutMs, signal);
+    // Data row thắng env khi resolve {{...}} trong url/params/headers/body
+    const effEnv = dataRow ? { ...envVars, ...dataRow } : envVars;
+    const res = await sendRequest(effective, effEnv, globals, timeoutMs, signal);
 
     let passed = 0;
     let total = 0;
     const logs = [...pre.logs];
     if (req.tests?.trim()) {
-      const outcome = runTests(req.tests, res, varCtx(hooks));
+      const outcome = await runTests(req.tests, res, varCtx(hooks, dataRow));
       total = outcome.results.length;
       passed = outcome.results.filter((r) => r.passed).length;
       logs.push(...outcome.logs);
@@ -132,7 +138,67 @@ export interface RunAllOpts {
   onItem?: (r: RunItemResult, index: number) => void;
 }
 
-/** Chạy tuần tự danh sách request, dừng khi abort (hoặc khi lỗi nếu stopOnError). */
+export interface DataIterationResult {
+  rowIndex: number;
+  row: Record<string, string>;
+  items: RunItemResult[];
+  ok: boolean;
+  passedTests: number;
+  totalTests: number;
+  timeMs: number;
+}
+
+export interface RunDataOpts extends RunAllOpts {
+  /** Giới hạn số dòng (mặc định chạy hết). */
+  maxRows?: number;
+  onIteration?: (it: DataIterationResult, index: number) => void;
+}
+
+/**
+ * Chạy data-driven kiểu Postman: mỗi dòng data = 1 iteration chạy HẾT danh sách
+ * request với dòng đó (data thắng env khi đọc; set vẫn ghi env thật nên giữ qua các dòng).
+ */
+export async function runCollectionWithData(
+  list: ApiRequest[],
+  rows: Record<string, string>[],
+  hooks: RunnerHooks,
+  opts: RunDataOpts,
+): Promise<DataIterationResult[]> {
+  const out: DataIterationResult[] = [];
+  const n = opts.maxRows != null ? Math.min(rows.length, Math.max(0, opts.maxRows)) : rows.length;
+  for (let i = 0; i < n; i++) {
+    if (opts.signal?.aborted) break;
+    const t0 = performance.now();
+    const items: RunItemResult[] = [];
+    for (const req of list) {
+      if (opts.signal?.aborted) break;
+      items.push(await runOneRequest(req, hooks, opts.timeoutMs, opts.signal, rows[i]));
+      const last = items[items.length - 1];
+      if (!last.ok && opts.stopOnError) break;
+      if (opts.delayMs > 0) {
+        await new Promise<void>((resolve) => {
+          const t = setTimeout(resolve, opts.delayMs);
+          opts.signal?.addEventListener('abort', () => { clearTimeout(t); resolve(); }, { once: true });
+        });
+      }
+    }
+    const it: DataIterationResult = {
+      rowIndex: i,
+      row: rows[i],
+      items,
+      ok: items.length > 0 && items.every((r) => r.ok),
+      passedTests: items.reduce((a, r) => a + r.testsPassed, 0),
+      totalTests: items.reduce((a, r) => a + r.testsTotal, 0),
+      timeMs: Math.round(performance.now() - t0),
+    };
+    out.push(it);
+    opts.onIteration?.(it, i);
+    if (!it.ok && opts.stopOnError) break;
+  }
+  return out;
+}
+
+/** Chạy tuần tự danh sách request (không data file), dừng khi abort (hoặc khi lỗi nếu stopOnError). */
 export async function runRequestList(
   list: ApiRequest[],
   hooks: RunnerHooks,
