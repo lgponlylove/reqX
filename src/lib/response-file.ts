@@ -154,6 +154,27 @@ export async function saveExportBesideApp(filename: string, text: string): Promi
   }
 }
 
+export async function saveWorkspaceFile(filename: string, text: string): Promise<{ path: string } | null> {
+  if (!inTauriApp()) return null;
+  try {
+    const { invoke } = await import('@tauri-apps/api/core');
+    const path = await invoke<string>('save_workspace_file', { filename, content: text });
+    return { path };
+  } catch {
+    return null;
+  }
+}
+
+export async function readWorkspaceFiles(): Promise<string[]> {
+  if (!inTauriApp()) return [];
+  try {
+    const { invoke } = await import('@tauri-apps/api/core');
+    return await invoke<string[]>('read_workspace_files');
+  } catch {
+    return [];
+  }
+}
+
 /** Mở Explorer tới thư mục chứa file + bôi đen file (chỉ trong app Tauri). */
 export async function revealExportedFile(path: string): Promise<void> {
   if (!inTauriApp()) return;

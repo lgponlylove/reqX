@@ -57,12 +57,18 @@ function parseJson(text: string): ParsedDataFile {
   } catch {
     return { rows: [], columns: [], error: 'File JSON sai cú pháp!' };
   }
-  if (!Array.isArray(arr) || arr.length === 0) {
+  if (!Array.isArray(arr)) {
+    // 1 object đơn → bọc thành 1 dòng (tiện khi AI sinh data test)
+    if (arr && typeof arr === 'object') arr = [arr];
+    else return { rows: [], columns: [], error: 'JSON phải là mảng các object, VD: [{"monId":"12"}]' };
+  }
+  const list = arr as unknown[];
+  if (list.length === 0) {
     return { rows: [], columns: [], error: 'JSON phải là mảng các object, VD: [{"monId":"12"}]' };
   }
-  const bad = arr.findIndex((x) => typeof x !== 'object' || x === null || Array.isArray(x));
+  const bad = list.findIndex((x) => typeof x !== 'object' || x === null || Array.isArray(x));
   if (bad >= 0) return { rows: [], columns: [], error: `Phần tử #${bad + 1} không phải object!` };
-  const rows = (arr as Record<string, unknown>[]).slice(0, MAX_ROWS).map((o) => {
+  const rows = (list as Record<string, unknown>[]).slice(0, MAX_ROWS).map((o) => {
     const r: Record<string, string> = {};
     for (const [k, v] of Object.entries(o)) r[k] = strVal(v);
     return r;

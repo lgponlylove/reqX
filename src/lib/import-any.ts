@@ -29,6 +29,9 @@ export function importAnyJson(json: unknown, label = 'dữ liệu'): AnyImportRe
     if (json && typeof json === 'object' && !Array.isArray(json) && (json as { kind?: unknown }).kind === 'reqx-backup') {
       const bk = parseBackup(json);
       if ('error' in bk) throw new Error(bk.error);
+      if (bk.dirs && bk.dirs.length > 0) {
+        useAppStore.getState().importDirs(bk.dirs);
+      }
       for (const p of bk.items) {
         useAppStore.getState().importData(p.collection, p.reqs);
         res.collections.push({ name: p.collection.name, requests: p.reqs.length });
@@ -86,5 +89,6 @@ export function summarizeImport(r: AnyImportResult): string {
   if (r.info.length > 0) parts.push(r.info.join('\n'));
   if (r.warnings.length > 0) parts.push(`⚠ ${r.warnings.join(' | ')}`);
   if (r.errors.length > 0) parts.push(`Lỗi, bỏ qua: ${r.errors.join(' | ')}`);
+  if (r.collections.length > 0) parts.push('💡 Kéo thả collection vào thư mục trong sidebar để sắp xếp.');
   return parts.join('\n') || 'Không nhập được gì — JSON không thuộc loại nào app hiểu (backup/flow/Postman v2.1).';
 }

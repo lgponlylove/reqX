@@ -75,7 +75,7 @@ export default function Flow({ onGoBuilder }: { onGoBuilder?: () => void }) {
       const r = requests[s.requestId];
       return r ? [r] : [];
     });
-    if (!confirmUntrustedScripts(stepReqs, `Flow “${flow.name}”`)) return;
+    if (!confirmUntrustedScripts(stepReqs, `Flow “${flow.name}”`, collections)) return;
     setRunning(true);
     setResults([]);
     setFlowVars({});
@@ -96,6 +96,7 @@ export default function Flow({ onGoBuilder }: { onGoBuilder?: () => void }) {
       timeoutMs: timeoutS * 1000,
       delayMs,
       stopOnError,
+      collections,
       signal: ctrl.signal,
       onStep: (r) => setResults((prev) => [...prev, r]),
     });

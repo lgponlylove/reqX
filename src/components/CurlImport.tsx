@@ -114,9 +114,20 @@ export default function CurlImport({ onClose }: { onClose: () => void }) {
                 className="bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5"
               >
                 <option value="">Ngoài thư mục</option>
-                {dirs.map((d) => (
-                  <option key={d.id} value={d.id}>📁 {d.name}</option>
-                ))}
+                {(() => {
+                  const out: { id: string; path: string; depth: number }[] = [];
+                  const walk = (pid: string | null, depth: number, prefix: string) => {
+                    for (const d of dirs.filter((x) => (x.parentId ?? null) === pid)) {
+                      const path = prefix ? `${prefix} / ${d.name}` : d.name;
+                      out.push({ id: d.id, path, depth });
+                      walk(d.id, depth + 1, path);
+                    }
+                  };
+                  walk(null, 0, '');
+                  return out.map((o) => (
+                    <option key={o.id} value={o.id}>{`${'— '.repeat(o.depth)}📁 ${o.path}`}</option>
+                  ));
+                })()}
               </select>
             </label>
           </div>

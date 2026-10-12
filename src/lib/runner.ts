@@ -1,6 +1,7 @@
 import type { ApiRequest, ApiResponse, Collection } from '../types/api';
 import { sendRequest } from './http-client';
-import { runPreRequest, runTests, type MutableRequest } from './scripts';
+import { runPreRequestChain, runTestsChain, type MutableRequest } from './scripts';
+import { scriptChainFor } from './script-chain';
 import { uid } from './variables';
 
 export interface RunItemResult {
@@ -64,16 +65,19 @@ function pickRes(res: ApiResponse): Pick<ApiResponse, 'status' | 'headers' | 'bo
 }
 
 /** Chạy 1 request: pre-request → gửi → tests (pipeline y hệt RequestBar).
- * dataRow: dòng data file của iteration (thắng env khi đọc, set vẫn ghi vào env thật). */
+ * dataRow: dòng data file của iteration (thắng env khi đọc, set vẫn ghi vào env thật).
+ * collections: để giải script kế thừa ở mức collection/folder (truyền vào thì script mức cha mới chạy). */
 export async function runOneRequest(
   req: ApiRequest,
   hooks: RunnerHooks,
   timeoutMs: number,
   signal?: AbortSignal,
   dataRow?: Record<string, string>,
+  collections?: Collection[],
 ): Promise<RunItemResult> {
   const base = { requestId: req.id, name: req.name, method: req.method, url: req.url, logs: [] as string[] };
   try {
+    const chain = scriptChainFor(collections ?? [], req);
     const mutable: MutableRequest = {
       url: req.url,
       headers: Object.fromEntries(
@@ -81,7 +85,7 @@ export async function runOneRequest(
       ),
       body: req.body,
     };
-    const pre = await runPreRequest(req.preRequest ?? '', { ...varCtx(hooks, dataRow), request: mutable });
+    const pre = await runPreRequestChain(chain.pre, { ...varCtx(hooks, dataRow), request: mutable });
     if (pre.error) return { ...base, ok: false, testsPassed: 0, testsTotal: 0, error: `Pre-request lỗi: ${pre.error}`, logs: pre.logs };
 
     const effective: ApiRequest = { ...req, url: mutable.url, body: mutable.body };
@@ -106,8 +110,8 @@ export async function runOneRequest(
     let passed = 0;
     let total = 0;
     const logs = [...pre.logs];
-    if (req.tests?.trim()) {
-      const outcome = await runTests(req.tests, res, varCtx(hooks, dataRow));
+    if (chain.tests.length > 0) {
+      const outcome = await runTestsChain(chain.tests, res, varCtx(hooks, dataRow));
       total = outcome.results.length;
       passed = outcome.results.filter((r) => r.passed).length;
       logs.push(...outcome.logs);
@@ -136,6 +140,8 @@ export interface RunAllOpts {
   stopOnError: boolean;
   signal?: AbortSignal;
   onItem?: (r: RunItemResult, index: number) => void;
+  /** Toàn bộ collection trong store — cần để chạy script mức collection/folder. */
+  collections?: Collection[];
 }
 
 export interface DataIterationResult {
@@ -172,7 +178,7 @@ export async function runCollectionWithData(
     const items: RunItemResult[] = [];
     for (const req of list) {
       if (opts.signal?.aborted) break;
-      items.push(await runOneRequest(req, hooks, opts.timeoutMs, opts.signal, rows[i]));
+      items.push(await runOneRequest(req, hooks, opts.timeoutMs, opts.signal, rows[i], opts.collections));
       const last = items[items.length - 1];
       if (!last.ok && opts.stopOnError) break;
       if (opts.delayMs > 0) {
@@ -207,7 +213,7 @@ export async function runRequestList(
   const out: RunItemResult[] = [];
   for (let i = 0; i < list.length; i++) {
     if (opts.signal?.aborted) break;
-    const r = await runOneRequest(list[i], hooks, opts.timeoutMs, opts.signal);
+    const r = await runOneRequest(list[i], hooks, opts.timeoutMs, opts.signal, undefined, opts.collections);
     out.push(r);
     opts.onItem?.(r, i);
     if (!r.ok && opts.stopOnError) break;

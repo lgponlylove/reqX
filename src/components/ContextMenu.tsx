@@ -25,8 +25,10 @@ export default function ContextMenu({ x, y, items, onClose }: {
     };
   }, [onClose]);
 
-  const w = 230;
-  const h = items.length * 33 + 8;
+  const w = 240;
+  const itemH = 33;
+  const maxVisible = 12; // tối đa 12 item hiển thị trước khi scroll
+  const h = Math.min(items.length * itemH + 8, maxVisible * itemH + 8);
   const left = Math.max(8, Math.min(x, window.innerWidth - w - 8));
   const top = Math.max(8, Math.min(y, window.innerHeight - h - 8));
 
@@ -41,8 +43,8 @@ export default function ContextMenu({ x, y, items, onClose }: {
         }}
       />
       <div
-        className="fixed z-50 bg-slate-800 border border-slate-600 rounded-md shadow-xl py-1 text-sm"
-        style={{ left, top, width: w }}
+        className="fixed z-50 bg-slate-800 border border-slate-600 rounded-md shadow-xl py-1 text-sm overflow-y-auto"
+        style={{ left, top, width: w, maxHeight: h }}
       >
         {items.map((it, i) => (
           <button
@@ -51,7 +53,7 @@ export default function ContextMenu({ x, y, items, onClose }: {
               onClose();
               it.onClick();
             }}
-            className={`w-full text-left px-3 py-1.5 hover:bg-slate-700 ${it.danger ? 'text-red-300' : 'text-slate-200'}`}
+            className={`w-full text-left px-3 py-1.5 hover:bg-slate-700 whitespace-nowrap ${it.danger ? 'text-red-300' : 'text-slate-200'}`}
           >
             {it.label}
           </button>

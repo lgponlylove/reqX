@@ -1,5 +1,6 @@
-import type { ApiRequest, ApiResponse, KeyValue } from '../types/api';
+import type { ApiRequest, ApiResponse, Collection, KeyValue } from '../types/api';
 import { sendRequest } from './http-client';
+import { scriptChainFor } from './script-chain';
 import { uid } from './variables';
 
 export interface TestResult {
@@ -341,8 +342,44 @@ export async function runTests(
   }
 }
 
-export const PRE_REQUEST_SAMPLE = `// Chạy TRƯỚC khi gửi — đọc/ghi biến, sửa request, gọi API phụ.
-pm.environment.set('ts', Date.now().toString());
+/**
+ * Chạy chuỗi pre-request (collection → folder → request) chung một ctx.
+ * Mỗi script chạy trong scope riêng nên biến `const` không đụng nhau.
+ * Dừng ngay ở script có lỗi (đúng hành vi Postman).
+ */
+export async function runPreRequestChain(
+  codes: string[],
+  ctx: Parameters<typeof runPreRequest>[1],
+): Promise<{ logs: string[]; error?: string }> {
+  const logs: string[] = [];
+  for (const code of codes) {
+    const r = await runPreRequest(code, ctx);
+    logs.push(...r.logs);
+    if (r.error) return { logs, error: r.error };
+  }
+  return { logs };
+}
+
+/** Chạy chuỗi tests script (request → folder → collection), gộp kết quả pm.test. */
+export async function runTestsChain(
+  codes: string[],
+  res: ApiResponse,
+  ctx: Parameters<typeof runTests>[2],
+): Promise<ScriptOutcome> {
+  const out: ScriptOutcome = { results: [], logs: [] };
+  for (const code of codes) {
+    const o = await runTests(code, res, ctx);
+    out.results.push(...o.results);
+    out.logs.push(...o.logs);
+    if (o.error) {
+      out.error = o.error;
+      break;
+    }
+  }
+  return out;
+}
+
+export const PRE_REQUEST_SAMPLE = `// Chạy TRƯỚC khi gửi — đọc/ghi biến, sửa request, gọi API phụ.pm.environment.set('ts', Date.now().toString());
 // Login lấy token rồi gắn cho request chính (callback kiểu Postman):
 // pm.sendRequest({ url: pm.variables.get('baseUrl') + '/login', method: 'POST',
 //   header: { 'Content-Type': 'application/json' },
@@ -362,25 +399,32 @@ pm.test('Trả về JSON có id', () => {
 });
 `;
 
-/** Request từ file import mà có script → chưa rõ nguồn gốc, nên hỏi trước khi chạy hàng loạt. */
-export function untrustedScriptRequests(reqs: ApiRequest[]): ApiRequest[] {
-  return reqs.filter(
-    (r) => r.origin === 'imported' && ((r.preRequest ?? '').trim() || (r.tests ?? '').trim()),
-  );
+/** Request từ file import mà có script → chưa rõ nguồn gốc, nên hỏi trước khi chạy hàng loạt.
+ * Truyền collections để tính cả script kế thừa ở mức collection/folder. */
+export function untrustedScriptRequests(reqs: ApiRequest[], collections?: Collection[]): ApiRequest[] {
+  return reqs.filter((r) => {
+    if (r.origin !== 'imported') return false;
+    if ((r.preRequest ?? '').trim() || (r.tests ?? '').trim()) return true;
+    if (!collections) return false;
+    // Đã tới đây nghĩa là bản thân request không có script → mọi script trong chuỗi là kế thừa
+    const chain = scriptChainFor(collections, r);
+    return chain.pre.length > 0 || chain.tests.length > 0;
+  });
 }
 
 /**
  * Hộp thoại cảnh báo trước khi chạy Flow/Runner. Trả về true = chạy tiếp.
  * Gọi ở UI tương tác (Flow, Runner) — KHÔNG gọi ở Scheduler headless (confirm treo app).
  */
-export function confirmUntrustedScripts(reqs: ApiRequest[], where: string): boolean {
-  const bad = untrustedScriptRequests(reqs);
+export function confirmUntrustedScripts(reqs: ApiRequest[], where: string, collections?: Collection[]): boolean {
+  const bad = untrustedScriptRequests(reqs, collections);
   if (bad.length === 0) return true;
   const lines = bad
     .map((r) => {
       const kinds: string[] = [];
       if ((r.preRequest ?? '').trim()) kinds.push('pre-request');
       if ((r.tests ?? '').trim()) kinds.push('tests');
+      if (kinds.length === 0) kinds.push('kế thừa từ collection/folder');
       return `- ${r.name || r.url} (${kinds.join(' + ')})`;
     })
     .join('\n');

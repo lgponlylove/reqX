@@ -250,11 +250,16 @@ function parseOne(cmd: string): ParsedCurl {
       .map((p) => {
         const eq = p.indexOf('=');
         if (eq < 0) return `${p}=`;
-        let v = p.slice(eq + 1);
+        const k = p.slice(0, eq).trim();
+        let v = p.slice(eq + 1).trim();
         if (v.startsWith('@')) {
-          warnings.push(`Upload file (${v}) chưa hỗ trợ — giữ tên file dạng text.`);
+          let path = v.slice(1).trim();
+          if ((path.startsWith('"') && path.endsWith('"')) || (path.startsWith("'") && path.endsWith("'"))) {
+            path = path.slice(1, -1);
+          }
+          return `${k}=@${path}`;
         }
-        return `${p.slice(0, eq)}=${v}`;
+        return `${k}=${v}`;
       })
       .join('\n');
   } else if (jsonFlag !== null) {
@@ -313,6 +318,15 @@ function parseOne(cmd: string): ParsedCurl {
     updatedAt: Date.now(),
   };
   return { request, warnings };
+}
+
+/** Parse 1 lệnh curl đơn lẻ. */
+export function parseCurl(cmd: string): ParsedCurl {
+  const cmds = splitCommands(cmd);
+  if (cmds.length === 0) {
+    throw new Error('Không tìm thấy lệnh curl hợp lệ.');
+  }
+  return parseOne(cmds[0]);
 }
 
 /** Parse toàn bộ text dán vào → danh sách request (kèm warnings từng cái). */

@@ -28,6 +28,8 @@ interface RequestState {
   openTab: (req?: ApiRequest) => void;
   closeTab: (id: string) => void;
   setActiveTab: (id: string) => void;
+  /** Nạp lại bản mới nhất của request vào các tab đang mở chưa sửa (sau khi đổi hàng loạt) */
+  refreshTabs: (requests: Record<string, ApiRequest>) => void;
   markClean: () => void;
 }
 
@@ -53,7 +55,8 @@ function isPristine(t: ReqTab): boolean {
     r.body === '' &&
     r.auth.type === 'none' &&
     (r.preRequest ?? '') === '' &&
-    (r.tests ?? '') === ''
+    (r.tests ?? '') === '' &&
+    (r.description ?? '') === ''
   );
 }
 
@@ -159,6 +162,16 @@ export const useRequestStore = create<RequestState>()(
           dirty: false,
           tabs: s.tabs.map((t) => (t.id === s.activeId ? { ...t, dirty: false } : t)),
         })),
+
+      refreshTabs: (requests) =>
+        set((s) => {
+          const tabs = s.tabs.map((t) => {
+            const next = requests[t.request.id];
+            return next && !t.dirty ? { ...t, request: { ...next } } : t;
+          });
+          const active = tabs.find((t) => t.id === s.activeId) ?? tabs[0];
+          return { tabs, current: active.request, dirty: active.dirty };
+        }),
     }),
     {
       name: 'postman-clone-request-v1',

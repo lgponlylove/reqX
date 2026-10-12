@@ -1,8 +1,11 @@
 import { useState } from 'react';
 import { useRequestStore } from '../stores/request';
+import { useAppStore } from '../stores/app';
 import KeyValueEditor from './KeyValueEditor';
 import JsonBodyEditor from './JsonBodyEditor';
+import ScriptCodeEditor from './ScriptCodeEditor';
 import { PRE_REQUEST_SAMPLE, TESTS_SAMPLE } from '../lib/scripts';
+import { inheritedScriptCount } from '../lib/script-chain';
 import type { BodyType, AuthType } from '../types/api';
 
 type Tab = 'params' | 'headers' | 'body' | 'auth' | 'pre' | 'tests';
@@ -26,6 +29,8 @@ const BODY_TYPES: { id: BodyType; label: string }[] = [
 
 export default function RequestTabs() {
   const { current, set } = useRequestStore();
+  const collections = useAppStore((s) => s.collections);
+  const inherited = inheritedScriptCount(collections, current);
   const [tab, setTab] = useState<Tab>('params');
   const [fmtMsg, setFmtMsg] = useState('');
 
@@ -127,6 +132,32 @@ export default function RequestTabs() {
               onChange={(v) => set({ body: v })}
               placeholder={'{\n  "name": "test",\n  "userId": "{{userId}}"\n}'}
             />
+          ) : current.bodyType === 'form-data' ? (
+            <div className="flex flex-col gap-1.5">
+              <div className="flex items-center justify-between text-xs text-slate-400">
+                <span>
+                  Mỗi dòng 1 cặp <code className="text-emerald-400">key=value</code> hoặc đính kèm file:{' '}
+                  <code className="text-emerald-400">files=@D:/path/file.png</code>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const sample = 'files=@D:/test/image.png\nname=example';
+                    set({ body: current.body ? current.body + '\n' + sample : sample });
+                  }}
+                  className="px-2 py-0.5 rounded text-xs bg-slate-800 text-slate-300 hover:bg-slate-700"
+                >
+                  + Mẫu file
+                </button>
+              </div>
+              <textarea
+                className="bg-slate-900 border border-slate-700 rounded p-2.5 font-mono text-sm min-h-32"
+                rows={7}
+                placeholder={'files=@"D:/test/image.png"\nuserId={{userId}}\ntitle=Báo cáo'}
+                value={current.body}
+                onChange={(e) => set({ body: e.target.value })}
+              />
+            </div>
           ) : current.bodyType !== 'none' && (
             <textarea
               className="bg-slate-900 border border-slate-700 rounded p-2.5 font-mono text-sm min-h-32"
@@ -134,9 +165,7 @@ export default function RequestTabs() {
               placeholder={
                 current.bodyType === 'urlencoded'
                   ? 'name=test&userId={{userId}}'
-                  : current.bodyType === 'form-data'
-                    ? 'key1=value1\nkey2={{var}} (mỗi dòng 1 cặp key=value)'
-                    : 'Nội dung body... (hỗ trợ {{var}})'
+                  : 'Nội dung body... (hỗ trợ {{var}})'
               }
               value={current.body}
               onChange={(e) => set({ body: e.target.value })}
@@ -158,6 +187,11 @@ export default function RequestTabs() {
               ⚠ Request từ file import — chạy Flow/Runner sẽ hỏi xác nhận script. Bấm Lưu ở Builder = đánh dấu đã xem, lần sau không hỏi.
             </p>
           )}
+          {inherited.pre > 0 && (
+            <p className="text-[11px] text-sky-300/90">
+              📜 {inherited.pre} script từ collection/folder cũng chạy trước script này.
+            </p>
+          )}
           <div className="flex items-center gap-2">
             <p className="text-xs text-slate-500">
               JS chạy <b>trước khi gửi</b>: dùng <code className="text-emerald-300">pm.environment.set/get</code>,{' '}
@@ -171,13 +205,11 @@ export default function RequestTabs() {
               Chèn mẫu
             </button>
           </div>
-          <textarea
+          <ScriptCodeEditor
             rows={8}
-            spellCheck={false}
             value={current.preRequest ?? ''}
-            onChange={(e) => set({ preRequest: e.target.value })}
+            onChange={(v) => set({ preRequest: v })}
             placeholder="// pm.environment.set('ts', Date.now().toString());"
-            className="bg-slate-950 border border-slate-700 rounded p-2.5 font-mono text-xs outline-none focus:border-emerald-600"
           />
         </div>
       )}
@@ -187,6 +219,11 @@ export default function RequestTabs() {
           {current.origin === 'imported' && (
             <p className="text-[11px] text-amber-300/90">
               ⚠ Request từ file import — chạy Flow/Runner sẽ hỏi xác nhận script. Bấm Lưu ở Builder = đánh dấu đã xem, lần sau không hỏi.
+            </p>
+          )}
+          {inherited.tests > 0 && (
+            <p className="text-[11px] text-sky-300/90">
+              📜 {inherited.tests} script tests từ collection/folder cũng chạy sau script này.
             </p>
           )}
           <div className="flex items-center gap-2">
@@ -202,13 +239,11 @@ export default function RequestTabs() {
               Chèn mẫu
             </button>
           </div>
-          <textarea
+          <ScriptCodeEditor
             rows={8}
-            spellCheck={false}
             value={current.tests ?? ''}
-            onChange={(e) => set({ tests: e.target.value })}
+            onChange={(v) => set({ tests: v })}
             placeholder="// pm.test('Status 200', () => { pm.expect(pm.response.status).to.equal(200); });"
-            className="bg-slate-950 border border-slate-700 rounded p-2.5 font-mono text-xs outline-none focus:border-emerald-600"
           />
         </div>
       )}

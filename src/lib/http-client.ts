@@ -34,7 +34,8 @@ export function isTauri(): boolean {
 
 type NativeBody
   = { kind: 'text'; content_type: string | null; text: string }
-  | { kind: 'form'; fields: [string, string][] };
+  | { kind: 'form'; fields: [string, string][] }
+  | { kind: 'multipart'; parts: { name: string; value: string; is_file: boolean }[] };
 
 interface NativeHttpResponse {
   status: number;
@@ -64,6 +65,40 @@ export async function sendRequest(
 ): Promise<ApiResponse> {
   const { resolved: urlWithVars } = resolveVariables(req.url, envVars, globalVars);
   const url = new URL(urlWithVars, window.location.origin);
+
+  // Mock Server Check: nếu mock server đang bật và url trỏ tới mock port hoặc localhost/mock path
+  try {
+    const { useMockStore } = await import('../stores/mock');
+    const mockState = useMockStore.getState();
+    if (mockState.isRunning) {
+      const isTargetingMock =
+        url.port === String(mockState.port) ||
+        url.hostname === 'mock.local' ||
+        url.host.includes(`:${mockState.port}`);
+
+      if (isTargetingMock) {
+        const { findMatchingRule, executeMockResponse } = await import('./mockServerEngine');
+        const matched = findMatchingRule(mockState.rules, req.method, url.pathname);
+        if (matched) {
+          if (matched.delayMs && matched.delayMs > 0) {
+            await new Promise((r) => setTimeout(r, matched.delayMs));
+          }
+          const { resolved: bodyWithVars } = resolveVariables(req.body, envVars, globalVars);
+          const { response, logItem } = executeMockResponse(
+            matched,
+            req.method,
+            url.toString(),
+            {},
+            bodyWithVars
+          );
+          mockState.addLog(logItem);
+          return response;
+        }
+      }
+    }
+  } catch {
+    // Không làm gián đoạn request thông thường nếu import mock thất bại
+  }
 
   // Params tab -> query string
   for (const [k, v] of enabledEntries(req.params)) {
@@ -95,18 +130,31 @@ export async function sendRequest(
       fetchBody = resolved;
       nativeBody = { kind: 'text', content_type: null, text: resolved };
     } else if (req.bodyType === 'form-data') {
-      // Mỗi dòng "key=value"
+      // Mỗi dòng "key=value" hoặc "key=@filepath" / "key=@\"filepath\""
       const fields: [string, string][] = [];
+      const parts: { name: string; value: string; is_file: boolean }[] = [];
       for (const line of resolved.split('\n')) {
         const t = line.trim();
         if (!t || !t.includes('=')) continue;
         const i = t.indexOf('=');
-        fields.push([t.slice(0, i).trim(), t.slice(i + 1).trim()]);
+        const k = t.slice(0, i).trim();
+        let v = t.slice(i + 1).trim();
+        if (v.startsWith('@')) {
+          let filePath = v.slice(1).trim();
+          if ((filePath.startsWith('"') && filePath.endsWith('"')) || (filePath.startsWith("'") && filePath.endsWith("'"))) {
+            filePath = filePath.slice(1, -1);
+          }
+          parts.push({ name: k, value: filePath, is_file: true });
+          fields.push([k, v]);
+        } else {
+          parts.push({ name: k, value: v, is_file: false });
+          fields.push([k, v]);
+        }
       }
       const fd = new FormData();
       for (const [k, v] of fields) fd.append(k, v);
       fetchBody = fd;
-      nativeBody = { kind: 'form', fields };
+      nativeBody = { kind: 'multipart', parts };
     } else {
       fetchBody = resolved;
       nativeBody = { kind: 'text', content_type: null, text: resolved };
@@ -122,13 +170,20 @@ export async function sendRequest(
       // Chỉ tách khi chính app đã tự set mặc định ở trên (user tự set thì giữ nguyên trong headers)
       defaultCt = nativeHeaders['Content-Type'];
       delete nativeHeaders['Content-Type'];
+    } else if (nativeBody?.kind === 'multipart') {
+      // Multipart: Xóa Content-Type để reqwest tự generate boundary chuẩn
+      for (const k of Object.keys(nativeHeaders)) {
+        if (k.toLowerCase() === 'content-type') {
+          delete nativeHeaders[k];
+        }
+      }
     }
     const payload = {
       method: req.method,
       url: url.toString(),
       headers: Object.entries(nativeHeaders),
       body: nativeBody
-        ? nativeBody.kind === 'form'
+        ? nativeBody.kind === 'form' || nativeBody.kind === 'multipart'
           ? nativeBody
           : { ...nativeBody, content_type: defaultCt }
         : undefined,

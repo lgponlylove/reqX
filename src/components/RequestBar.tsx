@@ -3,7 +3,10 @@ import { useRequestStore } from '../stores/request';
 import { useAppStore } from '../stores/app';
 import { sendRequest } from '../lib/http-client';
 import { toCurl, toFetch, toPython } from '../lib/codegen';
-import { runPreRequest, runTests, type MutableRequest } from '../lib/scripts';
+import { runPreRequestChain, runTestsChain, type MutableRequest } from '../lib/scripts';
+import { generateCases } from '../lib/test-cases';
+import { useTestCaseStore } from '../stores/testcases';
+import { scriptChainFor } from '../lib/script-chain';
 import { uid, resolveVariables } from '../lib/variables';
 import VarHighlightInput from './VarHighlightInput';
 import type { HttpMethod, ApiRequest } from '../types/api';
@@ -50,6 +53,12 @@ export default function RequestBar() {
     } catch {
       setCopied(false);
     }
+  }
+
+  /** Sinh bộ key test từ bản chụp request hiện tại (tab chưa lưu vẫn dùng được) rồi mở bảng duyệt. */
+  function openKeyTest() {
+    const snapshot: ApiRequest = JSON.parse(JSON.stringify(current));
+    useTestCaseStore.getState().setCases(snapshot, generateCases(snapshot, 40));
   }
 
   function changeTimeout(v: number) {
@@ -139,7 +148,8 @@ export default function RequestBar() {
           merged: merged(),
         };
       };
-      const pre = await runPreRequest(current.preRequest ?? '', { ...varCtx(), request: mutable });
+      const chain = scriptChainFor(st.collections, current);
+      const pre = await runPreRequestChain(chain.pre, { ...varCtx(), request: mutable });
       if (pre.error) {
         setError(`Pre-request lỗi: ${pre.error}`);
         return;
@@ -168,10 +178,9 @@ export default function RequestBar() {
       const res = await sendRequest(effective, freshEnv, freshGlobals, timeoutS * 1000, ctrl.signal);
       setResponse(res);
 
-      // 3. Tests script
-      const testsCode = current.tests ?? '';
-      if (testsCode.trim()) {
-        const outcome = await runTests(testsCode, res, varCtx());
+      // 3. Tests script (request → folder → collection)
+      if (chain.tests.length > 0) {
+        const outcome = await runTestsChain(chain.tests, res, varCtx());
         setTestRun(outcome);
       }
 
@@ -227,6 +236,28 @@ export default function RequestBar() {
             Gửi
           </button>
         )}
+        <button
+          onClick={openKeyTest}
+          disabled={sending}
+          className="bg-violet-700 hover:bg-violet-600 disabled:opacity-40 rounded px-3 font-semibold text-sm"
+          title="Lên bộ key test cực đoan cho request này (thiếu field, null, sai kiểu, token sai, quét action...) — mở bảng duyệt, chỉ gửi khi bạn bấm Chạy"
+        >
+          🧪 Key test
+        </button>
+        <button
+          type="button"
+          onClick={async () => {
+            const { useMockStore } = await import('../stores/mock');
+            useMockStore.getState().createRuleFromRequest(current);
+            setSavedFlash(`Đã tạo Mock Rule cho ${current.name || current.url}!`);
+            window.setTimeout(() => setSavedFlash(''), 2500);
+          }}
+          disabled={sending}
+          className="bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded px-2.5 font-semibold text-xs text-purple-300 flex items-center gap-1"
+          title="Tạo Mock Rule từ request này sang Mock Server"
+        >
+          🎭 Mock
+        </button>
         <label className="flex items-center gap-1 text-xs text-slate-400" title="Timeout (giây)">
           <input
             type="number"
@@ -242,10 +273,18 @@ export default function RequestBar() {
       </div>
       <div className="flex gap-2">
         <input
-          className="bg-slate-900 border border-slate-700 rounded px-3 py-1.5 text-sm flex-1"
+          className="bg-slate-900 border border-slate-700 rounded px-3 py-1.5 text-sm w-1/3"
           placeholder="Tên request (vd: Lấy danh sách user)"
           value={current.name}
           onChange={(e) => set({ name: e.target.value })}
+          title="Tên request"
+        />
+        <input
+          className="bg-slate-900 border border-slate-700 rounded px-3 py-1.5 text-sm flex-1"
+          placeholder="Mô tả công dụng (tìm kiếm nhanh Ctrl+K)..."
+          value={current.description || ''}
+          onChange={(e) => set({ description: e.target.value })}
+          title="Mô tả request"
         />
         {!hasOrigin && collections.length > 0 && (
           <select

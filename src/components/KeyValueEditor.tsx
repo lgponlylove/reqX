@@ -1,5 +1,7 @@
 import type { KeyValue } from '../types/api';
 import { uid } from '../lib/variables';
+import VarHighlightInput from './VarHighlightInput';
+import { useAppStore } from '../stores/app';
 
 interface Props {
   items: KeyValue[];
@@ -11,6 +13,14 @@ interface Props {
 export default function KeyValueEditor({
   items, onChange, keyPlaceholder = 'Key', valuePlaceholder = 'Value (hỗ trợ {{var}})',
 }: Props) {
+  const { environments, activeEnvId, globals } = useAppStore();
+  const activeEnv = environments.find((e) => e.id === activeEnvId);
+  function hasVar(name: string) {
+    if (activeEnv?.variables[name] !== undefined) return true;
+    if (globals[name] !== undefined) return true;
+    return false;
+  }
+
   function update(id: string, patch: Partial<KeyValue>) {
     onChange(items.map((kv) => (kv.id === id ? { ...kv, ...patch } : kv)));
   }
@@ -41,11 +51,11 @@ export default function KeyValueEditor({
             value={kv.key}
             onChange={(e) => update(kv.id, { key: e.target.value })}
           />
-          <input
-            className="flex-1 bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-sm font-mono"
+          <VarHighlightInput
             placeholder={valuePlaceholder}
             value={kv.value}
-            onChange={(e) => update(kv.id, { value: e.target.value })}
+            onChange={(val) => update(kv.id, { value: val })}
+            hasVar={hasVar}
           />
           <button
             onClick={() => remove(kv.id)}

@@ -138,6 +138,8 @@ export interface FlowRunOpts {
   stopOnError: boolean;
   signal?: AbortSignal;
   onStep?: (r: FlowStepResult, index: number) => void;
+  /** Để step chạy luôn cả script kế thừa ở mức collection/folder. */
+  collections?: Collection[];
 }
 
 /**
@@ -178,7 +180,7 @@ export async function runFlow(
       },
       setGlobal: baseHooks.setGlobal,
     };
-    const item = await runOneRequest(req, hooks, opts.timeoutMs, opts.signal);
+    const item = await runOneRequest(req, hooks, opts.timeoutMs, opts.signal, undefined, opts.collections);
     const extracted: ExtractedVar[] = [];
     const extractErrors: ExtractError[] = [];
     if (item.response) {

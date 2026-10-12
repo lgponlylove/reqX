@@ -130,6 +130,7 @@ async function runFlowSchedule(id: string, flowId?: string): Promise<void> {
     timeoutMs: 30_000,
     delayMs: 0,
     stopOnError: false,
+    collections: useAppStore.getState().collections,
     signal: ctrl.signal,
   });
   const at = Date.now();
@@ -165,6 +166,7 @@ async function runCollectionSchedule(id: string, collectionId: string, folderId:
     timeoutMs: 30_000,
     delayMs: 0,
     stopOnError: false,
+    collections: useAppStore.getState().collections,
     signal: ctrl.signal,
   });
   const at = Date.now();

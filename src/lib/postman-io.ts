@@ -1,66 +1,120 @@
-import type { ApiRequest, Collection, Folder } from '../types/api';
+import type { ApiRequest, AuthConfig, Collection, Folder } from '../types/api';
 import { uid } from './variables';
 
-/** Import tối thiểu Postman Collection v2.1 → Collection nội bộ. */
+/** Parse auth từ Postman collection-level hoặc request-level. */
+function parsePostmanAuth(auth?: { type?: string; bearer?: Array<{ key: string; value: string }>; basic?: Array<{ key: string; value: string }>; apikey?: Array<{ key: string; value: string }> }): AuthConfig {
+  if (!auth || !auth.type) return { type: 'none' };
+  const t = auth.type.toLowerCase();
+  if (t === 'bearer') {
+    const token = auth.bearer?.find((x) => x.key === 'token')?.value ?? '';
+    return { type: 'bearer', token };
+  }
+  if (t === 'basic') {
+    const username = auth.basic?.find((x) => x.key === 'username')?.value ?? '';
+    const password = auth.basic?.find((x) => x.key === 'password')?.value ?? '';
+    return { type: 'basic', username, password };
+  }
+  if (t === 'apikey') {
+    const key = auth.apikey?.find((x) => x.key === 'key')?.value ?? '';
+    const name = auth.apikey?.find((x) => x.key === 'name')?.value ?? 'X-API-Key';
+    const inVal = auth.apikey?.find((x) => x.key === 'in')?.value ?? 'header';
+    return { type: 'apikey', apiKeyIn: inVal as 'header' | 'query', apiKeyName: name, apiKey: key };
+  }
+  if (t === 'noauth' || t === 'none') return { type: 'none' };
+  // OAuth2 / digest / hawk... → fallback none
+  return { type: 'none' };
+}
+
+/** Parse mảng `event` của Postman (prerequest / test) thành script của ReqX. */
+function parsePmEvents(events: unknown): { preRequest: string; tests: string } {
+  const out = { preRequest: '', tests: '' };
+  if (!Array.isArray(events)) return out;
+  for (const e of events as Array<{ listen?: string; script?: { exec?: string[] | string } }>) {
+    const exec = e?.script?.exec;
+    const code = Array.isArray(exec) ? exec.join('\n') : (exec ?? '');
+    if (!code.trim()) continue;
+    if (e.listen === 'prerequest') out.preRequest = code;
+    else if (e.listen === 'test') out.tests = code;
+  }
+  return out;
+}
+
+/** Import tối thiểu Postman Collection v2.1/v2.0 → Collection nội bộ. */
 export function importPostmanCollection(json: unknown): {
   collection: Collection;
   requests: ApiRequest[];
 } {
   const data = json as {
     info?: { name?: string };
-    item?: Array<{
-      name?: string;
-      item?: Array<{
-        name?: string;
-        request?: {
-          method?: string;
-          url?: string | { raw?: string; query?: Array<{ key: string; value: string }> };
-          header?: Array<{ key: string; value: string }>;
-          body?: { mode?: string; raw?: string; urlencoded?: Array<{ key: string; value?: string }> };
-        };
-      }>;
-    }>;
+    auth?: { type?: string; bearer?: Array<{ key: string; value: string }>; basic?: Array<{ key: string; value: string }>; apikey?: Array<{ key: string; value: string }> };
+    event?: Array<unknown>;
+    item?: Array<unknown>;
   };
 
+  const colScripts = parsePmEvents(data?.event);
   const collection: Collection = {
     id: uid('col'),
     name: data?.info?.name || 'Imported Collection',
     folders: [],
     rootRequestIds: [],
+    preRequest: colScripts.preRequest,
+    tests: colScripts.tests,
   };
   const requests: ApiRequest[] = [];
+  const colAuth = parsePostmanAuth(data?.auth);
 
-  for (const folderItem of data?.item ?? []) {
-    // Folder có item con
-    if (folderItem.item) {
-      const folder: Folder = { id: uid('fld'), name: folderItem.name || 'Folder', requestIds: [] };
-      for (const r of folderItem.item) {
-        const req = toApiRequest(r.name || 'Request', r.request);
-        req.collectionId = collection.id;
-        requests.push(req);
-        folder.requestIds.push(req.id);
+  // Walk đệ quy để xử lý nested folder
+  function buildTree(items: Array<unknown>): { folders: Folder[]; rootIds: string[] } {
+    const folders: Folder[] = [];
+    const rootIds: string[] = [];
+
+    /** parent = null → items nằm ở gốc collection; ngược lại gán vào folder cha. */
+    function recurse(rawItems: Array<unknown>, parent: Folder | null) {
+      for (const rawItem of rawItems) {
+        const item = rawItem as { name?: string; item?: Array<unknown>; request?: object; event?: Array<unknown> };
+        if (Array.isArray(item.item)) {
+          // Folder — có thể chứa cả folder con lẫn request
+          const fScripts = parsePmEvents(item.event);
+          const folder: Folder = {
+            id: uid('fld'),
+            name: item.name || 'Folder',
+            requestIds: [],
+            folderIds: [],
+            preRequest: fScripts.preRequest,
+            tests: fScripts.tests,
+          };
+          folders.push(folder);
+          if (parent) parent.folderIds.push(folder.id);
+          recurse(item.item, folder);
+        } else if (item.request) {
+          const req = toApiRequest(item.name || 'Request', item.request, colAuth, item.event);
+          req.collectionId = collection.id;
+          requests.push(req);
+          if (parent) parent.requestIds.push(req.id);
+          else rootIds.push(req.id);
+        }
       }
-      collection.folders.push(folder);
-    } else {
-      // Request nằm ở root (trường hợp hiếm)
-      const req = toApiRequest(
-        folderItem.name || 'Request',
-        (folderItem as unknown as { request?: object }).request,
-      );
-      req.collectionId = collection.id;
-      requests.push(req);
-      collection.rootRequestIds.push(req.id);
     }
+
+    recurse(items, null);
+    return { folders, rootIds };
   }
+
+  const tree = buildTree(data?.item ?? []);
+  collection.folders = tree.folders;
+  collection.rootRequestIds = tree.rootIds;
+
   return { collection, requests };
 }
 
-function toApiRequest(name: string, r: unknown): ApiRequest {
+function toApiRequest(name: string, r: unknown, fallbackAuth: AuthConfig, events?: Array<unknown>): ApiRequest {
   const raw = r as {
     method?: string;
-    url?: string | { raw?: string };
-    header?: Array<{ key: string; value: string }>;
-    body?: { mode?: string; raw?: string; urlencoded?: Array<{ key: string; value?: string }> };
+    url?: string | { raw?: string; query?: Array<{ key: string; value: string }> };
+    header?: Array<{ key: string; value: string; disabled?: boolean }>;
+    body?: { mode?: string; raw?: string; urlencoded?: Array<{ key: string; value?: string; type?: string }> };
+    description?: string;
+    auth?: { type?: string; bearer?: Array<{ key: string; value: string }>; basic?: Array<{ key: string; value: string }>; apikey?: Array<{ key: string; value: string }> };
   };
   const url = typeof raw?.url === 'string' ? raw.url : (raw?.url?.raw ?? '');
   // urlencoded Postman → body dòng key=value nội bộ; raw → json
@@ -75,21 +129,31 @@ function toApiRequest(name: string, r: unknown): ApiRequest {
   } else if (raw?.body?.mode === 'raw') {
     bodyType = 'json';
     body = raw.body.raw ?? '';
+  } else if (raw?.body?.mode === 'formdata' && Array.isArray((raw.body as { formdata?: Array<{ key: string; value?: string }> }).formdata)) {
+    bodyType = 'form-data';
+    body = (raw.body as { formdata: Array<{ key: string; value?: string }> }).formdata
+      .filter((e) => e && typeof e.key === 'string' && e.key !== '')
+      .map((e) => `${e.key}=${e.value ?? ''}`)
+      .join('\n');
   }
+  // Auth: request-level override collection-level
+  const auth = raw?.auth ? parsePostmanAuth(raw.auth) : fallbackAuth;
+  const ev = parsePmEvents(events);
   return {
     id: uid('req'),
     name,
     method: ((raw?.method || 'GET').toUpperCase() as ApiRequest['method']) || 'GET',
     url,
     params: [],
-    headers: (raw?.header ?? []).map((h) => ({ id: uid('kv'), key: h.key, value: h.value, enabled: true })),
+    headers: (raw?.header ?? []).map((h) => ({ id: uid('kv'), key: h.key ?? '', value: h.value ?? '', enabled: !h.disabled })),
     bodyType,
     body,
-    auth: { type: 'none' },
-    preRequest: '',
-    tests: '',
+    auth,
+    preRequest: ev.preRequest,
+    tests: ev.tests,
     origin: 'imported',
     updatedAt: Date.now(),
+    description: typeof raw?.description === 'string' ? raw.description : '',
   };
 }
 
@@ -97,17 +161,59 @@ export function exportCollection(collection: Collection, requests: ApiRequest[])
   return JSON.stringify(collectionToPostman(collection, new Map(requests.map((r) => [r.id, r]))), null, 2);
 }
 
+/** Script ReqX → mảng `event` Postman (bỏ trống để khỏi thêm rác vào file). */
+function toPmEvents(preRequest?: string, tests?: string): Array<{ listen: string; script: { type: string; exec: string[] } }> {
+  const out: Array<{ listen: string; script: { type: string; exec: string[] } }> = [];
+  if ((preRequest ?? '').trim()) {
+    out.push({ listen: 'prerequest', script: { type: 'text/javascript', exec: preRequest!.split('\n') } });
+  }
+  if ((tests ?? '').trim()) {
+    out.push({ listen: 'test', script: { type: 'text/javascript', exec: tests!.split('\n') } });
+  }
+  return out;
+}
+
 /** 1 collection → object Postman v2.1 (dùng chung cho export 1 cái và export tất cả). */
 export function collectionToPostman(collection: Collection, byId: Map<string, ApiRequest>) {
   const folders = Array.isArray(collection.folders) ? collection.folders : [];
   const rootIds = Array.isArray(collection.rootRequestIds) ? collection.rootRequestIds : [];
+  
+  // Tìm tất cả folder IDs được nested trong folder khác
+  const nestedFolderIds = new Set<string>();
+  for (const f of folders) {
+    if (f.folderIds) {
+      for (const fid of f.folderIds) {
+        nestedFolderIds.add(fid);
+      }
+    }
+  }
+  
+  // Root-level folders = không nằm trong folder nào khác
+  const rootFolders = folders.filter(f => !nestedFolderIds.has(f.id));
+  
+  // Helper: convert folder tree sang Postman item tree
+  function folderToPostmanItem(folder: Folder): unknown {
+    const childFolders = folder.folderIds 
+      ? folders.filter(f => folder.folderIds!.includes(f.id))
+      : [];
+    
+    const events = toPmEvents(folder.preRequest, folder.tests);
+    return {
+      name: folder.name,
+      ...(events.length ? { event: events } : {}),
+      item: [
+        ...childFolders.map(child => folderToPostmanItem(child)),
+        ...(Array.isArray(folder.requestIds) ? folder.requestIds : []).map((id) => fromApiRequest(byId.get(id))).filter(Boolean),
+      ],
+    };
+  }
+  
+  const colEvents = toPmEvents(collection.preRequest, collection.tests);
   return {
     info: { name: collection.name, schema: 'https://schema.getpostman.com/json/collection/v2.1.0/collection.json' },
+    ...(colEvents.length ? { event: colEvents } : {}),
     item: [
-      ...folders.map((f) => ({
-        name: f.name,
-        item: (Array.isArray(f.requestIds) ? f.requestIds : []).map((id) => fromApiRequest(byId.get(id))).filter(Boolean),
-      })),
+      ...rootFolders.map(f => folderToPostmanItem(f)),
       ...rootIds.map((id) => fromApiRequest(byId.get(id))).filter(Boolean),
     ],
   };
@@ -128,13 +234,16 @@ function fromApiRequest(r?: ApiRequest) {
   if (!r) return null;
   // Dữ liệu cũ (persist bản đầu) có thể thiếu field → guard để export không chết im
   const headers = Array.isArray(r.headers) ? r.headers : [];
+  const events = toPmEvents(r.preRequest, r.tests);
   return {
     name: r.name ?? 'Request',
+    ...(events.length ? { event: events } : {}),
     request: {
       method: r.method ?? 'GET',
       url: r.url ?? '',
       header: headers.filter((h) => h && h.enabled).map((h) => ({ key: h.key ?? '', value: h.value ?? '' })),
       body: r.bodyType === 'none' || !r.bodyType ? undefined : { mode: 'raw', raw: r.body ?? '' },
+      description: r.description ?? '',
     },
   };
 }

@@ -96,7 +96,7 @@ export default function Runner() {
     });
     if (runList.length === 0) return; // tất cả đều thiếu biến → không chạy gì
     // Script từ file import (chưa rõ nguồn gốc) → hỏi trước khi chạy hàng loạt
-    if (!confirmUntrustedScripts(runList, `Collection “${col.name}” • ${scopeName}`)) return;
+    if (!confirmUntrustedScripts(runList, `Collection “${col.name}” • ${scopeName}`, collections)) return;
     setRunning(true);
     setResults([]);
     setIterations([]);
@@ -127,6 +127,7 @@ export default function Runner() {
         timeoutMs: timeoutS * 1000,
         delayMs,
         stopOnError,
+        collections,
         signal: ctrl.signal,
         onIteration: (it) => setIterations((prev) => [...prev, it]),
       });
@@ -161,6 +162,7 @@ export default function Runner() {
       timeoutMs: timeoutS * 1000,
       delayMs,
       stopOnError,
+      collections,
       signal: ctrl.signal,
       onItem: (r) => {
         collected.push(r);

@@ -10,10 +10,34 @@ import WsTester from './components/WsTester';
 import GrpcTester from './components/GrpcTester';
 import Flow from './components/Flow';
 import AiAssistant from './components/AiAssistant';
+import EnvironmentManager from './components/EnvironmentManager';
+import TestCaseDialog from './components/TestCaseDialog';
+import { useAppStore } from './stores/app';
 import { useScheduleStore } from './stores/schedule';
 import { runScheduleNow } from './lib/scheduleEngine';
 
-type View = 'builder' | 'runner' | 'flow' | 'ws' | 'grpc' | 'ai';
+import MockServer from './components/MockServer';
+
+function EnvSelector() {
+  const { environments, activeEnvId, setActiveEnv } = useAppStore();
+  return (
+    <div className="flex items-center gap-2 mr-2 border-r border-slate-700 pr-4">
+      <span className="text-xs text-slate-400">Môi trường:</span>
+      <select
+        className="bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-300 w-36"
+        value={activeEnvId ?? ''}
+        onChange={(e) => setActiveEnv(e.target.value || null)}
+      >
+        <option value="">(Không có)</option>
+        {environments.map((e) => (
+          <option key={e.id} value={e.id}>{e.name}</option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
+type View = 'builder' | 'runner' | 'flow' | 'ws' | 'grpc' | 'mock' | 'env' | 'ai';
 
 const VIEWS: { id: View; label: string }[] = [
   { id: 'builder', label: '🔨 Builder' },
@@ -21,6 +45,8 @@ const VIEWS: { id: View; label: string }[] = [
   { id: 'flow', label: '🔗 Flow' },
   { id: 'ws', label: '🔌 WebSocket' },
   { id: 'grpc', label: '🚀 gRPC' },
+  { id: 'mock', label: '🎭 Mock Server' },
+  { id: 'env', label: '🌍 Môi trường' },
   { id: 'ai', label: '✨ AI' },
 ];
 
@@ -76,6 +102,8 @@ export default function App() {
             </button>
           ))}
         </nav>
+        <div className="flex-1" />
+        <EnvSelector />
         <CommandPalette />
       </header>
       <main className="flex flex-col md:flex-row items-stretch md:items-start px-2 pb-4 pt-3">
@@ -106,22 +134,38 @@ export default function App() {
           />
         )}
         <section className={`flex-1 min-w-0 flex flex-col gap-4 bg-slate-900/50 border border-slate-800 rounded p-4 mt-2 md:mt-0 ${view === 'ai' ? 'md:h-[calc(100vh-90px)] md:overflow-hidden min-h-[70vh]' : ''}`}>
-          {view === 'builder' && (
-            <>
-              <TabBar />
-              <RequestBar />
-              <RequestTabs />
-              <hr className="border-slate-800" />
-              <ResponseViewer />
-            </>
-          )}
-          {view === 'runner' && <Runner />}
-          {view === 'flow' && <Flow onGoBuilder={() => setView('builder')} />}
-          {view === 'ws' && <WsTester />}
-          {view === 'grpc' && <GrpcTester />}
-          {view === 'ai' && <AiAssistant onGoBuilder={() => setView('builder')} />}
+          <div className={view === 'builder' ? 'flex flex-col gap-4 flex-1 min-w-0' : 'hidden'}>
+            <TabBar />
+            <RequestBar />
+            <RequestTabs />
+            <hr className="border-slate-800" />
+            <ResponseViewer />
+          </div>
+          <div className={view === 'runner' ? 'block' : 'hidden'}>
+            <Runner />
+          </div>
+          <div className={view === 'flow' ? 'block' : 'hidden'}>
+            <Flow onGoBuilder={() => setView('builder')} />
+          </div>
+          <div className={view === 'ws' ? 'block' : 'hidden'}>
+            <WsTester />
+          </div>
+          <div className={view === 'grpc' ? 'block' : 'hidden'}>
+            <GrpcTester />
+          </div>
+          <div className={view === 'mock' ? 'flex flex-col flex-1 min-h-0 h-full' : 'hidden'}>
+            <MockServer />
+          </div>
+          <div className={view === 'env' ? 'block' : 'hidden'}>
+            <EnvironmentManager />
+          </div>
+          <div className={view === 'ai' ? 'flex flex-col flex-1 min-h-0 h-full' : 'hidden'}>
+            <AiAssistant onGoBuilder={() => setView('builder')} />
+          </div>
         </section>
       </main>
+      {/* Bảng key test mở từ trợ lý AI (hoặc sinh lại tay trong bảng) */}
+      <TestCaseDialog />
     </div>
   );
 }

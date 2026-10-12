@@ -1,12 +1,75 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { useRequestStore } from './request';
-import type { ApiRequest, ApiResponse, Collection, Dir, Environment, HistoryItem } from '../types/api';
+import type { ApiRequest, ApiResponse, Collection, Dir, Environment, Folder, HistoryItem, KeyValue } from '../types/api';
 import { uid } from '../lib/variables';
 import { GEMINI_DEFAULT_MODEL, sanitizeContents, type GeminiContent } from '../lib/ai/gemini';
 import type { AiChainEntry, AiStrategy, AiUsage } from '../lib/ai/ai-providers';
 import { stripRequestSecrets } from '../lib/secrets';
 import type { ScriptOutcome } from '../lib/scripts';
+
+function escapeRegex(str: string): string {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** Trạng thái cần chụp lại trước khi trích biến hàng loạt để hoàn tác 1 bước */
+export interface VarsSnapshot {
+  requests: Record<string, ApiRequest>;
+  environments: Environment[];
+  envSecrets: Record<string, string[]>;
+  globals: Record<string, string>;
+  globalSecrets: string[];
+}
+
+/**
+ * Thay mọi tham chiếu `{{oldKey}}` → `{{newKey}}` trong request (URL, params, headers,
+ * body, auth, script) và script cấp collection/folder. Dùng khi đổi tên biến env/global
+ * để không sót tham chiếu.
+ */
+function renameVarRefs(oldKey: string, newKey: string, state: AppState) {
+  const pattern = new RegExp(`\\{\\{${escapeRegex(oldKey)}\\}\\}`, 'g');
+  const replacement = `{{${newKey}}}`;
+  const has = (txt?: string) => !!txt && txt.includes(`{{${oldKey}}}`);
+  const swap = (txt?: string) => (has(txt) ? txt!.replace(pattern, replacement) : txt);
+  const swapList = (list: KeyValue[]) =>
+    list.some((kv) => has(kv.key) || has(kv.value))
+      ? list.map((kv) => ({ ...kv, key: swap(kv.key)!, value: swap(kv.value)! }))
+      : list;
+
+  const requests: Record<string, ApiRequest> = {};
+  for (const [id, req] of Object.entries(state.requests)) {
+    const updated: ApiRequest = {
+      ...req,
+      url: swap(req.url)!,
+      params: swapList(req.params ?? []),
+      headers: swapList(req.headers ?? []),
+      body: swap(req.body) ?? req.body,
+      preRequest: swap(req.preRequest),
+      tests: swap(req.tests),
+    };
+    const a = req.auth;
+    if (a && (has(a.token) || has(a.username) || has(a.password) || has(a.apiKey) || has(a.apiKeyName))) {
+      updated.auth = {
+        ...a,
+        token: swap(a.token),
+        username: swap(a.username),
+        password: swap(a.password),
+        apiKey: swap(a.apiKey),
+        apiKeyName: swap(a.apiKeyName),
+      };
+    }
+    requests[id] = updated;
+  }
+
+  const collections = state.collections.map((c) => ({
+    ...c,
+    preRequest: swap(c.preRequest),
+    tests: swap(c.tests),
+    folders: (c.folders ?? []).map((f) => ({ ...f, preRequest: swap(f.preRequest), tests: swap(f.tests) })),
+  }));
+
+  return { requests, collections };
+}
 
 interface AppState {
   collections: Collection[];
@@ -29,18 +92,24 @@ interface AppState {
   addCollection: (name: string) => void;
   renameCollection: (id: string, name: string) => void;
   deleteCollection: (id: string) => void;
-  addDir: (name: string) => void;
+  addDir: (name: string, parentId?: string | null) => void;
   renameDir: (id: string, name: string) => void;
-  /** Xóa thư mục — các collection bên trong chuyển ra "Ngoài thư mục" (không mất). */
+  /** Xóa thư mục + toàn bộ thư mục con + collections/requests bên trong (UI confirm trước). */
   deleteDir: (id: string) => void;
+  /** Chuyển thư mục vào thư mục khác (null = ra gốc). Tự chặn kéo vào chính nó/con của nó. */
+  moveDir: (dirId: string, newParentId: string | null) => void;
   /** Chuyển collection vào thư mục (dirId null = ra ngoài). */
   moveCollection: (collectionId: string, dirId: string | null) => void;
   removeRequestFromCollection: (collectionId: string, requestId: string) => void;
   duplicateRequest: (collectionId: string, requestId: string) => void;
   renameRequest: (requestId: string, name: string) => void;
-  addFolder: (collectionId: string, name: string) => void;
+  addFolder: (collectionId: string, name: string, parentFolderId?: string) => void;
   renameFolder: (collectionId: string, folderId: string, name: string) => void;
   deleteFolder: (collectionId: string, folderId: string) => void;
+  /** Script cấp collection (chạy trước/sau mọi request trong collection). */
+  setCollectionScripts: (collectionId: string, patch: { preRequest?: string; tests?: string }) => void;
+  /** Script cấp folder (kế thừa xuống request trong folder). */
+  setFolderScripts: (collectionId: string, folderId: string, patch: { preRequest?: string; tests?: string }) => void;
   moveRequest: (collectionId: string, requestId: string, target: { folderId: string } | 'root') => void;
   /** Chuyển request sang collection khác (kéo-thả liên collection). */
   moveRequestToCollection: (fromId: string, requestId: string, toId: string, target: { folderId: string } | 'root') => void;
@@ -54,10 +123,22 @@ interface AppState {
   setActiveEnv: (id: string | null) => void;
   setEnvVar: (envId: string, key: string, value: string) => void;
   deleteEnvVar: (envId: string, key: string) => void;
+  renameEnvVar: (envId: string, oldKey: string, newKey: string) => void;
   setEnvSecret: (envId: string, key: string, secret: boolean) => void;
+  /** Thêm nhiều biến vào một môi trường cùng lượt (dùng cho trích biến hàng loạt) */
+  addEnvVars: (envId: string, values: Record<string, string>, secretKeys?: string[]) => void;
+  /** Thêm nhiều biến vào Globals (môi trường dùng chung) cùng lượt */
+  addGlobals: (values: Record<string, string>, secretKeys?: string[]) => void;
+  /** Ghi đè toàn bộ requests — dùng khi áp dụng/hoàn tác trích biến */
+  setRequestsBulk: (next: Record<string, ApiRequest>) => void;
+  /** Chụp lại nguyên trạng trước khi trích biến để hoàn tác 1 bước */
+  restoreVarState: (snap: VarsSnapshot) => void;
   setGlobal: (key: string, value: string) => void;
+  /** Đổi tên global và auto-sync mọi tham chiếu tới biến đó trong request/script */
+  renameGlobal: (oldKey: string, newKey: string) => void;
   deleteGlobal: (key: string) => void;
   setGlobalSecret: (key: string, secret: boolean) => void;
+  importEnvironments: (envs: import('../types/api').Environment[], globals: Record<string, string>) => void;
   pushHistory: (item: HistoryItem) => void;
   removeHistoryItem: (id: string) => void;
   clearHistory: () => void;
@@ -69,6 +150,7 @@ interface AppState {
   /** Xóa dữ liệu các tab đã đóng */
   pruneTabs: (ids: string[]) => void;
   setSending: (v: boolean) => void;
+  importDirs: (dirs: import('../types/api').Dir[]) => void;
   importData: (collection: Collection, reqs: ApiRequest[]) => void;
   /** API key Google AI Studio cho tab AI (lưu trong máy này, chỉ gửi tới googleapis.com) */
   aiKey: string;
@@ -173,14 +255,67 @@ export const useAppStore = create<AppState>()(
       };
     }),
 
-  addDir: (name) =>
-    set((s) => ({ dirs: [...s.dirs, { id: uid('dir'), name, collectionIds: [] }] })),
+  addDir: (name, parentId) =>
+    set((s) => ({ dirs: [...s.dirs, { id: uid('dir'), name, collectionIds: [], parentId: parentId ?? null }] })),
 
   renameDir: (id, name) =>
     set((s) => ({ dirs: s.dirs.map((d) => (d.id === id ? { ...d, name } : d)) })),
 
   deleteDir: (id) =>
-    set((s) => ({ dirs: s.dirs.filter((d) => d.id !== id) })),
+    set((s) => {
+      // Gom toàn bộ thư mục con (đệ quy) của id
+      const doomedDirs = new Set<string>([id]);
+      let grew = true;
+      while (grew) {
+        grew = false;
+        for (const d of s.dirs) {
+          if (d.parentId && doomedDirs.has(d.parentId) && !doomedDirs.has(d.id)) {
+            doomedDirs.add(d.id);
+            grew = true;
+          }
+        }
+      }
+      // Collections nằm trong các thư mục bị xóa → xóa theo + requests của chúng
+      const doomedCols = new Set<string>();
+      for (const d of s.dirs) {
+        if (doomedDirs.has(d.id)) {
+          for (const cid of d.collectionIds) doomedCols.add(cid);
+        }
+      }
+      const doomedReqs = new Set<string>();
+      for (const c of s.collections) {
+        if (doomedCols.has(c.id)) {
+          for (const rid of c.rootRequestIds) doomedReqs.add(rid);
+          for (const f of c.folders) for (const rid of f.requestIds) doomedReqs.add(rid);
+        }
+      }
+      const requests = { ...s.requests };
+      for (const rid of doomedReqs) delete requests[rid];
+      return {
+        dirs: s.dirs.filter((d) => !doomedDirs.has(d.id)),
+        collections: s.collections.filter((c) => !doomedCols.has(c.id)),
+        requests,
+      };
+    }),
+
+  moveDir: (dirId, newParentId) =>
+    set((s) => {
+      if (dirId === newParentId) return s;
+      // Chặn vòng lặp: không cho kéo vào chính nó hoặc con/cháu của nó
+      if (newParentId) {
+        const target = s.dirs.find((d) => d.id === newParentId);
+        if (!target) return s;
+        let p: string | null | undefined = target.parentId;
+        const seen = new Set<string>([dirId, newParentId]);
+        while (p) {
+          if (p === dirId) return s;
+          if (seen.has(p)) return s;
+          seen.add(p);
+          p = s.dirs.find((d) => d.id === p)?.parentId;
+        }
+      }
+      return { dirs: s.dirs.map((d) => (d.id === dirId ? { ...d, parentId: newParentId } : d)) };
+    }),
 
   moveCollection: (collectionId, dirId) =>
     set((s) => ({
@@ -248,14 +383,23 @@ export const useAppStore = create<AppState>()(
         : s.requests,
     })),
 
-  addFolder: (collectionId, name) =>
-    set((s) => ({
-      collections: s.collections.map((c) =>
-        c.id !== collectionId
-          ? c
-          : { ...c, folders: [...c.folders, { id: uid('fld'), name, requestIds: [] }] },
-      ),
-    })),
+  addFolder: (collectionId, name, parentFolderId) =>
+    set((s) => {
+      const folder: Folder = { id: uid('fld'), name, requestIds: [], folderIds: [] };
+      return {
+        collections: s.collections.map((c) => {
+          if (c.id !== collectionId) return c;
+          const folders = [...c.folders, folder];
+          // Folder con: ghi id vào folderIds của cha để cây render đúng cấp
+          return {
+            ...c,
+            folders: parentFolderId
+              ? folders.map((f) => (f.id === parentFolderId ? { ...f, folderIds: [...(f.folderIds ?? []), folder.id] } : f))
+              : folders,
+          };
+        }),
+      };
+    }),
 
   renameFolder: (collectionId, folderId, name) =>
     set((s) => ({
@@ -270,14 +414,48 @@ export const useAppStore = create<AppState>()(
     set((s) => ({
       collections: s.collections.map((c) => {
         if (c.id !== collectionId) return c;
-        const folder = c.folders.find((f) => f.id === folderId);
+        
+        // Helper: thu thập tất cả folder ID con (đệ quy)
+        const collectFolderIds = (fid: string): string[] => {
+          const folder = c.folders.find(f => f.id === fid);
+          if (!folder || !folder.folderIds) return [];
+          const childIds = [...folder.folderIds];
+          for (const childId of folder.folderIds) {
+            childIds.push(...collectFolderIds(childId));
+          }
+          return childIds;
+        };
+        
+        const allDoomedIds = new Set([folderId, ...collectFolderIds(folderId)]);
+        
+        // Gom tất cả requests từ folder và nested folders
+        const allRequestIds = new Set<string>();
+        for (const f of c.folders) {
+          if (allDoomedIds.has(f.id)) {
+            for (const rid of f.requestIds) allRequestIds.add(rid);
+          }
+        }
+        
         return {
           ...c,
-          folders: c.folders.filter((f) => f.id !== folderId),
-          // Giữ requests: chuyển về root thay vì xóa
-          rootRequestIds: [...c.rootRequestIds, ...(folder?.requestIds ?? [])],
+          folders: c.folders.filter((f) => !allDoomedIds.has(f.id)),
+          rootRequestIds: [...c.rootRequestIds, ...Array.from(allRequestIds)],
         };
       }),
+    })),
+
+  setCollectionScripts: (collectionId, patch) =>
+    set((s) => ({
+      collections: s.collections.map((c) => (c.id !== collectionId ? c : { ...c, ...patch })),
+    })),
+
+  setFolderScripts: (collectionId, folderId, patch) =>
+    set((s) => ({
+      collections: s.collections.map((c) =>
+        c.id !== collectionId
+          ? c
+          : { ...c, folders: c.folders.map((f) => (f.id === folderId ? { ...f, ...patch } : f)) },
+      ),
     })),
 
   moveRequest: (collectionId, requestId, target) =>
@@ -411,6 +589,31 @@ export const useAppStore = create<AppState>()(
       },
     })),
 
+  renameEnvVar: (envId, oldKey, newKey) =>
+    set((s) => {
+      if (!newKey || newKey === oldKey) return s;
+
+      // 1. Copy giá trị và secret status sang key mới, xóa key cũ trong environment
+      const environments = s.environments.map((e) => {
+        if (e.id !== envId) return e;
+        const oldValue = e.variables[oldKey] ?? '';
+        const variables = { ...e.variables };
+        delete variables[oldKey];
+        variables[newKey] = oldValue;
+        return { ...e, variables };
+      });
+
+      const envSecrets = { ...s.envSecrets };
+      const wasSecret = (s.envSecrets[envId] ?? []).includes(oldKey);
+      if (wasSecret) {
+        envSecrets[envId] = (envSecrets[envId] ?? []).filter((k) => k !== oldKey);
+        envSecrets[envId] = [...envSecrets[envId], newKey];
+      }
+
+      // 2. Auto-sync toàn bộ tham chiếu {{oldKey}} trong request + script collection/folder
+      return { environments, envSecrets, ...renameVarRefs(oldKey, newKey, s) };
+    }),
+
   setEnvSecret: (envId, key, secret) =>
     set((s) => {
       const cur = s.envSecrets[envId] ?? [];
@@ -418,7 +621,48 @@ export const useAppStore = create<AppState>()(
       return { envSecrets: { ...s.envSecrets, [envId]: next } };
     }),
 
+  addEnvVars: (envId, values, secretKeys = []) =>
+    set((s) => ({
+      environments: s.environments.map((e) =>
+        e.id === envId ? { ...e, variables: { ...e.variables, ...values } } : e,
+      ),
+      envSecrets: {
+        ...s.envSecrets,
+        [envId]: [...new Set([...(s.envSecrets[envId] ?? []), ...secretKeys])],
+      },
+    })),
+
+  setRequestsBulk: (next) => set({ requests: next }),
+
+  addGlobals: (values, secretKeys = []) =>
+    set((s) => ({
+      globals: { ...s.globals, ...values },
+      globalSecrets: [...new Set([...s.globalSecrets, ...secretKeys])],
+    })),
+
+  restoreVarState: (snap) =>
+    set({
+      requests: snap.requests,
+      environments: snap.environments,
+      envSecrets: snap.envSecrets,
+      globals: snap.globals,
+      globalSecrets: snap.globalSecrets,
+    }),
+
   setGlobal: (key, value) => set((s) => ({ globals: { ...s.globals, [key]: value } })),
+
+  renameGlobal: (oldKey, newKey) =>
+    set((s) => {
+      if (!newKey || newKey === oldKey) return s;
+      const globals = { ...s.globals };
+      const oldValue = globals[oldKey] ?? '';
+      delete globals[oldKey];
+      globals[newKey] = oldValue;
+      const globalSecrets = s.globalSecrets.includes(oldKey)
+        ? [...new Set([...s.globalSecrets.filter((k) => k !== oldKey), newKey])]
+        : s.globalSecrets;
+      return { globals, globalSecrets, ...renameVarRefs(oldKey, newKey, s) };
+    }),
 
   deleteGlobal: (key) =>
     set((s) => {
@@ -433,6 +677,23 @@ export const useAppStore = create<AppState>()(
         ? [...new Set([...s.globalSecrets, key])]
         : s.globalSecrets.filter((k) => k !== key),
     })),
+
+  importEnvironments: (envs, newGlobals) =>
+    set((s) => {
+      const mergedEnvs = [...s.environments];
+      for (const inc of envs) {
+        const exist = mergedEnvs.findIndex((e) => e.name === inc.name);
+        if (exist >= 0) {
+          mergedEnvs[exist] = { ...mergedEnvs[exist], variables: { ...mergedEnvs[exist].variables, ...inc.variables } };
+        } else {
+          mergedEnvs.push({ ...inc, id: 'env_' + Date.now() + Math.random().toString(36).slice(2) });
+        }
+      }
+      return {
+        environments: mergedEnvs,
+        globals: { ...s.globals, ...newGlobals },
+      };
+    }),
 
   pushHistory: (item) => set((s) => ({ history: [item, ...s.history].slice(0, 100) })),
   removeHistoryItem: (id) => set((s) => ({ history: s.history.filter((h) => h.id !== id) })),
@@ -483,19 +744,41 @@ export const useAppStore = create<AppState>()(
   setAiContents: (c) => set({ aiContents: sanitizeContents(c.slice(-30)) }),
   clearAiChat: () => set({ aiChat: [], aiContents: [] }),
 
+  importDirs: (dirs) =>
+    set((s) => ({ dirs: [...s.dirs, ...dirs] })),
+
   importData: (collection, reqs) =>
     set((s) => {
       const next: Record<string, ApiRequest> = { ...s.requests };
       for (const r of reqs) next[r.id] = { ...r, collectionId: collection.id };
-      return { collections: [...s.collections, collection], requests: next };
+      
+      const collections = [...s.collections];
+      const idx = collections.findIndex(c => c.id === collection.id);
+      if (idx >= 0) {
+        collections[idx] = collection;
+      } else {
+        collections.push(collection);
+      }
+      return { collections, requests: next };
     }),
     }),
     {
       name: 'postman-clone-app-v1',
-      version: 3,
+      version: 5,
       // v2 -> v3: model mặc định đổi sang gemini-flash-lite-latest (nhanh nhất).
+      // v3 -> v4: Dir thêm parentId (thư mục con lồng nhau), dữ liệu cũ mặc định về gốc (null).
+      // v4 -> v5: Folder thêm folderIds (folder lồng nhau), dữ liệu cũ mặc định không có folder con.
       migrate: (s: any) => {
         if (s && s.aiModel === 'gemini-2.0-flash') s.aiModel = GEMINI_DEFAULT_MODEL;
+        if (s && Array.isArray(s.dirs)) {
+          s.dirs = s.dirs.map((d: any) => ({ ...d, parentId: d.parentId ?? null }));
+        }
+        if (s && Array.isArray(s.collections)) {
+          s.collections = s.collections.map((c: any) => ({
+            ...c,
+            folders: (Array.isArray(c.folders) ? c.folders : []).map((f: any) => ({ ...f, folderIds: f.folderIds ?? [] })),
+          }));
+        }
         return s;
       },
       // Chỉ lưu data, không lưu response/sending (trạng thái tạm).

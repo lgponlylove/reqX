@@ -4,8 +4,8 @@ import { useRequestStore } from '../stores/request';
 import type { ApiRequest } from '../types/api';
 
 type Item =
-  | { kind: 'request'; label: string; sub: string; request: ApiRequest }
-  | { kind: 'history'; label: string; sub: string; request: ApiRequest }
+  | { kind: 'request'; label: string; sub: string; desc?: string; request: ApiRequest }
+  | { kind: 'history'; label: string; sub: string; desc?: string; request: ApiRequest }
   | { kind: 'env'; label: string; sub: string; envId: string };
 
 export default function CommandPalette() {
@@ -45,22 +45,24 @@ export default function CommandPalette() {
       for (const id of ids) {
         const r = requests[id];
         if (!r) continue;
-        if (match(`${r.method} ${r.name} ${r.url} ${c.name}`)) {
+        if (match(`${r.method} ${r.name} ${r.url} ${c.name} ${r.description || ''}`)) {
           out.push({
             kind: 'request',
             label: `${r.method} ${r.name}`,
             sub: `${c.name} • ${r.url.slice(0, 60)}`,
+            desc: r.description,
             request: r,
           });
         }
       }
     }
     for (const h of history.slice(0, 30)) {
-      if (match(`${h.request.method} ${h.request.name} ${h.request.url} ${h.responseStatus}`)) {
+      if (match(`${h.request.method} ${h.request.name} ${h.request.url} ${h.responseStatus} ${h.request.description || ''}`)) {
         out.push({
           kind: 'history',
           label: `${h.request.method} ${h.request.name || h.request.url.slice(0, 40)}`,
           sub: `Lịch sử • ${h.responseStatus} • ${new Date(h.createdAt).toLocaleString('vi-VN')}`,
+          desc: h.request.description,
           request: h.request,
         });
       }
@@ -149,6 +151,9 @@ export default function CommandPalette() {
                   <span className="min-w-0">
                     <span className="block truncate">{it.label}</span>
                     <span className="block truncate text-xs text-slate-500 font-mono">{it.sub}</span>
+                    {('desc' in it && it.desc) ? (
+                      <span className="block truncate text-xs text-slate-400 italic mt-0.5">{it.desc}</span>
+                    ) : null}
                   </span>
                 </button>
               ))}

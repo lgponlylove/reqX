@@ -12,10 +12,18 @@ struct NativeHttpRequest {
 }
 
 #[derive(Debug, Deserialize)]
+struct NativeMultipartPart {
+    name: String,
+    value: String,
+    is_file: bool,
+}
+
+#[derive(Debug, Deserialize)]
 #[serde(tag = "kind", rename_all = "lowercase")]
 enum NativeBody {
     Text { content_type: Option<String>, text: String },
     Form { fields: Vec<(String, String)> },
+    Multipart { parts: Vec<NativeMultipartPart> },
 }
 
 #[derive(Debug, Serialize)]
@@ -73,6 +81,30 @@ async fn http_send(req: NativeHttpRequest) -> Result<NativeHttpResponse, String>
             }
             NativeBody::Form { fields } => {
                 rb = rb.form(&fields);
+            }
+            NativeBody::Multipart { parts } => {
+                let mut form = reqwest::multipart::Form::new();
+                for part in parts {
+                    if part.is_file {
+                        let path = std::path::Path::new(&part.value);
+                        let file_bytes = std::fs::read(path).map_err(|e| {
+                            format!(
+                                "Không thể đọc file đính kèm '{}' (field '{}'): {e}",
+                                part.value, part.name
+                            )
+                        })?;
+                        let file_name = path
+                            .file_name()
+                            .and_then(|n| n.to_str())
+                            .unwrap_or("file")
+                            .to_string();
+                        let p = reqwest::multipart::Part::bytes(file_bytes).file_name(file_name);
+                        form = form.part(part.name, p);
+                    } else {
+                        form = form.text(part.name, part.value);
+                    }
+                }
+                rb = rb.multipart(form);
             }
         }
     }
@@ -177,6 +209,47 @@ fn save_export_file(filename: String, content: String) -> Result<String, String>
     Ok(path.to_string_lossy().into_owned())
 }
 
+#[tauri::command]
+fn save_workspace_file(filename: String, content: String) -> Result<String, String> {
+    let clean: String = filename
+        .chars()
+        .filter(|c| !matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|'))
+        .collect();
+    let clean = clean.trim().to_string();
+    if clean.is_empty() {
+        return Err("Tên file không hợp lệ".to_string());
+    }
+    
+    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+    let dir = exe.parent().unwrap().join("reqx_workspace");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    
+    let path = dir.join(&clean);
+    std::fs::write(&path, content).map_err(|e| e.to_string())?;
+    Ok(path.to_string_lossy().into_owned())
+}
+
+#[tauri::command]
+fn read_workspace_files() -> Result<Vec<String>, String> {
+    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+    let dir = exe.parent().unwrap().join("reqx_workspace");
+    if !dir.exists() {
+        return Ok(vec![]);
+    }
+    
+    let mut files = vec![];
+    for entry in std::fs::read_dir(dir).map_err(|e| e.to_string())? {
+        let entry = entry.map_err(|e| e.to_string())?;
+        let path = entry.path();
+        if path.is_file() && path.extension().and_then(|s| s.to_str()) == Some("json") {
+            if let Ok(content) = std::fs::read_to_string(&path) {
+                files.push(content);
+            }
+        }
+    }
+    Ok(files)
+}
+
 /// Mở Explorer tới thư mục chứa file + bôi đen sẵn file đó.
 /// Gia cố: chỉ nhận path tồn tại thật (file hoặc thư mục), chặn chuỗi rỗng.
 #[tauri::command]
@@ -205,6 +278,8 @@ fn main() {
             http_send,
             open_downloads,
             save_export_file,
+            save_workspace_file,
+            read_workspace_files,
             reveal_in_explorer
         ])
         .run(tauri::generate_context!())

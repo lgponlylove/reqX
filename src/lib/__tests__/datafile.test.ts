@@ -42,6 +42,12 @@ describe('parseDataFile JSON', () => {
     expect(parseDataFile('[1,2]', 'm.json').error).toMatch(/không phải object/);
     expect(parseDataFile('[]', 'm.json').error).toMatch(/mảng các object/);
   });
+
+  it('1 object đơn → bọc thành 1 dòng', () => {
+    const r = parseDataFile('{"monId":"12"}', 'm.json');
+    expect(r.error).toBeUndefined();
+    expect(r.rows).toEqual([{ monId: '12' }]);
+  });
 });
 
 describe('rowSummary', () => {

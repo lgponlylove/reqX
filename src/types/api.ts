@@ -47,6 +47,7 @@ export interface ApiRequest {
   updatedAt: number;
   /** Nguồn gốc: 'imported' = từ file import vào (chạy script phải hỏi trước); tự tạo hoặc đã mở-ra-lưu = local */
   origin?: 'local' | 'imported';
+  description?: string;
 }
 
 export interface ApiResponse {
@@ -64,6 +65,12 @@ export interface Folder {
   id: string;
   name: string;
   requestIds: string[];
+  /** Nested folders bên trong folder này */
+  folderIds: string[];
+  /** Script chạy trước mọi request trong folder (kế thừa từ collection xuống) */
+  preRequest?: string;
+  /** Script test chạy sau mọi request trong folder */
+  tests?: string;
 }
 
 export interface Collection {
@@ -72,13 +79,19 @@ export interface Collection {
   folders: Folder[];
   /** request nằm ngoài folder (root) */
   rootRequestIds: string[];
+  /** Script chạy trước mọi request trong collection */
+  preRequest?: string;
+  /** Script test chạy sau mọi request trong collection */
+  tests?: string;
 }
 
-/** Thư mục cấp cao (kiểu workspace): chứa các collection. Collection không nằm trong dir nào = "Ngoài thư mục". */
+/** Thư mục (kiểu workspace): chứa các collection, lồng nhau không giới hạn qua parentId. Collection không nằm trong dir nào = "Ngoài thư mục". */
 export interface Dir {
   id: string;
   name: string;
   collectionIds: string[];
+  /** id thư mục cha; null/undefined = thư mục gốc */
+  parentId?: string | null;
 }
 
 export interface Environment {
@@ -138,4 +151,33 @@ export const DEFAULT_REQUEST: Omit<ApiRequest, 'id' | 'updatedAt'> = {
   auth: { type: 'none' },
   preRequest: '',
   tests: '',
+  description: '',
 };
+
+export interface MockRule {
+  id: string;
+  name: string;
+  enabled: boolean;
+  method: HttpMethod | 'ALL';
+  /** Path khớp, ví dụ: /api/users hoặc /api/users/:id hoặc /test* */
+  path: string;
+  statusCode: number;
+  delayMs?: number;
+  headers: KeyValue[];
+  responseBody: string;
+  responseBodyType: 'json' | 'text' | 'xml';
+}
+
+export interface MockLogItem {
+  id: string;
+  timestamp: number;
+  method: string;
+  url: string;
+  headers: Record<string, string>;
+  body: string;
+  matchedRuleId: string | null;
+  statusCode: number;
+  responseBody: string;
+  timeMs: number;
+}
+
