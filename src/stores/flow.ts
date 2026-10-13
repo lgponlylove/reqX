@@ -29,7 +29,7 @@ interface FlowState {
   deleteFlow: (id: string) => void;
   setActiveFlow: (id: string | null) => void;
   addStep: (flowId: string, collectionId: string, requestId: string) => void;
-  updateStep: (flowId: string, stepId: string, patch: Partial<Pick<FlowStep, 'collectionId' | 'requestId' | 'disabled'>>) => void;
+  updateStep: (flowId: string, stepId: string, patch: Partial<FlowStep>) => void;
   removeStep: (flowId: string, stepId: string) => void;
   moveStep: (flowId: string, stepId: string, dir: -1 | 1) => void;
   addRule: (flowId: string, stepId: string, rule: ExtractRule) => void;

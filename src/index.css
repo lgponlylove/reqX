@@ -2,30 +2,130 @@
 @tailwind components;
 @tailwind utilities;
 
-body {
-  @apply bg-slate-950 text-slate-100;
+:root,
+html.dark {
+  color-scheme: dark;
+  --theme-bg-app: #070c14;
+  --theme-bg-aside: #0b141e;
+  --theme-bg-header: #08101a;
+  --theme-bg-capsule: #09131d;
+  --theme-code-bg: #0b1219;
+  --theme-code-gutter: #080e14;
+
+  /* Bảng màu slate cho Dark Mode (Cyberpunk dark) */
+  --color-slate-50: 248 250 252;
+  --color-slate-100: 241 245 249;
+  --color-slate-200: 226 232 240;
+  --color-slate-300: 203 213 225;
+  --color-slate-400: 148 163 184;
+  --color-slate-500: 100 116 139;
+  --color-slate-600: 71 85 105;
+  --color-slate-700: 51 65 85;
+  --color-slate-750: 41 53 72;
+  --color-slate-800: 30 41 59;
+  --color-slate-850: 21 31 50;
+  --color-slate-900: 15 23 42;
+  --color-slate-950: 8 13 26;
 }
 
-/* Scrollbar cùng tone dark: track slate-950, thumb slate-700, hover emerald */
+html.light {
+  color-scheme: light;
+  --theme-bg-app: #f1f5f9;
+  --theme-bg-aside: #ffffff;
+  --theme-bg-header: #ffffff;
+  --theme-bg-capsule: #e2e8f0;
+  --theme-code-bg: #f8fafc;
+  --theme-code-gutter: #f1f5f9;
+
+  /* Bảng màu slate cho Light Mode (Clean modern developer light) */
+  --color-slate-50: 15 23 42;
+  --color-slate-100: 30 41 59;       /* Chữ đậm nhất */
+  --color-slate-200: 51 65 85;       /* Tiêu đề */
+  --color-slate-300: 71 85 105;      /* Chữ nội dung */
+  --color-slate-400: 100 116 139;    /* Chữ phụ / nhãn */
+  --color-slate-500: 148 163 184;    /* Icon / placeholder */
+  --color-slate-600: 203 213 225;    /* Viền phụ */
+  --color-slate-700: 226 232 240;    /* Viền input / card */
+  --color-slate-750: 235 240 246;
+  --color-slate-800: 241 245 249;    /* Viền nhẹ / nền elevated */
+  --color-slate-850: 245 247 250;    /* Nền thẻ phụ */
+  --color-slate-900: 255 255 255;    /* Nền thẻ trắng tinh khôi */
+  --color-slate-950: 248 250 252;    /* Nền tổng thể cửa sổ */
+}
+
+body {
+  @apply bg-slate-950 text-slate-100 font-sans antialiased transition-colors duration-200;
+  background-image: 
+    radial-gradient(at 0% 0%, rgba(16, 185, 129, 0.04) 0px, transparent 50%),
+    radial-gradient(at 100% 100%, rgba(6, 182, 212, 0.03) 0px, transparent 50%);
+  background-attachment: fixed;
+}
+
+html.light body {
+  background-image: 
+    radial-gradient(at 0% 0%, rgba(16, 185, 129, 0.06) 0px, transparent 50%),
+    radial-gradient(at 100% 100%, rgba(6, 182, 212, 0.05) 0px, transparent 50%);
+}
+
+/* Glass & Neon accents */
+.cyber-card {
+  @apply bg-slate-900/70 backdrop-blur-md border border-slate-700/60 rounded-xl shadow-xl shadow-black/20;
+}
+
+.cyber-glow-emerald {
+  box-shadow: 0 0 20px -3px rgba(16, 185, 129, 0.25);
+}
+
+.cyber-glow-cyan {
+  box-shadow: 0 0 20px -3px rgba(6, 182, 212, 0.25);
+}
+
+/* Scrollbar dark */
+html.dark *,
 * {
   scrollbar-width: thin;
-  scrollbar-color: #334155 #020617;
+  scrollbar-color: #1e293b #080d1a;
 }
+html.dark *::-webkit-scrollbar,
 *::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
+  width: 8px;
+  height: 8px;
 }
+html.dark *::-webkit-scrollbar-track,
 *::-webkit-scrollbar-track {
-  background: #020617;
+  background: #080d1a;
 }
+html.dark *::-webkit-scrollbar-thumb,
 *::-webkit-scrollbar-thumb {
-  background: #334155;
-  border-radius: 8px;
-  border: 2px solid #020617;
+  background: #1e293b;
+  border-radius: 9999px;
+  border: 2px solid #080d1a;
 }
+html.dark *::-webkit-scrollbar-thumb:hover,
 *::-webkit-scrollbar-thumb:hover {
-  background: #059669;
+  background: #10b981;
 }
+html.dark *::-webkit-scrollbar-corner,
 *::-webkit-scrollbar-corner {
-  background: #020617;
+  background: #080d1a;
+}
+
+/* Scrollbar light */
+html.light * {
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e1 #f8fafc;
+}
+html.light *::-webkit-scrollbar-track {
+  background: #f8fafc;
+}
+html.light *::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 9999px;
+  border: 2px solid #f8fafc;
+}
+html.light *::-webkit-scrollbar-thumb:hover {
+  background: #0d9488;
+}
+html.light *::-webkit-scrollbar-corner {
+  background: #f8fafc;
 }

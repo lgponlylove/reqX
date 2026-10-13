@@ -59,12 +59,15 @@ export default function JsonBodyEditor({ value, onChange, placeholder }: Props) 
         ref={backRef}
         aria-hidden
         className="absolute inset-0 p-2.5 font-mono text-sm whitespace-pre-wrap break-words overflow-hidden pointer-events-none text-slate-100"
+        // Cùng rộng phần chữ với textarea (scrollbar ~8px) để 2 lớp không lệch dòng khi cuộn
+        style={{ scrollbarGutter: 'stable' }}
       >
         {value ? highlightJson(value) : <span className="text-slate-500">{placeholder}</span>}
       </div>
       <textarea
         ref={taRef}
         className="relative block w-full p-2.5 font-mono text-sm bg-transparent outline-none text-transparent caret-emerald-300 selection:bg-emerald-900 whitespace-pre-wrap break-words min-h-32"
+        style={{ scrollbarGutter: 'stable' }}
         rows={7}
         placeholder=""
         spellCheck={false}

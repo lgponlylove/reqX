@@ -1,35 +1,83 @@
 import type { ApiRequest, ApiResponse, AuthConfig, KeyValue } from '../types/api';
 import { resolveVariables } from './variables';
 import { classifyBody, contentTypeOf } from './response-file';
+import { applyExtendedAuth, parseDigestChallenge, sha256Hex } from './auth-protocols';
+import { cookieJar } from './cookie-jar';
+
+export interface RequestOptions {
+  timeoutMs?: number;
+  redirect?: 'follow' | 'manual' | 'error';
+  proxy?: string;
+  disableSslVerification?: boolean;
+  useCookies?: boolean;
+  /** Internal: đã thử lại 1 lần với nonce/realm server gửi trong 401 (Digest handshake). */
+  digestAttempted?: boolean;
+}
 
 function enabledEntries(list: KeyValue[]): [string, string][] {
   return list.filter((kv) => kv.enabled && kv.key.trim() !== '').map((kv) => [kv.key, kv.value]);
 }
 
-function applyAuth(
+/** btoa an toàn với ký tự ngoài Latin-1 (mật khẩu/mã token có dấu) — không nổ InvalidCharacterError. */
+export function btoaUtf8(text: string): string {
+  const bytes = new TextEncoder().encode(text);
+  let bin = '';
+  for (const b of bytes) bin += String.fromCharCode(b);
+  return btoa(bin);
+}
+
+/** Tìm header không phân biệt hoa/thường (React Native/fetch chuẩn hoá lowercase, Rust thì không). */
+function pickHeader(headers: Record<string, string>, name: string): string | undefined {
+  const lower = name.toLowerCase();
+  for (const [k, v] of Object.entries(headers)) {
+    if (k.toLowerCase() === lower) return v;
+  }
+  return undefined;
+}
+
+async function applyAuth(
   headers: Record<string, string>,
   url: URL,
+  method: ApiRequest['method'],
   auth: AuthConfig,
+  bodyText: string,
   envVars: Record<string, string>,
   globalVars: Record<string, string>,
-): void {
+  payloadHash?: string,
+): Promise<void> {
   if (auth.type === 'bearer' && auth.token) {
     const { resolved } = resolveVariables(auth.token, envVars, globalVars);
     headers['Authorization'] = `Bearer ${resolved}`;
   } else if (auth.type === 'basic') {
     const u = resolveVariables(auth.username ?? '', envVars, globalVars).resolved;
     const p = resolveVariables(auth.password ?? '', envVars, globalVars).resolved;
-    headers['Authorization'] = `Basic ${btoa(`${u}:${p}`)}`;
+    headers['Authorization'] = `Basic ${btoaUtf8(`${u}:${p}`)}`;
   } else if (auth.type === 'apikey' && auth.apiKey) {
     const val = resolveVariables(auth.apiKey, envVars, globalVars).resolved;
     const name = auth.apiKeyName || 'X-API-Key';
     if (auth.apiKeyIn === 'query') url.searchParams.append(name, val);
     else headers[name] = val;
+  } else {
+    await applyExtendedAuth(headers, url, method, auth, bodyText, envVars, globalVars, payloadHash);
   }
 }
 
 export function isTauri(): boolean {
   return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+}
+
+/**
+ * Base URL cho request tương đối. UI dùng origin của page; CLI (không có window)
+ * phải gọi setDefaultBaseUrl() — xem `--base-url`.
+ */
+let defaultBaseUrl: string | undefined;
+export function setDefaultBaseUrl(origin?: string): void {
+  defaultBaseUrl = origin?.replace(/\/+$/, '') || undefined;
+}
+
+function resolveBaseUrl(): string | undefined {
+  if (defaultBaseUrl) return defaultBaseUrl;
+  return typeof window !== 'undefined' ? window.location.origin : undefined;
 }
 
 type NativeBody
@@ -60,11 +108,53 @@ export async function sendRequest(
   req: ApiRequest,
   envVars: Record<string, string>,
   globalVars: Record<string, string> = {},
-  timeoutMs = 30000,
+  optionsOrTimeout: number | RequestOptions = 30000,
   externalSignal?: AbortSignal,
 ): Promise<ApiResponse> {
+  const options: RequestOptions =
+    typeof optionsOrTimeout === 'number'
+      ? { timeoutMs: optionsOrTimeout }
+      : (optionsOrTimeout ?? {});
+  const timeoutMs = options.timeoutMs ?? 30000;
+  const useCookies = options.useCookies !== false;
+
+  /**
+   * Digest handshake: lần gửi đầu ta chưa biết nonce/realm của server.
+   * Nếu server trả 401 + WWW-Authenticate: Digest -> gửi lại ĐÚNG MỘT lần với challenge thật.
+   */
+  async function maybeDigestRetry(resp: ApiResponse): Promise<ApiResponse> {
+    if (options.digestAttempted || req.auth.type !== 'digest' || !req.auth.digest || resp.status !== 401) {
+      return resp;
+    }
+    const challenge = pickHeader(resp.headers, 'www-authenticate');
+    if (!challenge || !/^digest/i.test(challenge.trim())) return resp;
+    const ch = parseDigestChallenge(challenge);
+    if (!ch.nonce) return resp;
+    const retryReq: ApiRequest = {
+      ...req,
+      auth: {
+        ...req.auth,
+        digest: {
+          ...req.auth.digest,
+          realm: ch.realm ?? req.auth.digest.realm,
+          nonce: ch.nonce,
+          opaque: ch.opaque ?? req.auth.digest.opaque,
+          qop: ch.qop ?? req.auth.digest.qop,
+          algorithm: ch.algorithm ?? req.auth.digest.algorithm,
+        },
+      },
+    };
+    return sendRequest(retryReq, envVars, globalVars, { ...options, digestAttempted: true }, externalSignal);
+  }
+
   const { resolved: urlWithVars } = resolveVariables(req.url, envVars, globalVars);
-  const url = new URL(urlWithVars, window.location.origin);
+  const base = resolveBaseUrl();
+  if (!base && !/^[a-z][a-z0-9+.-]*:/i.test(urlWithVars)) {
+    throw new Error(
+      `URL tương đối "${urlWithVars}" cần base — đặt base tuyệt đối hoặc truyền --base-url khi chạy CLI`,
+    );
+  }
+  const url = new URL(urlWithVars, base);
 
   // Mock Server Check: nếu mock server đang bật và url trỏ tới mock port hoặc localhost/mock path
   try {
@@ -114,20 +204,39 @@ export async function sendRequest(
     headers[resolveVariables(k, envVars, globalVars).resolved] =
       resolveVariables(v, envVars, globalVars).resolved;
   }
-  applyAuth(headers, url, req.auth, envVars, globalVars);
 
-  // Body: chuẩn bị 2 dạng (fetch BodyInit + mô tả cho Rust)
+  // Body: chuẩn bị 2 dạng (fetch BodyInit + mô tả cho Rust).
+  // Phải làm TRƯỚC khi ký auth: SigV4/Digest hash đúng payload sẽ gửi thật (đã thay biến),
+  // nếu ký trên template {{var}} thì server trả SignatureDoesNotMatch.
   let fetchBody: BodyInit | undefined;
   let nativeBody: NativeBody | undefined;
+  let authBodyText = '';
+  let authPayloadHash: string | undefined;
   if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method) && req.bodyType !== 'none') {
     const { resolved } = resolveVariables(req.body, envVars, globalVars);
     if (req.bodyType === 'json') {
       if (!headers['Content-Type']) headers['Content-Type'] = 'application/json';
       fetchBody = resolved;
       nativeBody = { kind: 'text', content_type: null, text: resolved };
+      authBodyText = resolved;
     } else if (req.bodyType === 'urlencoded') {
       if (!headers['Content-Type']) headers['Content-Type'] = 'application/x-www-form-urlencoded';
       fetchBody = resolved;
+      nativeBody = { kind: 'text', content_type: null, text: resolved };
+      authBodyText = resolved;
+    } else if (req.bodyType === 'binary') {
+      if (!headers['Content-Type']) headers['Content-Type'] = 'application/octet-stream';
+      try {
+        const binStr = atob(resolved);
+        const bytes = new Uint8Array(binStr.length);
+        for (let i = 0; i < binStr.length; i++) bytes[i] = binStr.charCodeAt(i);
+        fetchBody = bytes.buffer;
+        // Hash trên byte thật, không phải trên chuỗi base64
+        authPayloadHash = await sha256Hex(bytes);
+      } catch {
+        fetchBody = new TextEncoder().encode(resolved);
+        authBodyText = resolved;
+      }
       nativeBody = { kind: 'text', content_type: null, text: resolved };
     } else if (req.bodyType === 'form-data') {
       // Mỗi dòng "key=value" hoặc "key=@filepath" / "key=@\"filepath\""
@@ -155,11 +264,40 @@ export async function sendRequest(
       for (const [k, v] of fields) fd.append(k, v);
       fetchBody = fd;
       nativeBody = { kind: 'multipart', parts };
+      // multipart có boundary do transport sinh ra lúc gửi -> không ký payload được
     } else {
       fetchBody = resolved;
       nativeBody = { kind: 'text', content_type: null, text: resolved };
+      authBodyText = resolved;
     }
   }
+
+  // Cookie Jar: attach Cookie header if enabled and not already explicitly set
+  if (useCookies && !headers['Cookie'] && !headers['cookie']) {
+    const cookieVal = cookieJar.getCookieHeader(url.toString());
+    if (cookieVal) {
+      headers['Cookie'] = cookieVal;
+    }
+  }
+
+  // N6 — auto-refresh trong phiên: token sắp hết hạn mà có refresh token thì lấy token mới
+  // TRƯỚC khi ký auth, ngay trong RAM (không ghi đĩa). Bỏ qua request gọi token endpoint
+  // để không đệ quy.
+  let effectiveAuth = req.auth;
+  if (req.auth.type === 'oauth2' && req.auth.oauth2 && req.id !== 'oauth2_token_fetch') {
+    try {
+      const { ensureFreshOAuth2 } = await import('./oauth2-refresh');
+      const { config } = await ensureFreshOAuth2(req.auth.oauth2, envVars, globalVars, {
+        requestId: req.id,
+        signal: externalSignal,
+      });
+      effectiveAuth = { ...req.auth, oauth2: config };
+    } catch {
+      // Refresh hỏng thì cứ gửi bằng token cũ — server sẽ trả 401 nếu token thật sự chết
+    }
+  }
+
+  await applyAuth(headers, url, req.method, effectiveAuth, authBodyText, envVars, globalVars, authPayloadHash);
 
   // Content-Type mặc định do app tự thêm → tách ra để Rust set 1 lần (tránh trùng header)
   const { invoke } = isTauri() ? await import('@tauri-apps/api/core') : { invoke: null as never };
@@ -203,8 +341,13 @@ export async function sendRequest(
         })
       : await invokeP;
     const h: Record<string, string> = {};
-    for (const [k, v] of res.headers) h[k] = v;
-    return {
+    for (const [k, v] of res.headers) {
+      h[k] = v;
+      if (useCookies && k.toLowerCase() === 'set-cookie') {
+        cookieJar.setCookie(url.toString(), v);
+      }
+    }
+    return maybeDigestRetry({
       status: res.status,
       statusText: res.status_text ?? '',
       timeMs: res.time_ms,
@@ -212,11 +355,11 @@ export async function sendRequest(
       headers: h,
       body: res.body,
       bodyKind: res.body_kind === 'binary' ? 'binary' : 'text',
-    };
+    });
   }
 
   const ctrl = new AbortController();
-  const timer = window.setTimeout(() => ctrl.abort(), timeoutMs);
+  const timer: ReturnType<typeof setTimeout> = setTimeout(() => ctrl.abort(), timeoutMs);
   const onExternalAbort = () => ctrl.abort();
   externalSignal?.addEventListener('abort', onExternalAbort);
   const t0 = performance.now();
@@ -226,13 +369,19 @@ export async function sendRequest(
       headers,
       body: fetchBody,
       signal: ctrl.signal,
+      redirect: options.redirect ?? 'follow',
     });
     const buf = await res.arrayBuffer();
     const timeMs = Math.round(performance.now() - t0);
     const h: Record<string, string> = {};
-    res.headers.forEach((v, k) => (h[k] = v));
+    res.headers.forEach((v, k) => {
+      h[k] = v;
+      if (useCookies && k.toLowerCase() === 'set-cookie') {
+        cookieJar.setCookie(url.toString(), v);
+      }
+    });
     const { body, bodyKind } = classifyBody(buf, contentTypeOf(h));
-    return {
+    return maybeDigestRetry({
       status: res.status,
       statusText: res.statusText,
       timeMs,
@@ -240,9 +389,15 @@ export async function sendRequest(
       headers: h,
       body,
       bodyKind,
-    };
+    });
   } catch (e) {
     if (e instanceof TypeError) {
+      // Browser: gần như luôn là CORS. Node/CLI: không có CORS, lỗi là mạng thật
+      // (ECONNREFUSED/TIMEOUT) — nguyên nhân nằm ở e.cause của undici.
+      if (typeof window === 'undefined') {
+        const cause = (e as { cause?: { code?: string; message?: string } }).cause;
+        throw new Error(`Không kết nối được ${url.origin} — ${cause?.code ?? cause?.message ?? e.message}`);
+      }
       throw new Error(
         'Failed to fetch — 99% là CORS (server không cho browser khác domain gọi) ' +
         'hoặc mất mạng. Hãy dùng bản .exe Tauri (gửi qua Rust native, không bị CORS).',
@@ -250,7 +405,7 @@ export async function sendRequest(
     }
     throw e;
   } finally {
-    window.clearTimeout(timer);
+    clearTimeout(timer);
     externalSignal?.removeEventListener('abort', onExternalAbort);
   }
 }

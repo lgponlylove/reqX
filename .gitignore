@@ -1,6 +1,7 @@
 # Deps & build
 node_modules/
 dist/
+dist-cli/
 *.local
 
 # Tauri / Rust

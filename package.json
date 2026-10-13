@@ -8,6 +8,8 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "test": "vitest run",
+    "build:cli": "esbuild src/cli/index.ts --bundle --platform=node --format=esm --target=node20 --external:@tauri-apps/api/core --outfile=dist-cli/reqx.mjs",
+    "cli": "npm run build:cli && node dist-cli/reqx.mjs",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build"
   },
@@ -24,7 +26,9 @@
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.4",
     "autoprefixer": "^10.4.20",
+    "docx": "^9.10.0",
     "postcss": "^8.4.49",
+    "puppeteer-core": "^25.13.0",
     "tailwindcss": "^3.4.13",
     "typescript": "~5.6.3",
     "vite": "^5.4.8",

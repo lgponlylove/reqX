@@ -3,6 +3,7 @@ import { sendRequest } from './http-client';
 import { runPreRequestChain, runTestsChain, type MutableRequest } from './scripts';
 import { scriptChainFor } from './script-chain';
 import { uid } from './variables';
+import { validateResponseContract, extractEmbeddedSchema } from './contract-test';
 
 export interface RunItemResult {
   requestId: string;
@@ -74,6 +75,7 @@ export async function runOneRequest(
   signal?: AbortSignal,
   dataRow?: Record<string, string>,
   collections?: Collection[],
+  contractTesting?: { enabled: boolean; spec?: any },
 ): Promise<RunItemResult> {
   const base = { requestId: req.id, name: req.name, method: req.method, url: req.url, logs: [] as string[] };
   try {
@@ -121,6 +123,41 @@ export async function runOneRequest(
         return { ...base, ok: false, status: res.status, timeMs: res.timeMs, testsPassed: passed, testsTotal: total, error: failed.map((f) => `${f.name}: ${f.error ?? 'fail'}`).join(' | '), logs, response: pickRes(res) };
       }
     }
+
+    // Contract Testing: Tự động so sánh response với OpenAPI schema
+    if (contractTesting?.enabled) {
+      const embedded = extractEmbeddedSchema(req.tests);
+      const contract = validateResponseContract(
+        contractTesting.spec,
+        req.method,
+        effective.url,
+        res.status,
+        res.body,
+        embedded
+      );
+      if (contract.tested) {
+        total++;
+        if (contract.valid) {
+          passed++;
+          logs.push(`[Contract Test] ✓ Khớp OpenAPI schema (${contract.operationName ?? 'valid'})`);
+        } else {
+          const errDetail = contract.errors.join('; ');
+          logs.push(`[Contract Test] ✗ Không khớp schema: ${errDetail}`);
+          return {
+            ...base,
+            ok: false,
+            status: res.status,
+            timeMs: res.timeMs,
+            testsPassed: passed,
+            testsTotal: total,
+            error: `Contract Test Thất bại: ${errDetail}`,
+            logs,
+            response: pickRes(res),
+          };
+        }
+      }
+    }
+
     const ok = res.status >= 200 && res.status < 300;
     return {
       ...base, ok, status: res.status, timeMs: res.timeMs,
@@ -142,6 +179,8 @@ export interface RunAllOpts {
   onItem?: (r: RunItemResult, index: number) => void;
   /** Toàn bộ collection trong store — cần để chạy script mức collection/folder. */
   collections?: Collection[];
+  /** Kiểm thử Contract Testing với OpenAPI schema */
+  contractTesting?: { enabled: boolean; spec?: any };
 }
 
 export interface DataIterationResult {
@@ -178,7 +217,7 @@ export async function runCollectionWithData(
     const items: RunItemResult[] = [];
     for (const req of list) {
       if (opts.signal?.aborted) break;
-      items.push(await runOneRequest(req, hooks, opts.timeoutMs, opts.signal, rows[i], opts.collections));
+      items.push(await runOneRequest(req, hooks, opts.timeoutMs, opts.signal, rows[i], opts.collections, opts.contractTesting));
       const last = items[items.length - 1];
       if (!last.ok && opts.stopOnError) break;
       if (opts.delayMs > 0) {
@@ -213,7 +252,7 @@ export async function runRequestList(
   const out: RunItemResult[] = [];
   for (let i = 0; i < list.length; i++) {
     if (opts.signal?.aborted) break;
-    const r = await runOneRequest(list[i], hooks, opts.timeoutMs, opts.signal, undefined, opts.collections);
+    const r = await runOneRequest(list[i], hooks, opts.timeoutMs, opts.signal, undefined, opts.collections, opts.contractTesting);
     out.push(r);
     opts.onItem?.(r, i);
     if (!r.ok && opts.stopOnError) break;

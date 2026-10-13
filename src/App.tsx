@@ -17,18 +17,25 @@ import { useScheduleStore } from './stores/schedule';
 import { runScheduleNow } from './lib/scheduleEngine';
 
 import MockServer from './components/MockServer';
+import CyberDock, { TOOLS } from './components/CyberDock';
+import CookieManager from './components/CookieManager';
+import { useMockStore } from './stores/mock';
+import LanguageSwitcher from './components/LanguageSwitcher';
+import ThemeToggle from './components/ThemeToggle';
+import { useTranslation } from './stores/language';
 
 function EnvSelector() {
   const { environments, activeEnvId, setActiveEnv } = useAppStore();
+  const { t } = useTranslation();
   return (
-    <div className="flex items-center gap-2 mr-2 border-r border-slate-700 pr-4">
-      <span className="text-xs text-slate-400">Môi trường:</span>
+    <div className="flex items-center gap-1.5 border-r border-slate-700/80 pr-2.5 shrink-0">
+      <span className="hidden lg:inline text-xs text-slate-400">{t.header.environment}</span>
       <select
-        className="bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-300 w-36"
+        className="bg-slate-900/90 border border-slate-700/80 rounded-xl px-2 py-1 text-xs text-slate-300 w-28 sm:w-32 outline-none focus:border-teal-500 shadow-sm"
         value={activeEnvId ?? ''}
         onChange={(e) => setActiveEnv(e.target.value || null)}
       >
-        <option value="">(Không có)</option>
+        <option value="">{t.header.none}</option>
         {environments.map((e) => (
           <option key={e.id} value={e.id}>{e.name}</option>
         ))}
@@ -37,22 +44,18 @@ function EnvSelector() {
   );
 }
 
-type View = 'builder' | 'runner' | 'flow' | 'ws' | 'grpc' | 'mock' | 'env' | 'ai';
+type View = 'builder' | 'runner' | 'flow' | 'ws' | 'grpc' | 'mock' | 'env' | 'ai' | 'cookies';
 
-const VIEWS: { id: View; label: string }[] = [
-  { id: 'builder', label: '🔨 Builder' },
-  { id: 'runner', label: '▶ Runner' },
-  { id: 'flow', label: '🔗 Flow' },
-  { id: 'ws', label: '🔌 WebSocket' },
-  { id: 'grpc', label: '🚀 gRPC' },
-  { id: 'mock', label: '🎭 Mock Server' },
-  { id: 'env', label: '🌍 Môi trường' },
-  { id: 'ai', label: '✨ AI' },
+const MAIN_VIEWS: { id: View; key: 'builder' | 'runner' | 'flow' }[] = [
+  { id: 'builder', key: 'builder' },
+  { id: 'runner', key: 'runner' },
+  { id: 'flow', key: 'flow' },
 ];
 
 const LS_SIDE_W = 'postman-clone-sidebar-w';
 
 export default function App() {
+  const { t } = useTranslation();
   const [view, setView] = useState<View>('builder');
   // Headless once-mode cho cron hệ thống: ?once=<scheduleId>&close=1
   const [onceId] = useState(() => new URLSearchParams(location.search).get('once'));
@@ -61,6 +64,7 @@ export default function App() {
     return v >= 200 && v <= 600 ? v : 300;
   });
   const [sideOpen, setSideOpen] = useState(true);
+  const isMockRunning = useMockStore((s) => s.isRunning);
   const resizing = useRef(false);
   const sideWRef = useRef(sideW);
   sideWRef.current = sideW;
@@ -89,81 +93,147 @@ export default function App() {
 
   if (onceId) return <OnceScreen id={onceId} />;
   return (
-    <div className="min-h-screen">
-      <header className="border-b border-slate-800 px-4 py-3 flex items-center gap-3">
-        <nav className="flex gap-1 ml-2">
-          {VIEWS.map((v) => (
-            <button
-              key={v.id}
-              onClick={() => setView(v.id)}
-              className={`text-sm rounded px-3 py-1.5 ${view === v.id ? 'bg-emerald-700 font-semibold' : 'bg-slate-800 hover:bg-slate-700'}`}
-            >
-              {v.label}
-            </button>
-          ))}
-        </nav>
-        <div className="flex-1" />
-        <EnvSelector />
-        <CommandPalette />
-      </header>
-      <main className="flex flex-col md:flex-row items-stretch md:items-start px-2 pb-4 pt-3">
-        {sideOpen ? (
-          <aside
-            style={{ width: sideW }}
-            className="shrink-0 md:max-w-[60vw] bg-slate-900/50 border border-slate-800 rounded p-3 h-fit md:max-h-[calc(100vh-90px)] md:overflow-auto"
-          >
+    <div className="h-screen flex flex-col md:flex-row bg-slate-950 dark:bg-[#070c14] text-slate-100 selection:bg-cyan-500/30 selection:text-cyan-200 overflow-hidden p-2 gap-2">
+      {/* Left Column: Sidebar (Open or Collapsed Rail) starting right from the top */}
+      {sideOpen ? (
+        <aside
+          style={{ width: sideW }}
+          className="shrink-0 md:max-w-[60vw] flex flex-col h-full gap-2.5 overflow-hidden"
+        >
+          <div className="flex-1 min-h-0 flex flex-col">
             <Sidebar onCollapse={() => setSideOpen(false)} onGoFlow={() => setView('flow')} />
-          </aside>
-        ) : (
+          </div>
+          <CyberDock activeView={view} onSelectView={(v) => setView(v)} />
+        </aside>
+      ) : (
+        <aside className="shrink-0 w-14 bg-slate-900/95 dark:bg-[#0b141e]/95 border border-teal-500/40 rounded-2xl p-2 flex flex-col items-center gap-2.5 shadow-[0_0_25px_rgba(20,184,166,0.22)] backdrop-blur-xl h-full">
+          {/* N-9: một nút mở rộng duy nhất (trước đây có 2 nút cùng làm một việc) */}
           <button
             onClick={() => setSideOpen(true)}
-            title="Mở collections"
-            className="shrink-0 self-start text-slate-400 hover:text-white bg-slate-900/50 border border-slate-800 hover:border-slate-600 rounded px-2 py-2 text-sm"
+            title={t.header.expandSidebar}
+            aria-label={t.header.expandSidebar}
+            className="w-10 h-10 rounded-xl flex items-center justify-center text-cyan-400 hover:text-cyan-200 hover:bg-teal-950/60 border border-teal-500/30 transition-all shadow-sm"
           >
-            »
+            <svg viewBox="0 0 24 24" className="w-4 h-4 fill-none stroke-current" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+            </svg>
           </button>
-        )}
-        {sideOpen && (
-          <div
-            onMouseDown={() => {
-              resizing.current = true;
-              document.body.style.cursor = 'col-resize';
-            }}
-            title="Kéo để giãn/thu sidebar"
-            className="hidden md:block w-2 shrink-0 cursor-col-resize hover:bg-emerald-700/60 rounded self-stretch my-1"
-          />
-        )}
-        <section className={`flex-1 min-w-0 flex flex-col gap-4 bg-slate-900/50 border border-slate-800 rounded p-4 mt-2 md:mt-0 ${view === 'ai' ? 'md:h-[calc(100vh-90px)] md:overflow-hidden min-h-[70vh]' : ''}`}>
-          <div className={view === 'builder' ? 'flex flex-col gap-4 flex-1 min-w-0' : 'hidden'}>
-            <TabBar />
-            <RequestBar />
-            <RequestTabs />
-            <hr className="border-slate-800" />
-            <ResponseViewer />
+
+          <div className="w-6 h-[1px] bg-teal-500/30 my-0.5" />
+
+          {/* Vertical tool rail icons */}
+          <div className="flex flex-col items-center gap-2">
+            {TOOLS.map((t) => {
+              const isActive = view === t.id;
+              const isMockActive = t.id === 'mock' && isMockRunning;
+              return (
+                <button
+                  key={t.id}
+                  onClick={() => setView(t.id)}
+                  title={`${t.label} — ${t.desc}`}
+                  className={`relative w-10 h-10 rounded-xl flex items-center justify-center transition-all ${
+                    isActive
+                      ? 'bg-teal-950/80 border border-teal-500/60 text-cyan-300 shadow-[0_0_12px_rgba(20,184,166,0.35)] scale-105'
+                      : 'text-slate-400 hover:text-cyan-300 hover:bg-slate-800/60 border border-transparent'
+                  }`}
+                >
+                  {t.renderIcon(isActive)}
+                  {isMockActive && (
+                    <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,1)] animate-pulse" />
+                  )}
+                </button>
+              );
+            })}
           </div>
-          <div className={view === 'runner' ? 'block' : 'hidden'}>
+        </aside>
+      )}
+
+      {/* Resize Bar */}
+      {sideOpen && (
+        <div
+          onMouseDown={() => {
+            resizing.current = true;
+            document.body.style.cursor = 'col-resize';
+          }}
+          title="Kéo để giãn/thu sidebar"
+          className="hidden md:block w-1.5 shrink-0 cursor-col-resize hover:bg-emerald-500/40 rounded-full self-stretch transition-colors"
+        />
+      )}
+
+      {/* Right Column: Top Controls Header + Workspace View */}
+      <div className="flex-1 min-w-0 flex flex-col h-full gap-2 overflow-hidden">
+        {/* Top Header: Capsule Switcher (Builder | Runner | Flow) + Env + Language + ThemeToggle + Palette */}
+        <header className="border border-slate-700/80 dark:border-slate-800/90 px-3.5 py-1.5 flex items-center justify-between gap-3 bg-slate-900/90 dark:bg-[#08101a]/90 backdrop-blur-md rounded-2xl shadow-lg shrink-0">
+          {/* Capsule Switcher (Builder | Runner | Flow) */}
+          <div className="bg-slate-950/80 dark:bg-[#09131d]/90 border border-teal-500/30 p-0.5 rounded-full flex items-center shadow-[0_0_15px_rgba(20,184,166,0.15)] shrink-0">
+            {MAIN_VIEWS.map((v) => {
+              const isActive = view === v.id;
+              return (
+                <button
+                  key={v.id}
+                  onClick={() => setView(v.id)}
+                  className={`relative px-4 sm:px-5 py-1 rounded-full text-xs font-semibold transition-all duration-150 ${
+                    isActive
+                      ? 'bg-emerald-500/20 dark:bg-[#122e30] border border-emerald-500/60 text-emerald-600 dark:text-emerald-300 shadow-[0_0_15px_rgba(16,185,129,0.35)]'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <span>{t.nav[v.key]}</span>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Right: Environment Selector, Language Switcher, Theme Toggle & Command Palette */}
+          <div className="flex items-center gap-2 shrink-0">
+            <EnvSelector />
+            <LanguageSwitcher />
+            <ThemeToggle />
+            <CommandPalette onOpenView={(v) => setView(v as View)} />
+          </div>
+        </header>
+
+        {/* Main Workspace View */}
+        <section className="flex-1 min-w-0 flex flex-col bg-slate-900/50 backdrop-blur-md border border-slate-800/80 rounded-2xl p-4 shadow-2xl shadow-black/40 overflow-hidden">
+          <div className={view === 'builder' ? 'flex flex-col gap-3.5 flex-1 min-h-0 overflow-hidden' : 'hidden'}>
+            <TabBar />
+            {/* Pane request: tự cuộn, không ép TabBar/Response biến mất khi body dài */}
+            <div className="flex flex-col gap-3.5 flex-1 min-h-0 overflow-y-auto pr-0.5">
+              <RequestBar />
+              <RequestTabs />
+            </div>
+            <hr className="border-slate-800/80 shrink-0" />
+            {/* Pane response */}
+            <div className="flex-1 min-h-0 overflow-y-auto pr-0.5">
+              <ResponseViewer />
+            </div>
+          </div>
+          <div className={view === 'runner' ? 'flex-1 min-h-0 overflow-y-auto' : 'hidden'}>
             <Runner />
           </div>
-          <div className={view === 'flow' ? 'block' : 'hidden'}>
+          <div className={view === 'flow' ? 'flex-1 min-h-0 overflow-y-auto' : 'hidden'}>
             <Flow onGoBuilder={() => setView('builder')} />
           </div>
-          <div className={view === 'ws' ? 'block' : 'hidden'}>
+          <div className={view === 'ws' ? 'flex-1 min-h-0 overflow-y-auto' : 'hidden'}>
             <WsTester />
           </div>
-          <div className={view === 'grpc' ? 'block' : 'hidden'}>
+          <div className={view === 'grpc' ? 'flex-1 min-h-0 overflow-y-auto' : 'hidden'}>
             <GrpcTester />
           </div>
           <div className={view === 'mock' ? 'flex flex-col flex-1 min-h-0 h-full' : 'hidden'}>
             <MockServer />
           </div>
-          <div className={view === 'env' ? 'block' : 'hidden'}>
+          <div className={view === 'env' ? 'flex-1 min-h-0 overflow-y-auto' : 'hidden'}>
             <EnvironmentManager />
           </div>
           <div className={view === 'ai' ? 'flex flex-col flex-1 min-h-0 h-full' : 'hidden'}>
             <AiAssistant onGoBuilder={() => setView('builder')} />
           </div>
+          <div className={view === 'cookies' ? 'flex-1 min-h-0 overflow-y-auto' : 'hidden'}>
+            <CookieManager />
+          </div>
         </section>
-      </main>
+      </div>
       {/* Bảng key test mở từ trợ lý AI (hoặc sinh lại tay trong bảng) */}
       <TestCaseDialog />
     </div>

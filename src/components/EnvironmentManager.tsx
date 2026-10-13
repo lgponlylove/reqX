@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useAppStore } from '../stores/app';
+import { useTranslation } from '../stores/language';
 import { countVarRefs } from '../lib/variables';
 import ExtractVarsDialog from './ExtractVarsDialog';
 
@@ -34,6 +35,7 @@ function VarTable({
 }) {
   const requests = useAppStore((s) => s.requests);
   const collections = useAppStore((s) => s.collections);
+  const { t } = useTranslation();
   const [filter, setFilter] = useState('');
   const [newKey, setNewKey] = useState('');
   const [newVal, setNewVal] = useState('');
@@ -59,7 +61,7 @@ function VarTable({
     setEditingKey(null);
     if (!nk || nk === oldKey) return;
     const used = refs[oldKey] ?? 0;
-    if (used > 0 && !confirm(`Đổi tên "${oldKey}" → "${nk}"?\n${used} nơi đang dùng {{${oldKey}}} sẽ được cập nhật theo.`)) return;
+    if (used > 0 && !confirm(t.env.renamePrompt.replace('{oldKey}', oldKey).replace('{newKey}', nk).replace('{used}', String(used)))) return;
     onRename(oldKey, nk);
   }
 
@@ -83,12 +85,12 @@ function VarTable({
     <div className="bg-slate-800/30 rounded-lg p-4 border border-slate-800">
       <div className="flex flex-wrap items-center gap-2 mb-1">
         <h3 className="text-lg font-bold">{title}</h3>
-        <span className="text-xs text-slate-500">{allKeys.length} biến</span>
+        <span className="text-xs text-slate-500">{allKeys.length} {t.env.varsCount}</span>
         <div className="flex-1" />
         {allKeys.length > 6 && (
           <input
             className="w-44 bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs"
-            placeholder="Lọc tên biến…"
+            placeholder={t.env.filterVars}
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
           />
@@ -118,12 +120,12 @@ function VarTable({
               ) : (
                 <button
                   onClick={() => copyRef(k)}
-                  title="Click để copy {{tên_biến}}"
+                  title={t.env.copyVar}
                   className={`w-1/3 font-mono text-sm text-left border border-slate-800 rounded px-2 py-1.5 truncate transition-colors ${
                     copied === k ? `${a.text} bg-slate-800` : 'bg-slate-950 hover:bg-slate-800'
                   }`}
                 >
-                  {copied === k ? 'Đã copy!' : k}
+                  {copied === k ? t.common.copied : k}
                 </button>
               )}
               <div className="relative flex-1">
@@ -131,27 +133,27 @@ function VarTable({
                   type={visible[k] ? 'text' : 'password'}
                   className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1.5 font-mono text-sm pr-8"
                   value={v}
-                  placeholder={isSecret ? '(secret — chỉ tồn tại trong phiên làm việc này)' : 'Giá trị'}
+                  placeholder={isSecret ? t.env.secretPlaceholder : t.env.valuePlaceholder}
                   onChange={(e) => onSet(k, e.target.value)}
                 />
                 <button
                   onClick={() => setVisible((p) => ({ ...p, [k]: !p[k] }))}
                   className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300"
-                  title="Hiện/Ẩn giá trị"
+                  title={t.env.toggleSecret}
                 >
                   {visible[k] ? '🙈' : '👁️'}
                 </button>
               </div>
               <span
                 className="w-8 shrink-0 text-right text-[11px] text-slate-500"
-                title={used ? `${used} request/collection đang dùng biến này` : 'Chưa nơi nào dùng'}
+                title={used ? `${used} refs` : ''}
               >
                 {used ? `${used}×` : ''}
               </span>
               <button
                 onClick={() => onToggleSecret(k, !isSecret)}
                 className={`px-2 py-1 rounded border ${isSecret ? 'bg-amber-900/30 border-amber-700 text-amber-400' : 'border-slate-700 text-slate-500 hover:text-slate-300'}`}
-                title={isSecret ? 'Bỏ đánh dấu secret' : 'Đánh dấu secret (không lưu ra ổ cứng)'}
+                title={isSecret ? 'Secret' : 'Public'}
               >
                 {isSecret ? '🔒 Secret' : '🔓 Public'}
               </button>
@@ -159,15 +161,15 @@ function VarTable({
                 <button
                   onClick={() => { setEditingKey(k); setEditingName(k); }}
                   className="text-slate-400 hover:text-white px-2 py-1 border border-transparent hover:border-slate-600 rounded"
-                  title="Đổi tên biến (tự đồng bộ mọi nơi đang dùng)"
+                  title={t.common.edit}
                 >
                   ✎
                 </button>
               )}
               <button
-                onClick={() => { if (confirm(`Xóa biến "${k}"?`)) onDelete(k); }}
+                onClick={() => { if (confirm(`${t.env.deleteVar} "${k}"?`)) onDelete(k); }}
                 className="text-slate-400 hover:text-red-400 px-2 py-1 border border-transparent hover:border-red-900 rounded"
-                title="Xóa biến"
+                title={t.env.deleteVar}
               >
                 ✕
               </button>
@@ -175,20 +177,20 @@ function VarTable({
           );
         })}
         {allKeys.length > 6 && keys.length === 0 && (
-          <p className="text-sm text-slate-500 italic">Không có biến nào khớp "{filter}".</p>
+          <p className="text-sm text-slate-500 italic">{t.env.noVars}</p>
         )}
 
         <div className="flex gap-2 mt-2 items-center">
           <input
             className={`w-1/3 bg-slate-950 border ${a.ring} rounded px-2 py-1.5 font-mono text-sm`}
-            placeholder="Biến mới..."
+            placeholder={t.env.keyInputPlaceholder}
             value={newKey}
             onChange={(e) => setNewKey(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') add(); }}
           />
           <input
             className={`flex-1 bg-slate-950 border ${a.ring} rounded px-2 py-1.5 font-mono text-sm`}
-            placeholder="Giá trị..."
+            placeholder={t.env.valueInputPlaceholder}
             value={newVal}
             onChange={(e) => setNewVal(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') add(); }}
@@ -198,7 +200,7 @@ function VarTable({
             disabled={!newKey.trim()}
             className={`${a.btn} font-bold rounded px-4 py-1.5 text-sm disabled:opacity-40`}
           >
-            Thêm
+            {t.env.add}
           </button>
         </div>
       </div>
@@ -294,19 +296,21 @@ export default function EnvironmentManager() {
     input.click();
   }
 
+  const { t } = useTranslation();
+
   return (
     <div className="flex flex-col h-full bg-slate-900 border border-slate-800 rounded p-4 overflow-auto">
       <div className="flex justify-between items-center mb-4">
-        <h2 className="text-xl font-bold">🌍 Quản lý Môi trường</h2>
+        <h2 className="text-xl font-bold">🌍 {t.env.manage}</h2>
         <div className="flex gap-2">
-          <button onClick={() => setExtract(true)} className="text-sm px-3 py-1.5 bg-slate-800 hover:bg-slate-700 rounded border border-slate-700 text-amber-400" title="Quét request để tách giá trị lặp lại thành biến môi trường">
-            ⚡ Tạo biến từ request…
+          <button onClick={() => setExtract(true)} className="text-sm px-3 py-1.5 bg-slate-800 hover:bg-slate-700 rounded border border-slate-700 text-amber-400" title="Extract variables from requests">
+            {t.env.extractVars}
           </button>
-          <button onClick={importEnvironments} className="text-sm px-3 py-1.5 bg-slate-800 hover:bg-slate-700 rounded border border-slate-700" title="Nhập biến từ file JSON">
-            ⬆ Nhập
+          <button onClick={importEnvironments} className="text-sm px-3 py-1.5 bg-slate-800 hover:bg-slate-700 rounded border border-slate-700" title="Import from JSON">
+            {t.env.import}
           </button>
-          <button onClick={exportEnvironments} className="text-sm px-3 py-1.5 bg-slate-800 hover:bg-slate-700 rounded border border-slate-700 text-emerald-400" title="Xuất toàn bộ môi trường và Globals ra file (bỏ qua các biến Secret)">
-            ⬇ Xuất (Public)
+          <button onClick={exportEnvironments} className="text-sm px-3 py-1.5 bg-slate-800 hover:bg-slate-700 rounded border border-slate-700 text-emerald-400" title="Export environments (public)">
+            {t.env.export}
           </button>
         </div>
       </div>
@@ -317,7 +321,7 @@ export default function EnvironmentManager() {
           <div className="flex gap-2">
             <input
               className="flex-1 bg-slate-950 border border-slate-700 rounded px-2 py-1.5 text-sm"
-              placeholder="Tên môi trường mới..."
+              placeholder={t.env.newEnvPlaceholder}
               value={newEnv}
               onChange={(e) => setNewEnv(e.target.value)}
               onKeyDown={(e) => {
@@ -331,7 +335,7 @@ export default function EnvironmentManager() {
               onClick={() => { if (newEnv.trim()) { addEnvironment(newEnv.trim()); setNewEnv(''); } }}
               className="bg-emerald-600 hover:bg-emerald-500 font-bold rounded px-3 text-sm"
             >
-              Thêm
+              {t.env.add}
             </button>
           </div>
 
@@ -343,16 +347,16 @@ export default function EnvironmentManager() {
             >
               <button
                 className="flex-1 text-left truncate flex items-center gap-2"
-                title="Biến dùng chung cho mọi môi trường"
+                title={t.env.globalsHint}
                 onClick={() => setManagingGlobals(true)}
               >
                 <span className={managingGlobals ? 'text-sky-400' : 'text-slate-500'}>{managingGlobals ? '●' : '○'}</span>
-                🔑 Dùng chung (Globals)
+                {t.env.globalsTitle}
                 <span className="text-slate-500 text-xs">({globalCount})</span>
               </button>
             </div>
 
-            <p className="text-[11px] uppercase tracking-wide text-slate-600 mt-1">Môi trường</p>
+            <p className="text-[11px] uppercase tracking-wide text-slate-600 mt-1">{t.env.environment}</p>
             {environments.map((e) => (
               <div
                 key={e.id}
@@ -375,7 +379,7 @@ export default function EnvironmentManager() {
                 ) : (
                   <button
                     className="flex-1 text-left truncate flex items-center gap-2"
-                    title="Đặt làm môi trường đang quản lý"
+                    title={e.name}
                     onClick={() => { setActiveEnv(e.id); setManagingGlobals(false); }}
                   >
                     <span className={!managingGlobals && e.id === activeEnvId ? 'text-emerald-400' : 'text-slate-500'}>
@@ -386,24 +390,24 @@ export default function EnvironmentManager() {
                   </button>
                 )}
                 <button
-                  title="Đổi tên"
+                  title={t.env.renameEnv}
                   className="px-1 text-slate-400 hover:text-white"
                   onClick={() => { setEditingId(e.id); setEditingName(e.name); }}
                 >
                   ✎
                 </button>
                 <button
-                  title="Nhân bản"
+                  title={t.env.duplicateEnv}
                   className="px-1 text-slate-400 hover:text-white"
                   onClick={() => duplicateEnvironment(e.id)}
                 >
                   ⧉
                 </button>
                 <button
-                  title="Xóa"
+                  title={t.env.deleteEnv}
                   className="px-1 text-slate-400 hover:text-red-400"
                   onClick={() => {
-                    if (confirm(`Xóa môi trường "${e.name}"?`)) deleteEnvironment(e.id);
+                    if (confirm(t.env.deleteEnvConfirm.replace('{name}', e.name))) deleteEnvironment(e.id);
                   }}
                 >
                   ✕
@@ -411,7 +415,7 @@ export default function EnvironmentManager() {
               </div>
             ))}
             {environments.length === 0 && (
-              <p className="text-sm text-slate-500 italic mt-2 text-center">Chưa có môi trường nào.</p>
+              <p className="text-sm text-slate-500 italic mt-2 text-center">{t.env.noEnvs}</p>
             )}
           </div>
         </div>
@@ -421,8 +425,8 @@ export default function EnvironmentManager() {
           {managingGlobals ? (
             <VarTable
               accent="sky"
-              title={<span>Biến <span className="text-sky-400">dùng chung (Globals)</span></span>}
-              hint="Dùng được ở mọi môi trường, ưu tiên thấp hơn biến của môi trường đang chọn. Tick 🔒 = secret: ẩn giá trị, chỉ giữ trong RAM, tắt app là mất."
+              title={<span><span className="text-sky-400">{t.env.globals}</span></span>}
+              hint={t.env.globalsHint}
               vars={globals}
               secrets={globalSecrets}
               onSet={setGlobal}
@@ -434,8 +438,8 @@ export default function EnvironmentManager() {
           ) : active ? (
             <VarTable
               accent="emerald"
-              title={<span>Biến của môi trường <span className="text-emerald-400">{active.name}</span></span>}
-              hint="Tick 🔒 = secret: ẩn giá trị, chỉ lưu vào bộ nhớ tạm (RAM), không lưu vào ổ cứng, khi tắt app sẽ mất."
+              title={<span>{t.env.environment}: <span className="text-emerald-400">{active.name}</span></span>}
+              hint={t.env.envHint}
               vars={active.variables}
               secrets={envSecrets[active.id] ?? []}
               onSet={(k, v) => setEnvVar(active.id, k, v)}
@@ -446,7 +450,7 @@ export default function EnvironmentManager() {
             />
           ) : (
             <div className="bg-slate-800/30 rounded-lg p-4 border border-slate-800 flex items-center justify-center min-h-[150px]">
-              <p className="text-slate-500">Chọn hoặc tạo một môi trường ở bên trái để quản lý biến.</p>
+              <p className="text-slate-500">{t.env.selectEnvPrompt}</p>
             </div>
           )}
         </div>

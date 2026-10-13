@@ -11,7 +11,10 @@ import ContextMenu, { type MenuItem } from './ContextMenu';
 import CurlImport from './CurlImport';
 import ExtractVarsDialog from './ExtractVarsDialog';
 import ScriptEditorModal from './ScriptEditorModal';
-import type { ApiRequest, Collection, Dir, Folder, HttpMethod } from '../types/api';
+import OpenApiImportModal from './OpenApiImportModal';
+import HistoryDiffModal from './HistoryDiffModal';
+import { useTranslation } from '../stores/language';
+import type { ApiRequest, Collection, Dir, Folder, HttpMethod, HistoryItem } from '../types/api';
 
 /** Component đệ quy render folder tree với nested folders */
 function FolderNode({
@@ -277,6 +280,7 @@ export default function Sidebar({ onCollapse, onGoFlow }: { onCollapse: () => vo
     saveRequest,
     removeHistoryItem, clearHistory, importData,
   } = useAppStore();
+  const { t } = useTranslation();
   const { current, load, markClean, set } = useRequestStore();
   const { flows, requestFlowRun } = useFlowStore();
   const [renamingId, setRenamingId] = useState<string | null>(null);
@@ -287,7 +291,12 @@ export default function Sidebar({ onCollapse, onGoFlow }: { onCollapse: () => vo
   const [renamingFolderText, setRenamingFolderText] = useState('');
   const [dropTarget, setDropTarget] = useState<string | null>(null);
   const [hisQuery, setHisQuery] = useState('');
+  const [hisStatusFilter, setHisStatusFilter] = useState<'all' | '2xx' | '4xx' | '5xx'>('all');
+  const [hisTimeFilter, setHisTimeFilter] = useState<'all' | '1h' | 'today'>('all');
+  const [selectedForDiff, setSelectedForDiff] = useState<string[]>([]);
+  const [diffModalItems, setDiffModalItems] = useState<[HistoryItem, HistoryItem] | null>(null);
   const [showCurl, setShowCurl] = useState(false);
+  const [showOpenApi, setShowOpenApi] = useState(false);
   /** Tab sidebar: collections hoặc lịch sử (lịch sử ẩn đi cho gọn) */
   const [sideTab, setSideTab] = useState<'col' | 'his'>('col');
   const [pendingImport, setPendingImport] = useState<{ collection: Collection; reqs: ApiRequest[] } | null>(null);
@@ -1131,77 +1140,102 @@ export default function Sidebar({ onCollapse, onGoFlow }: { onCollapse: () => vo
   const [toolMenu, setToolMenu] = useState<{ x: number; y: number } | null>(null);
 
   const toolMenuItems: MenuItem[] = [
-    { label: '📁 Xem collections', onClick: () => setSideTab('col') },
-    { label: '＋ Collection mới', onClick: () => quickAddCollection() },
-    { label: '＋ Thư mục mới (gốc)', onClick: () => { setDirName(''); setAddingDir({ parentId: null }); setSideTab('col'); } },
-    { label: '⤓ Import file JSON', onClick: () => fileRef.current?.click() },
-    { label: '📦 Import từ Postman (nhiều file)', onClick: () => postmanFileRef.current?.click() },
-    { label: '📤 Xuất TẤT CẢ collections', onClick: () => exportAll() },
-    { label: '📁 Export to Git Workspace', onClick: () => exportToGitWorkspace() },
-    { label: '🔄 Import từ Git Workspace', onClick: () => importFromGitWorkspace() },
-    { label: '💾 Backup full (collections + flows)', onClick: () => exportBackup() },
-    { label: '＞_ Import từ curl', onClick: () => setShowCurl(true) },
+    { label: t.sidebar.viewCollections, onClick: () => setSideTab('col') },
+    { label: t.sidebar.addCollection, onClick: () => quickAddCollection() },
+    { label: t.sidebar.addFolder, onClick: () => { setDirName(''); setAddingDir({ parentId: null }); setSideTab('col'); } },
+    { label: t.sidebar.importJson, onClick: () => fileRef.current?.click() },
+    { label: t.sidebar.importSwagger, onClick: () => setShowOpenApi(true) },
+    { label: t.sidebar.importPostman, onClick: () => postmanFileRef.current?.click() },
+    { label: t.sidebar.exportAll, onClick: () => exportAll() },
+    { label: t.sidebar.exportGit, onClick: () => exportToGitWorkspace() },
+    { label: t.sidebar.importGit, onClick: () => importFromGitWorkspace() },
+    { label: t.sidebar.backupFull, onClick: () => exportBackup() },
+    { label: t.sidebar.importCurl, onClick: () => setShowCurl(true) },
   ];
 
   return (
-    <div className="flex flex-col gap-2 text-sm">
-      {/* Tiêu đề + icon 📁/🕘 + thu gọn: gộp 1 dòng */}
-      <div className="flex items-center gap-1">
-        <span className="text-xs font-semibold tracking-wide text-slate-400">COLLECTIONS</span>
-        <input
-          ref={fileRef} type="file" accept=".json" multiple className="hidden"
-          onChange={(e) => { if (e.target.files?.length) onImportFiles(e.target.files); e.target.value = ''; }}
-        />
-        <input
-          ref={postmanFileRef} type="file" accept=".json,.zip" multiple className="hidden"
-          onChange={async (e) => {
-            if (!e.target.files?.length) { e.target.value = ''; return; }
-            const files = Array.from(e.target.files);
-            const agg: AnyImportResult = { collections: [], flows: [], info: [], warnings: [], errors: [] };
-            for (const file of files) {
-              try {
-                const r = importAnyJson(JSON.parse(await file.text()), file.name);
-                agg.collections.push(...r.collections);
-                agg.flows.push(...r.flows);
-                agg.info.push(...r.info);
-                agg.warnings.push(...r.warnings);
-                agg.errors.push(...r.errors);
-              } catch (err) {
-                agg.errors.push(`${file.name}: ${err instanceof Error ? err.message : String(err)}`);
-              }
+    <div className="flex flex-col flex-1 min-h-0 text-sm">
+      <input
+        ref={fileRef} type="file" accept=".json" multiple className="hidden"
+        onChange={(e) => { if (e.target.files?.length) onImportFiles(e.target.files); e.target.value = ''; }}
+      />
+      <input
+        ref={postmanFileRef} type="file" accept=".json,.zip" multiple className="hidden"
+        onChange={async (e) => {
+          if (!e.target.files?.length) { e.target.value = ''; return; }
+          const files = Array.from(e.target.files);
+          const agg: AnyImportResult = { collections: [], flows: [], info: [], warnings: [], errors: [] };
+          for (const file of files) {
+            try {
+              const r = importAnyJson(JSON.parse(await file.text()), file.name);
+              agg.collections.push(...r.collections);
+              agg.flows.push(...r.flows);
+              agg.info.push(...r.info);
+              agg.warnings.push(...r.warnings);
+              agg.errors.push(...r.errors);
+            } catch (err) {
+              agg.errors.push(`${file.name}: ${err instanceof Error ? err.message : String(err)}`);
             }
-            alert(summarizeImport(agg));
-            e.target.value = '';
-          }}
-        />
-        <div className="flex-1" />
-        <button
-          onClick={(e) => setToolMenu({ x: e.clientX, y: e.clientY })}
-          title="Collections — bấm để mở menu (mới / import / curl)"
-          className={`rounded px-2 py-1.5 text-xs ${sideTab === 'col' ? 'bg-slate-700 font-bold' : 'text-slate-400 hover:bg-slate-800'}`}
-        >
-          📁 ▾
-        </button>
-        <button
-          onClick={() => setSideTab('his')}
-          title={`Lịch sử (${history.length})`}
-          className={`rounded px-2 py-1.5 text-xs ${sideTab === 'his' ? 'bg-slate-700 font-bold' : 'text-slate-400 hover:bg-slate-800'}`}
-        >
-          🕘{history.length > 0 && <span className="ml-0.5">{history.length}</span>}
-        </button>
-        <button
-          onClick={onCollapse}
-          title="Thu gọn sidebar"
-          className="text-slate-400 hover:text-white bg-slate-800 hover:bg-slate-700 rounded px-1.5 py-1.5 text-xs"
-        >
-          «
-        </button>
-      </div>
-      {toolMenu && (
-        <ContextMenu x={toolMenu.x} y={toolMenu.y} items={toolMenuItems} onClose={() => setToolMenu(null)} />
-      )}
+          }
+          alert(summarizeImport(agg));
+          e.target.value = '';
+        }}
+      />
 
-      {pendingImport && (
+      {/* PROJECT Section Card (Cyber Glassmorphism Container) */}
+      <div className="bg-slate-900/95 dark:bg-[#0b141e]/95 border border-teal-500/40 rounded-2xl p-2.5 shadow-[0_0_25px_rgba(20,184,166,0.22)] backdrop-blur-xl flex flex-col flex-1 min-h-0">
+        {/* Header Row matching Cyber style: PROJECT, Count, History, Gear, 3-dots, Collapse */}
+        <div className="flex items-center justify-between pb-2 mb-2 border-b border-teal-500/20 shrink-0">
+          <div className="flex items-center gap-2">
+            <span className="text-cyan-400 drop-shadow-[0_0_8px_rgba(6,182,212,0.8)]">
+              <svg viewBox="0 0 24 24" className="w-4 h-4 fill-none stroke-current" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+              </svg>
+            </span>
+            <span className="font-extrabold text-xs tracking-wider uppercase font-mono text-cyan-300 drop-shadow-[0_0_6px_rgba(6,182,212,0.5)]">
+              {t.sidebar.project}
+            </span>
+            <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-teal-950/80 border border-teal-500/30 text-teal-300 font-mono">
+              {collections.length}
+            </span>
+          </div>
+
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => setSideTab((t) => (t === 'col' ? 'his' : 'col'))}
+              title={sideTab === 'col' ? `${t.sidebar.viewHistory} (${history.length})` : t.sidebar.viewCollections}
+              className="text-[11px] text-slate-400 hover:text-cyan-300 px-1 py-0.5 rounded hover:bg-slate-800/60 transition-colors"
+            >
+              {sideTab === 'col' ? `🕘 ${history.length}` : '📁'}
+            </button>
+            <button
+              onClick={(e) => setToolMenu({ x: e.clientX, y: e.clientY })}
+              title={t.sidebar.workspaceOptions}
+              className="text-slate-400 hover:text-cyan-300 p-1 rounded hover:bg-slate-800/60 transition-colors text-xs"
+            >
+              ⚙
+            </button>
+            <button
+              onClick={(e) => setToolMenu({ x: e.clientX, y: e.clientY })}
+              title={t.sidebar.moreOptions}
+              className="text-slate-400 hover:text-white px-1.5 py-0.5 rounded hover:bg-slate-800/60 font-bold text-xs"
+            >
+              •••
+            </button>
+            <button
+              onClick={onCollapse}
+              title={t.header.collapseSidebar}
+              className="text-slate-400 hover:text-emerald-400 text-xs px-1 py-0.5 rounded hover:bg-slate-800/60 transition-colors ml-0.5"
+            >
+              «
+            </button>
+          </div>
+        </div>
+
+        {/* Scrollable Tree / Content inside PROJECT Card */}
+        <div className="overflow-y-auto flex-1 min-h-0 pr-0.5 flex flex-col gap-1.5">
+
+        {pendingImport && (
         <div className="bg-emerald-950/50 border border-emerald-800 rounded p-2 text-xs">
           <p className="mb-1">
             Nhập <b>{pendingImport.collection.name}</b> ({pendingImport.reqs.length} requests) vào:
@@ -1230,16 +1264,16 @@ export default function Sidebar({ onCollapse, onGoFlow }: { onCollapse: () => vo
       {sideTab === 'col' && (
       <div>
         <div className="flex items-center justify-between mb-1">
-          <h3 className="font-semibold">Collections ({collections.length})</h3>
+          <h3 className="font-semibold text-xs text-slate-300">{t.sidebar.collections} ({collections.length})</h3>
           <div className="flex gap-1 text-xs">
-            <button onClick={() => setAllCols(true)} title="Mở hết collections" className="text-slate-400 hover:text-white px-1">Mở hết</button>
-            <button onClick={() => setAllCols(false)} title="Thu hết collections" className="text-slate-400 hover:text-white px-1">Thu hết</button>
+            <button onClick={() => setAllCols(true)} title={t.sidebar.openAll} className="text-slate-400 hover:text-white px-1 text-[11px]">{t.sidebar.openAll}</button>
+            <button onClick={() => setAllCols(false)} title={t.sidebar.closeAll} className="text-slate-400 hover:text-white px-1 text-[11px]">{t.sidebar.closeAll}</button>
             <button
               onClick={toggleCompact}
-              title={compact ? 'Đang gọn — bấm để về cỡ rộng' : 'Đang rộng — bấm để gọn lại, hiện được nhiều hơn'}
-              className={`rounded px-1.5 py-0.5 ${compact ? 'bg-slate-700 font-bold' : 'text-slate-400 hover:bg-slate-800'}`}
+              title={compact ? t.common.compactActive : t.common.compact}
+              className={`rounded px-1.5 py-0.5 text-[11px] ${compact ? 'bg-slate-700 font-bold text-white' : 'text-slate-400 hover:bg-slate-800'}`}
             >
-              {compact ? 'Gọn ✓' : 'Gọn'}
+              {compact ? t.common.compactActive : t.common.compact}
             </button>
           </div>
         </div>
@@ -1474,55 +1508,211 @@ export default function Sidebar({ onCollapse, onGoFlow }: { onCollapse: () => vo
       )}
 
       {sideTab === 'his' && (
-      <div>
-        <div className="flex justify-between items-center mb-1">
-          <h3 className="font-semibold">Lịch sử ({history.length})</h3>
-          {history.length > 0 && (
-            <button onClick={clearHistory} className="text-xs text-slate-400 hover:text-red-300">
-              Xóa hết
-            </button>
-          )}
-        </div>
-        {history.length > 5 && (
-          <input
-            className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs mb-1"
-            placeholder="Tìm lịch sử (method, url, status)..."
-            value={hisQuery}
-            onChange={(e) => setHisQuery(e.target.value)}
-          />
-        )}
-        {history
-          .filter((h) => {
-            const q = hisQuery.trim().toLowerCase();
-            if (!q) return true;
-            return (
-              h.request.method.toLowerCase().includes(q) ||
-              h.request.url.toLowerCase().includes(q) ||
-              String(h.responseStatus).includes(q)
-            );
-          })
-          .slice(0, 20)
-          .map((h) => (
-            <div
-              key={h.id}
-              className="group flex items-center rounded hover:bg-slate-800"
-            >
+      <div className="flex flex-col gap-2">
+        <div className="flex justify-between items-center mb-0.5">
+          <h3 className="font-semibold text-xs text-slate-200">Lịch sử ({history.length})</h3>
+          <div className="flex items-center gap-1.5">
+            {selectedForDiff.length === 2 && (
               <button
-                onClick={() => load(h.request)}
-                className="flex-1 min-w-0 text-left px-2 py-1 font-mono text-xs text-slate-300 truncate"
+                type="button"
+                onClick={() => {
+                  const itemA = history.find((h) => h.id === selectedForDiff[0]);
+                  const itemB = history.find((h) => h.id === selectedForDiff[1]);
+                  if (itemA && itemB) {
+                    setDiffModalItems([itemA, itemB]);
+                  }
+                }}
+                className="px-2 py-0.5 rounded bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-bold shadow flex items-center gap-1 transition-all animate-pulse"
+                title="So sánh Response & Request giữa 2 lần chạy đã chọn"
               >
-                <span className="text-sky-300 font-bold">{h.responseStatus}</span> {h.request.method} {h.request.url.slice(0, 50)}
+                <span>⚖️</span>
+                <span>So sánh Diff (2)</span>
               </button>
+            )}
+            {selectedForDiff.length > 0 && selectedForDiff.length !== 2 && (
+              <span className="text-[10px] text-amber-400 font-mono">
+                Chọn {2 - selectedForDiff.length} mục nữa
+              </span>
+            )}
+            {history.length > 0 && (
+              <button onClick={clearHistory} className="text-[11px] text-slate-400 hover:text-red-300">
+                Xóa hết
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Search Input */}
+        {history.length > 0 && (
+          <div className="relative">
+            <input
+              className="w-full bg-slate-900 border border-slate-700/80 rounded px-2.5 py-1 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+              placeholder="Tìm theo URL, method, status..."
+              value={hisQuery}
+              onChange={(e) => setHisQuery(e.target.value)}
+            />
+            {hisQuery && (
               <button
-                title="Xóa dòng này"
-                onClick={() => removeHistoryItem(h.id)}
-                className="px-2 text-slate-600 group-hover:text-slate-400 hover:!text-red-300 text-xs"
+                onClick={() => setHisQuery('')}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-slate-500 hover:text-slate-300"
               >
                 ✕
               </button>
-            </div>
-          ))}
+            )}
+          </div>
+        )}
+
+        {/* Status Filter Pills */}
+        {history.length > 0 && (
+          <div className="flex items-center gap-1 text-[10px] flex-wrap">
+            <span className="text-slate-500 mr-0.5">Status:</span>
+            {(['all', '2xx', '4xx', '5xx'] as const).map((st) => (
+              <button
+                key={st}
+                type="button"
+                onClick={() => setHisStatusFilter(st)}
+                className={`px-1.5 py-0.5 rounded font-mono transition-colors ${
+                  hisStatusFilter === st
+                    ? 'bg-emerald-600 text-white font-bold'
+                    : 'bg-slate-900 text-slate-400 hover:bg-slate-800'
+                }`}
+              >
+                {st.toUpperCase()}
+              </button>
+            ))}
+
+            <span className="text-slate-500 ml-1.5 mr-0.5">Thời gian:</span>
+            {(
+              [
+                ['all', 'Tất cả'],
+                ['1h', '1h'],
+                ['today', 'Hôm nay'],
+              ] as const
+            ).map(([tKey, tLabel]) => (
+              <button
+                key={tKey}
+                type="button"
+                onClick={() => setHisTimeFilter(tKey)}
+                className={`px-1.5 py-0.5 rounded transition-colors ${
+                  hisTimeFilter === tKey
+                    ? 'bg-slate-700 text-white font-semibold'
+                    : 'bg-slate-900 text-slate-400 hover:bg-slate-800'
+                }`}
+              >
+                {tLabel}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* History Item List */}
+        <div className="flex flex-col gap-1 max-h-[calc(100vh-280px)] overflow-y-auto pr-0.5">
+          {history
+            .filter((h) => {
+              // 1. Text Query Filter
+              const q = hisQuery.trim().toLowerCase();
+              if (q) {
+                const matchQuery =
+                  h.request.method.toLowerCase().includes(q) ||
+                  h.request.url.toLowerCase().includes(q) ||
+                  String(h.responseStatus).includes(q);
+                if (!matchQuery) return false;
+              }
+
+              // 2. Status Filter
+              if (hisStatusFilter === '2xx' && (h.responseStatus < 200 || h.responseStatus >= 300)) return false;
+              if (hisStatusFilter === '4xx' && (h.responseStatus < 400 || h.responseStatus >= 500)) return false;
+              if (hisStatusFilter === '5xx' && (h.responseStatus < 500 || h.responseStatus >= 600)) return false;
+
+              // 3. Time Filter
+              const now = Date.now();
+              if (hisTimeFilter === '1h' && now - h.createdAt > 3600 * 1000) return false;
+              if (hisTimeFilter === 'today') {
+                const startOfToday = new Date().setHours(0, 0, 0, 0);
+                if (h.createdAt < startOfToday) return false;
+              }
+
+              return true;
+            })
+            .slice(0, 50)
+            .map((h) => {
+              const isChecked = selectedForDiff.includes(h.id);
+              const statusColor =
+                h.responseStatus >= 200 && h.responseStatus < 300
+                  ? 'text-emerald-400'
+                  : h.responseStatus >= 300 && h.responseStatus < 400
+                  ? 'text-sky-400'
+                  : h.responseStatus >= 400 && h.responseStatus < 500
+                  ? 'text-amber-400'
+                  : 'text-rose-400';
+
+              return (
+                <div
+                  key={h.id}
+                  className={`group flex items-center gap-1.5 rounded p-1 transition-colors ${
+                    isChecked ? 'bg-emerald-950/40 border border-emerald-800/60' : 'hover:bg-slate-800/80 border border-transparent'
+                  }`}
+                >
+                  {/* Diff Checkbox */}
+                  <input
+                    type="checkbox"
+                    checked={isChecked}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setSelectedForDiff((prev) =>
+                          prev.length >= 2 ? [prev[1], h.id] : [...prev, h.id]
+                        );
+                      } else {
+                        setSelectedForDiff((prev) => prev.filter((id) => id !== h.id));
+                      }
+                    }}
+                    title="Chọn để so sánh Diff"
+                    className="rounded border-slate-700 text-emerald-500 focus:ring-0 cursor-pointer h-3.5 w-3.5"
+                  />
+
+                  <button
+                    onClick={() => load(h.request)}
+                    className="flex-1 min-w-0 text-left font-mono text-xs text-slate-300 truncate"
+                    title={`${h.request.method} ${h.request.url}\nStatus: ${h.responseStatus}\nTime: ${new Date(h.createdAt).toLocaleTimeString()}`}
+                  >
+                    <span className={`font-bold mr-1 ${statusColor}`}>{h.responseStatus}</span>
+                    <span className="font-bold text-slate-400 mr-1">{h.request.method}</span>
+                    <span className="truncate">{h.request.url}</span>
+                  </button>
+
+                  <span className="text-[10px] text-slate-500 font-mono shrink-0">
+                    {h.timeMs}ms
+                  </span>
+
+                  <button
+                    title="Xóa dòng này"
+                    onClick={() => {
+                      removeHistoryItem(h.id);
+                      setSelectedForDiff((prev) => prev.filter((id) => id !== h.id));
+                    }}
+                    className="px-1 text-slate-600 group-hover:text-slate-400 hover:!text-red-300 text-xs shrink-0"
+                  >
+                    ✕
+                  </button>
+                </div>
+              );
+            })}
+        </div>
       </div>
+      )}
+        </div>
+      </div>
+
+      {diffModalItems && (
+        <HistoryDiffModal
+          itemA={diffModalItems[0]}
+          itemB={diffModalItems[1]}
+          onClose={() => setDiffModalItems(null)}
+        />
+      )}
+
+      {toolMenu && (
+        <ContextMenu x={toolMenu.x} y={toolMenu.y} items={toolMenuItems} onClose={() => setToolMenu(null)} />
       )}
       {menu && (
         <ContextMenu x={menu.x} y={menu.y} items={menuItems()} onClose={() => setMenu(null)} />
@@ -1576,6 +1766,7 @@ export default function Sidebar({ onCollapse, onGoFlow }: { onCollapse: () => vo
           />
         );
       })()}
+      {showOpenApi && <OpenApiImportModal onClose={() => setShowOpenApi(false)} />}
     </div>
   );
 }

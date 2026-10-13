@@ -17,6 +17,11 @@ if errorlevel 1 (
 )
 
 echo.
-echo [2/2] Chay app...
+echo [2/3] Tu dong tao ReqX-Portable.zip (de gui cho nguoi khac)...
+"C:\Users\Phat\AppData\Local\Python\bin\python.exe" -c "import zipfile; from pathlib import Path; r = Path(r'src-tauri/target/x86_64-pc-windows-gnu/release'); zpath = Path('ReqX-Portable.zip'); z = zipfile.ZipFile(zpath, 'w', zipfile.ZIP_DEFLATED); [z.write(r/f, f) for f in ['reqx.exe', 'WebView2Loader.dll'] if (r/f).exists()];"
+echo -> File chia se: D:\AI\postman-clone\ReqX-Portable.zip
+
+echo.
+echo [3/3] Chay app...
 start "" "D:\AI\postman-clone\src-tauri\target\x86_64-pc-windows-gnu\release\reqx.exe"
 echo XONG - cua so "ReqX" se mo.

@@ -10,7 +10,7 @@ interface Props {
   onMissing?: (names: string[]) => void;
 }
 
-const VAR_RE = /\{\{\s*([\w.-]+)\s*\}\}/g;
+const VAR_RE = /\{\{\s*([\w.-]+)\s*\}\}|\{([a-zA-Z_]\w*)\}/g;
 
 /** Input 1 dòng highlight {{var}}: có → xanh, thiếu → đỏ gạch chân + tự động gợi ý biến. */
 export default function VarHighlightInput({ value, onChange, placeholder, hasVar }: Props) {
@@ -69,20 +69,24 @@ export default function VarHighlightInput({ value, onChange, placeholder, hasVar
     };
   }, []);
 
-  // Tách value thành đoạn thường / biến
-  const parts: { text: string; name: string | null }[] = [];
+  // Tách value thành đoạn thường / biến / param
+  const parts: { text: string; name: string | null; isParam?: boolean }[] = [];
   let last = 0;
   let m: RegExpExecArray | null;
   VAR_RE.lastIndex = 0;
   while ((m = VAR_RE.exec(value)) !== null) {
     if (m.index > last) parts.push({ text: value.slice(last, m.index), name: null });
-    parts.push({ text: m[0], name: m[1] });
+    if (m[1]) {
+      parts.push({ text: m[0], name: m[1], isParam: false });
+    } else if (m[2]) {
+      parts.push({ text: m[0], name: m[2], isParam: true });
+    }
     last = m.index + m[0].length;
   }
   if (last < value.length) parts.push({ text: value.slice(last), name: null });
 
   return (
-    <div className="relative flex-1 min-w-0 bg-slate-900 border border-slate-700 rounded">
+    <div className="relative flex-1 min-w-0 bg-transparent">
       <div
         ref={backRef}
         aria-hidden
@@ -94,6 +98,10 @@ export default function VarHighlightInput({ value, onChange, placeholder, hasVar
           parts.map((p, i) =>
             p.name === null ? (
               <span key={i}>{p.text}</span>
+            ) : p.isParam ? (
+              <span key={i} className="text-amber-300 font-semibold drop-shadow-[0_0_8px_rgba(252,211,77,0.4)]">
+                {p.text}
+              </span>
             ) : (
               <span
                 key={i}

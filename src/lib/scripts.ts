@@ -2,6 +2,7 @@ import type { ApiRequest, ApiResponse, Collection, KeyValue } from '../types/api
 import { sendRequest } from './http-client';
 import { scriptChainFor } from './script-chain';
 import { uid } from './variables';
+import { validateJsonSchema } from './json-schema';
 
 export interface TestResult {
   name: string;
@@ -49,6 +50,12 @@ function makeExpect(actual: unknown) {
           typeof actual === 'string' && actual.includes(sub),
           `expected ${fmt(actual)} to include ${fmt(sub)}`,
         ),
+      matchSchema: (schema: any) => {
+        const res = validateJsonSchema(actual, schema);
+        if (!res.valid) {
+          throw new Error(`JSON Schema assertion failed: ${res.errors.join('; ')}`);
+        }
+      },
       be: {
         get true() {
           assert(actual === true, `expected ${fmt(actual)} to be true`);
@@ -74,6 +81,12 @@ function makeExpect(actual: unknown) {
       have: {
         status: (n: number) =>
           assert(actual === n, `expected status ${fmt(actual)} to equal ${n}`),
+        jsonSchema: (schema: any) => {
+          const res = validateJsonSchema(actual, schema);
+          if (!res.valid) {
+            throw new Error(`JSON Schema assertion failed: ${res.errors.join('; ')}`);
+          }
+        },
       },
     },
   };
@@ -332,6 +345,34 @@ export async function runTests(
           }
           return jsonCache;
         },
+        to: {
+          have: {
+            status: (expectedStatus: number) => {
+              if (res.status !== expectedStatus) {
+                throw new Error(`expected response status ${res.status} to equal ${expectedStatus}`);
+              }
+            },
+            jsonSchema: (schema: any) => {
+              let parsed = jsonCache;
+              if (!jsonTried) {
+                jsonTried = true;
+                parsed = JSON.parse(res.body);
+                jsonCache = parsed;
+              }
+              const val = validateJsonSchema(parsed, schema);
+              if (!val.valid) {
+                throw new Error(`JSON Schema assertion failed: ${val.errors.join('; ')}`);
+              }
+            },
+          },
+          be: {
+            success: () => {
+              if (res.status < 200 || res.status >= 300) {
+                throw new Error(`expected response status ${res.status} to be 2xx`);
+              }
+            },
+          },
+        },
       },
     };
     const fn = new AsyncFn('pm', 'console', `"use strict";\n${code}`);
@@ -413,6 +454,22 @@ export function untrustedScriptRequests(reqs: ApiRequest[], collections?: Collec
 }
 
 /**
+ * Cổng duyệt script không rõ nguồn gốc. Mặc định là hộp thoại confirm của UI;
+ * Node/CLI không có confirm → setScriptGate() để quyết định theo cờ --allow-scripts.
+ * Trả về false = KHÔNG chạy script (an toàn mặc định).
+ */
+export type ScriptGate = (message: string, untrusted: ApiRequest[]) => boolean;
+
+const uiScriptGate: ScriptGate = (message) =>
+  typeof confirm === 'function' ? confirm(message) : false;
+
+let scriptGate: ScriptGate = uiScriptGate;
+
+export function setScriptGate(gate?: ScriptGate | null): void {
+  scriptGate = gate ?? uiScriptGate;
+}
+
+/**
  * Hộp thoại cảnh báo trước khi chạy Flow/Runner. Trả về true = chạy tiếp.
  * Gọi ở UI tương tác (Flow, Runner) — KHÔNG gọi ở Scheduler headless (confirm treo app).
  */
@@ -428,9 +485,10 @@ export function confirmUntrustedScripts(reqs: ApiRequest[], where: string, colle
       return `- ${r.name || r.url} (${kinds.join(' + ')})`;
     })
     .join('\n');
-  return confirm(
+  return scriptGate(
     `⚠ “${where}” chứa script từ file import (chưa rõ nguồn gốc):\n${lines}\n\n` +
       `Script chạy được trong app — chỉ bấm OK nếu bạn tin nguồn file này.\n` +
       `(Mở request → bấm Lưu = đánh dấu đã xem, lần sau không hỏi nữa.)\n\nChạy tiếp?`,
+    bad,
   );
 }

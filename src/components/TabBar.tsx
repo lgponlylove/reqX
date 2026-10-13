@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { useRequestStore } from '../stores/request';
 import { useAppStore } from '../stores/app';
+import { useTranslation } from '../stores/language';
 import type { HttpMethod } from '../types/api';
 
 const METHOD_COLOR: Record<HttpMethod, string> = {
@@ -14,6 +15,7 @@ const METHOD_COLOR: Record<HttpMethod, string> = {
 };
 
 export default function TabBar() {
+  const { t: i18n } = useTranslation();
   const { tabs, activeId, setActiveTab, closeTab, openTab } = useRequestStore();
   const reqId = useRequestStore((s) => s.current.id);
 
@@ -35,41 +37,54 @@ export default function TabBar() {
   };
 
   return (
-    <div className="flex items-center gap-1 overflow-x-auto">
-      <div className="flex gap-1 overflow-x-auto">
-        {tabs.map((t) => (
-          <div
-            key={t.id}
-            className={`flex items-center gap-1.5 pl-2.5 pr-1.5 py-1.5 rounded-t text-xs whitespace-nowrap border-b-2 ${
-              t.id === activeId
-                ? 'bg-slate-800 border-emerald-500 font-semibold'
-                : 'bg-slate-900/60 border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
-            }`}
-          >
-            <button onClick={() => setActiveTab(t.id)} className="flex items-center gap-1.5 min-w-0">
-              <span className={`font-mono font-bold ${METHOD_COLOR[t.request.method]}`}>
-                {t.request.method}
-              </span>
-              <span className="max-w-32 truncate">{t.request.name}</span>
-              {t.dirty && <span className="text-amber-400" title="Chưa lưu">•</span>}
-            </button>
-            <button
-              onClick={() => doClose(t.id)}
-              title="Đóng tab"
-              className="px-1 rounded text-slate-500 hover:text-red-300 hover:bg-slate-700"
+    <div className="flex items-center justify-between gap-2 pb-1 mb-2 border-b border-slate-800/80 shrink-0">
+      <div className="flex items-center gap-1.5 overflow-x-auto min-w-0 flex-1 py-0.5">
+        {tabs.map((t) => {
+          const isActive = t.id === activeId;
+          return (
+            <div
+              key={t.id}
+              className={`group shrink-0 flex items-center gap-2 px-3 py-1.5 rounded-t-lg text-xs whitespace-nowrap transition-all border ${
+                isActive
+                  ? 'bg-slate-900 dark:bg-[#111c26] border-emerald-500/50 border-b-slate-900 dark:border-b-[#111c26] text-slate-100 font-medium shadow-[0_0_12px_rgba(16,185,129,0.15)]'
+                  : 'bg-slate-950/60 dark:bg-[#0b131c]/60 border-slate-700/60 dark:border-slate-800 text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 dark:hover:bg-[#0e1722]'
+              }`}
             >
-              ✕
-            </button>
-          </div>
-        ))}
+              <button onClick={() => setActiveTab(t.id)} className="flex items-center gap-1.5 min-w-0">
+                <span className={`font-mono text-[11px] font-bold ${METHOD_COLOR[t.request.method]}`}>
+                  {t.request.method}
+                </span>
+                <span className="max-w-40 truncate">{t.request.name}</span>
+                {t.dirty && <span className="text-amber-400 font-bold" title={i18n.tabs.unsaved}>•</span>}
+              </button>
+              <button
+                onClick={() => doClose(t.id)}
+                title={i18n.tabs.closeTab}
+                className="w-4 h-4 rounded-full flex items-center justify-center text-slate-500 hover:text-rose-400 transition-colors text-[10px]"
+              >
+                ✕
+              </button>
+            </div>
+          );
+        })}
+        <button
+          onClick={() => openTab()}
+          title={i18n.tabs.newTab}
+          className="w-6 h-6 shrink-0 rounded-md hover:bg-slate-800 text-slate-400 hover:text-white flex items-center justify-center text-sm transition-colors"
+        >
+          ＋
+        </button>
       </div>
-      <button
-        onClick={() => openTab()}
-        title="Mở tab mới"
-        className="shrink-0 px-2 py-1 text-slate-400 hover:text-white hover:bg-slate-800 rounded"
-      >
-        +
-      </button>
+
+      {/* Right Tab Utilities (Split view & Options) */}
+      <div className="flex items-center gap-2 text-slate-400 shrink-0 pr-1">
+        <button title={i18n.tabs.splitView} className="hover:text-white text-xs p-1 rounded hover:bg-slate-800">
+          ❐
+        </button>
+        <button title={i18n.tabs.tabOptions} className="hover:text-white text-xs p-1 rounded hover:bg-slate-800 font-bold">
+          •••
+        </button>
+      </div>
     </div>
   );
 }

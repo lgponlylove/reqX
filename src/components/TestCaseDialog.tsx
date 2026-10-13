@@ -101,6 +101,39 @@ export default function TestCaseDialog() {
     }
   }
 
+  async function exportHtml() {
+    if (!base) return;
+    setBusy(true);
+    try {
+      const { generateKeyTestHtmlReport } = await import('../lib/reporter');
+      const htmlContent = generateKeyTestHtmlReport({
+        baseRequest: base,
+        cases,
+        results,
+      });
+      const d = new Date();
+      const pad = (n: number) => String(n).padStart(2, '0');
+      const slug = base.name.replace(/[^\w.-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'request';
+      const fname = `reqx-keytest-report-${slug}-${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}.html`;
+
+      const saved = await saveExportBesideApp(fname, htmlContent);
+      if (saved) {
+        setExported(saved.path);
+        return;
+      }
+      const url = URL.createObjectURL(new Blob([htmlContent], { type: 'text/html;charset=utf-8' }));
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = fname;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setExported(`${fname} (thư mục Downloads)`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <div
       className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4"
@@ -283,10 +316,19 @@ export default function TestCaseDialog() {
               <button
                 onClick={() => void exportCsv()}
                 disabled={busy || cases.length === 0}
-                className="bg-sky-800 hover:bg-sky-700 disabled:opacity-40 rounded px-3 py-1.5 text-xs font-bold"
+                className="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 disabled:opacity-40 rounded px-3 py-1.5 text-xs font-bold"
                 title="Xuất file CSV (có BOM) — mở trực tiếp bằng Excel"
               >
-                ⬇ Xuất Excel (CSV)
+                ⬇ Xuất CSV
+              </button>
+              <button
+                onClick={() => void exportHtml()}
+                disabled={busy || cases.length === 0}
+                className="bg-gradient-to-r from-violet-700 to-purple-600 hover:from-violet-600 hover:to-purple-500 text-white shadow-md shadow-violet-900/40 disabled:opacity-40 rounded px-3 py-1.5 text-xs font-bold flex items-center gap-1"
+                title="Xuất Báo Cáo HTML trực quan (kèm biểu đồ, mở ngay trên trình duyệt)"
+              >
+                <span>📄</span>
+                <span>Báo Cáo HTML</span>
               </button>
               <button onClick={hide} className="bg-slate-800 hover:bg-slate-700 rounded px-3 py-1.5 text-xs">Đóng</button>
             </div>

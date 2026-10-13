@@ -2,13 +2,15 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useAppStore } from '../stores/app';
 import { useFlowStore } from '../stores/flow';
 import { useRequestStore } from '../stores/request';
+import { useTranslation } from '../stores/language';
 import { runFlow, sampleRule, parseFlowJson, FLOW_JSON_SAMPLE, analyzeFlow, buildReqxFlowExport, parseReqxFlowFile, mergeReqxImport, type FlowStepResult } from '../lib/flow';
 import { collectRequests } from '../lib/runner';
 import { confirmUntrustedScripts } from '../lib/scripts';
 import { importPostmanCollection } from '../lib/postman-io';
 import { recordManualFlowRun } from '../lib/flow-runs';
 import ScheduleBodyModal from './ScheduleBodyModal';
-import type { ApiRequest, Collection, ExtractFrom } from '../types/api';
+import FlowTimelineView from './FlowTimelineView';
+import type { ApiRequest, Collection, ExtractFrom, StepConditionOp } from '../types/api';
 
 const FROM_OPTS: { id: ExtractFrom; label: string; hint: string }[] = [
   { id: 'body-json', label: 'JSON body', hint: 'vd data.access_token (mảng: items.0.id)' },
@@ -36,6 +38,7 @@ function requestOptions(col: Collection, requests: Record<string, ApiRequest>): 
 /** Chuỗi request: step tham chiếu request có sẵn, trích giá trị truyền sang step sau. */
 export default function Flow({ onGoBuilder }: { onGoBuilder?: () => void }) {
   const { collections, dirs, requests, environments, activeEnvId, globals } = useAppStore();
+  const { t } = useTranslation();
   const {
     flows, activeFlowId, addFlow, renameFlow, deleteFlow, setActiveFlow,
     addStep, updateStep, removeStep, moveStep, addRule, updateRule, removeRule, importFlow,
@@ -48,8 +51,11 @@ export default function Flow({ onGoBuilder }: { onGoBuilder?: () => void }) {
   const [stopOnError, setStopOnError] = useState(true);
   const [running, setRunning] = useState(false);
   const [results, setResults] = useState<FlowStepResult[]>([]);
+  const [resultViewMode, setResultViewMode] = useState<'timeline' | 'list'>('timeline');
   const [flowVars, setFlowVars] = useState<Record<string, string>>({});
   const [openRules, setOpenRules] = useState<Record<string, boolean>>({});
+  const [openConditions, setOpenConditions] = useState<Record<string, boolean>>({});
+  const [openRetries, setOpenRetries] = useState<Record<string, boolean>>({});
   const [viewing, setViewing] = useState<{ key: string; name: string; status?: number; ct?: string } | null>(null);
   const [showImport, setShowImport] = useState(false);
   const [importText, setImportText] = useState('');
@@ -310,7 +316,7 @@ export default function Flow({ onGoBuilder }: { onGoBuilder?: () => void }) {
             className="bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 min-w-48"
           >
             {flows.map((f) => <option key={f.id} value={f.id}>{f.name} ({f.steps.length})</option>)}
-            {flows.length === 0 && <option value="">— chưa có flow —</option>}
+            {flows.length === 0 && <option value="">{t.flow.selectFlow}</option>}
           </select>
         </label>
         <div className="flex gap-1">
@@ -318,7 +324,7 @@ export default function Flow({ onGoBuilder }: { onGoBuilder?: () => void }) {
             value={flowName}
             onChange={(e) => setFlowName(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter' && flowName.trim()) { addFlow(flowName); setFlowName(''); } }}
-            placeholder="Tên flow mới…"
+            placeholder={t.flow.newFlowPlaceholder}
             className="bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-sm w-36"
           />
           <button onClick={() => { if (flowName.trim()) { addFlow(flowName); setFlowName(''); } }} className="bg-emerald-700 hover:bg-emerald-600 rounded px-2.5 py-1.5 text-sm">＋</button>
@@ -333,22 +339,22 @@ export default function Flow({ onGoBuilder }: { onGoBuilder?: () => void }) {
                 className="bg-slate-900 border border-emerald-600 rounded px-2 py-1.5 text-sm w-40"
               />
             ) : (
-              <button onClick={() => setEditingName(true)} title="Đổi tên flow" className="bg-slate-800 hover:bg-slate-700 rounded px-2.5 py-1.5 text-sm">✎</button>
+              <button onClick={() => setEditingName(true)} title={t.flow.renameTitle} className="bg-slate-800 hover:bg-slate-700 rounded px-2.5 py-1.5 text-sm">✎</button>
             )}
             <button
-              onClick={() => { if (confirm(`Xóa flow “${flow.name}”?`) && flow) deleteFlow(flow.id); }}
-              title="Xóa flow đang chọn"
+              onClick={() => { if (confirm(t.flow.deleteConfirm.replace('{name}', flow.name)) && flow) deleteFlow(flow.id); }}
+              title={t.flow.deleteTitle}
               className="bg-slate-800 hover:bg-red-800 rounded px-2.5 py-1.5 text-sm"
             >
-              🗑 Xóa
+              🗑 {t.common.delete}
             </button>
           </>
         )}
         <div className="flex gap-1 pb-1">
-          <button onClick={() => { setShowImport((v) => !v); setImportMsg(''); }} className="bg-slate-800 hover:bg-slate-700 rounded px-2.5 py-1.5 text-sm">⤓ Import</button>
-          <button onClick={() => { setShowWizard((v) => !v); setWizMsg(''); }} title="Tạo flow từng bước, không cần viết JSON" className="bg-slate-800 hover:bg-slate-700 rounded px-2.5 py-1.5 text-sm">🧙 Tạo flow dễ</button>
+          <button onClick={() => { setShowImport((v) => !v); setImportMsg(''); }} className="bg-slate-800 hover:bg-slate-700 rounded px-2.5 py-1.5 text-sm">{t.flow.importButton}</button>
+          <button onClick={() => { setShowWizard((v) => !v); setWizMsg(''); }} title={t.flow.wizardTitle} className="bg-slate-800 hover:bg-slate-700 rounded px-2.5 py-1.5 text-sm">{t.flow.wizardButton}</button>
           {flow && (
-            <button onClick={doExport} title="Copy flow hiện tại ra JSON" className="bg-slate-800 hover:bg-slate-700 rounded px-2.5 py-1.5 text-sm">⤴ Export</button>
+            <button onClick={doExport} title={t.flow.exportTitle} className="bg-slate-800 hover:bg-slate-700 rounded px-2.5 py-1.5 text-sm">{t.flow.exportButton}</button>
           )}
         </div>
         {exportJson !== null && (
@@ -365,9 +371,9 @@ export default function Flow({ onGoBuilder }: { onGoBuilder?: () => void }) {
                 </b>
                 <span className="ml-auto flex gap-1.5">
                   <button onClick={copyExport} className="bg-slate-800 hover:bg-slate-700 rounded px-2.5 py-1 text-xs">
-                    {copied === 'ok' ? 'Đã copy ✓' : copied === 'fail' ? 'Copy lỗi — bôi đen copy tay' : 'Copy'}
+                    {copied === 'ok' ? t.common.copied : copied === 'fail' ? 'Copy error' : t.common.copy}
                   </button>
-                  <button onClick={downloadExport} className="bg-emerald-700 hover:bg-emerald-600 rounded px-2.5 py-1 text-xs">Tải file .json</button>
+                  <button onClick={downloadExport} className="bg-emerald-700 hover:bg-emerald-600 rounded px-2.5 py-1 text-xs">{t.flow.downloadJson}</button>
                   <button onClick={() => setExportJson(null)} className="bg-slate-800 hover:bg-slate-700 rounded px-2.5 py-1 text-xs">✕</button>
                 </span>
               </div>
@@ -389,40 +395,38 @@ export default function Flow({ onGoBuilder }: { onGoBuilder?: () => void }) {
         <div className="border border-slate-700 rounded p-3 flex flex-col gap-2">
           <div className="flex flex-wrap items-end gap-2">
             <label className="flex flex-col gap-1 text-sm">
-              Tạo flow từ collection có sẵn
+              {t.flow.fromCollection}
               <span className="flex gap-1">
                 <select
                   value={fromColId}
                   onChange={(e) => setFromColId(e.target.value)}
                   className="bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-sm max-w-56"
                 >
-                  <option value="">— chọn collection —</option>
+                  <option value="">{t.flow.selectCollection}</option>
                   {collections.map((c) => {
                     const d = dirs.find((x) => x.collectionIds.includes(c.id));
                     return <option key={c.id} value={c.id}>{d ? `${d.name} / ${c.name}` : c.name}</option>;
                   })}
                 </select>
-                <button onClick={doFromCollection} disabled={!fromColId} className="bg-emerald-700 hover:bg-emerald-600 rounded px-2.5 py-1.5 text-sm disabled:opacity-40">Tạo</button>
+                <button onClick={doFromCollection} disabled={!fromColId} className="bg-emerald-700 hover:bg-emerald-600 rounded px-2.5 py-1.5 text-sm disabled:opacity-40">{t.flow.create}</button>
               </span>
             </label>
-            <button onClick={() => setImportText(FLOW_JSON_SAMPLE)} className="bg-slate-800 hover:bg-slate-700 rounded px-2.5 py-1.5 text-sm">Chèn mẫu JSON</button>
+            <button onClick={() => setImportText(FLOW_JSON_SAMPLE)} className="bg-slate-800 hover:bg-slate-700 rounded px-2.5 py-1.5 text-sm">{t.flow.sampleJson}</button>
           </div>
           <textarea
             value={importText}
             onChange={(e) => setImportText(e.target.value)}
-            placeholder='Dán JSON flow: { "name": "...", "steps": [ { "requestId": "...", "extract": [ { "name": "...", "from": "body-json", "path": "..." } ] } ] }'
+            placeholder={t.flow.importJsonPlaceholder}
             rows={6}
             spellCheck={false}
             className="bg-slate-950 border border-slate-700 rounded p-2 font-mono text-xs w-full"
           />
           <div className="flex items-center gap-2">
-            <button onClick={doImportJson} disabled={!importText.trim()} className="bg-emerald-700 hover:bg-emerald-600 rounded px-3 py-1.5 text-sm disabled:opacity-40">Tạo flow từ JSON</button>
+            <button onClick={doImportJson} disabled={!importText.trim()} className="bg-emerald-700 hover:bg-emerald-600 rounded px-3 py-1.5 text-sm disabled:opacity-40">{t.flow.createFromJson}</button>
             {importMsg && <span className="text-xs">{importMsg}</span>}
           </div>
           <p className="text-[11px] text-slate-500">
-            Nhận 3 loại: file <b>.reqx-flow.json</b> (nút ⤴ Export — gồm requests + curl + flow; request nào trùng method + URL thì dùng lại, thiếu mới tạo thêm) •
-            collection Postman (có `item`) • flow cũ (`steps` + `requestId`, lấy requestId từ Export hoặc Builder).
-            from nhận: body-json | header | status | body-text.
+            {t.flow.importHelp}
           </p>
         </div>
       )}
@@ -431,22 +435,22 @@ export default function Flow({ onGoBuilder }: { onGoBuilder?: () => void }) {
       {showWizard && (
         <div className="border border-emerald-800 rounded p-3 flex flex-col gap-3">
           <div className="flex flex-col gap-1 text-sm">
-            <b>Bước 1 — Đặt tên flow</b>
+            <b>{t.flow.wizStep1}</b>
             <input
               value={wizName}
               onChange={(e) => setWizName(e.target.value)}
-              placeholder="vd Đăng nhập rồi gọi API (bỏ trống = lấy tên collection)"
+              placeholder={t.flow.wizStep1Placeholder}
               className="bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-sm max-w-96"
             />
           </div>
           <div className="flex flex-col gap-1 text-sm">
-            <b>Bước 2 — Tick request theo đúng thứ tự chạy</b>
+            <b>{t.flow.wizStep2}</b>
             <select
               value={wizColId}
               onChange={(e) => { setWizColId(e.target.value); setWizPicked([]); setWizVars({}); }}
               className="bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-sm max-w-96"
             >
-              <option value="">— chọn collection —</option>
+              <option value="">{t.flow.selectCollection}</option>
               {collections.map((c) => {
                 const d = dirs.find((x) => x.collectionIds.includes(c.id));
                 return <option key={c.id} value={c.id}>{d ? `${d.name} / ${c.name}` : c.name}</option>;
@@ -454,7 +458,7 @@ export default function Flow({ onGoBuilder }: { onGoBuilder?: () => void }) {
             </select>
             {wizCol && (
               <div className="flex flex-col gap-1 border border-slate-800 rounded p-2 max-h-56 overflow-auto">
-                {wizList.length === 0 && <span className="text-slate-500 text-xs">Collection này chưa có request.</span>}
+                {wizList.length === 0 && <span className="text-slate-500 text-xs">{t.flow.wizEmptyCol}</span>}
                 {wizList.map((r) => {
                   const on = wizPicked.includes(r.id);
                   return (
@@ -469,7 +473,7 @@ export default function Flow({ onGoBuilder }: { onGoBuilder?: () => void }) {
                         <input
                           value={wizVars[r.id] ?? ''}
                           onChange={(e) => setWizVars((p) => ({ ...p, [r.id]: e.target.value }))}
-                          placeholder="Biến cần trích từ response này, cách nhau dấu phẩy — vd: token_type, access_token (bỏ trống = không trích)"
+                          placeholder={t.flow.wizVarPlaceholder}
                           className="ml-6 bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs font-mono"
                         />
                       )}
@@ -480,21 +484,20 @@ export default function Flow({ onGoBuilder }: { onGoBuilder?: () => void }) {
             )}
           </div>
           <div className="text-sm">
-            <b>Bước 3 — Bấm tạo, xong!</b>
+            <b>{t.flow.wizStep3}</b>
             <p className="text-[11px] text-slate-500 mt-0.5">
-              Biến đã trích dùng ở step sau bằng {`{{ten_bien}}`} trong URL/headers/body.
-              Header hay JSON lồng nhau (data.token)? Tạo xong mở step, bấm ⎋ rồi sửa ô from/path.
+              {t.flow.wizStep3Help}
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <button onClick={doWizardCreate} className="bg-emerald-700 hover:bg-emerald-600 rounded px-3 py-1.5 text-sm">Tạo flow</button>
+            <button onClick={doWizardCreate} className="bg-emerald-700 hover:bg-emerald-600 rounded px-3 py-1.5 text-sm">{t.flow.wizCreateButton}</button>
             {wizMsg && <span className="text-xs">{wizMsg}</span>}
           </div>
         </div>
       )}
 
       {!flow ? (
-        <p className="text-slate-400 text-sm">Tạo flow đầu tiên để nối nhiều request thành chuỗi (vd Đăng nhập → lấy token → gọi API).</p>
+        <p className="text-slate-400 text-sm">{t.flow.emptyFlowPrompt}</p>
       ) : (
         <>
           {/* Danh sách steps */}
@@ -504,6 +507,8 @@ export default function Flow({ onGoBuilder }: { onGoBuilder?: () => void }) {
               const opts = col ? requestOptions(col, requests) : [];
               const req = requests[st.requestId];
               const showRules = openRules[st.id] ?? st.extract.length > 0;
+              const showCondition = !!openConditions[st.id];
+              const showRetry = !!openRetries[st.id];
               return (
                 <div key={st.id} className={`border rounded p-2.5 flex flex-col gap-2 ${st.disabled ? 'border-slate-800 opacity-50' : 'border-slate-700'}`}>
                   <div className="flex flex-wrap items-center gap-2">
@@ -527,37 +532,57 @@ export default function Flow({ onGoBuilder }: { onGoBuilder?: () => void }) {
                       onChange={(e) => updateStep(flow.id, st.id, { requestId: e.target.value })}
                       className="bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-sm flex-1 min-w-40"
                     >
-                      <option value="">— chọn request —</option>
+                      <option value="">{t.flow.selectRequest}</option>
                       {opts.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
                     </select>
-                    {!req && st.requestId !== '' && <span className="text-red-400 text-xs">request đã bị xóa</span>}
+                    {!req && st.requestId !== '' && <span className="text-red-400 text-xs">{t.flow.requestDeleted}</span>}
                     {req && (
                       <button
                         onClick={() => { useRequestStore.getState().load(req); onGoBuilder?.(); }}
-                        title="Mở đúng request này trong Builder để sửa — sửa xong bấm Lưu là flow ăn ngay, khỏi xóa step thêm lại"
+                        title={t.flow.editInBuilderTitle}
                         className="rounded px-2 py-1 text-xs bg-slate-800 hover:bg-sky-800 shrink-0"
                       >
-                        ✎ Sửa
+                        {t.flow.editInBuilder}
                       </button>
                     )}
                     <button
                       onClick={() => setOpenRules((p) => ({ ...p, [st.id]: !showRules }))}
-                      title="Rule trích giá trị từ response"
+                      title={t.flow.extractRuleTitle}
                       className={`rounded px-2 py-1 text-xs ${st.extract.length > 0 ? 'bg-emerald-800' : 'bg-slate-800 hover:bg-slate-700'}`}
                     >
                       ⎋ {st.extract.length}
                     </button>
+                    <button
+                      onClick={() => setOpenConditions((p) => ({ ...p, [st.id]: !showCondition }))}
+                      title="Cấu hình rẽ nhánh theo điều kiện"
+                      className={`rounded px-2 py-1 text-xs flex items-center gap-1 ${
+                        st.condition?.enabled ? 'bg-sky-800 text-sky-200 font-bold' : 'bg-slate-800 hover:bg-slate-700 text-slate-300'
+                      }`}
+                    >
+                      <span>🔀</span>
+                      <span>{st.condition?.enabled ? 'Rẽ nhánh' : 'Điều kiện'}</span>
+                    </button>
+                    <button
+                      onClick={() => setOpenRetries((p) => ({ ...p, [st.id]: !showRetry }))}
+                      title="Cấu hình tự động chạy lại khi lỗi"
+                      className={`rounded px-2 py-1 text-xs flex items-center gap-1 ${
+                        st.retry?.enabled ? 'bg-amber-800 text-amber-200 font-bold' : 'bg-slate-800 hover:bg-slate-700 text-slate-300'
+                      }`}
+                    >
+                      <span>🔄</span>
+                      <span>{st.retry?.enabled ? `x${st.retry.maxAttempts}` : 'Retry'}</span>
+                    </button>
                     {st.extract.length > 0 && !showRules && (
-                      <span title="Biến step này trích ra cho step sau dùng" className="text-[11px] font-mono text-emerald-400 truncate max-w-56">
+                      <span title="Extracted vars" className="text-[11px] font-mono text-emerald-400 truncate max-w-44">
                         → {st.extract.map((r) => `{{${r.name}}}`).join(' ')}
                       </span>
                     )}
-                    <button onClick={() => updateStep(flow.id, st.id, { disabled: !st.disabled })} title={st.disabled ? 'Bật step' : 'Tắt tạm step'} className="rounded px-2 py-1 text-xs bg-slate-800 hover:bg-slate-700">
+                    <button onClick={() => updateStep(flow.id, st.id, { disabled: !st.disabled })} title={t.flow.toggleStepTitle} className="rounded px-2 py-1 text-xs bg-slate-800 hover:bg-slate-700">
                       {st.disabled ? '⏸' : '▶'}
                     </button>
                     <button onClick={() => moveStep(flow.id, st.id, -1)} disabled={i === 0} className="rounded px-1.5 py-1 text-xs bg-slate-800 hover:bg-slate-700 disabled:opacity-30">▲</button>
                     <button onClick={() => moveStep(flow.id, st.id, 1)} disabled={i === flow.steps.length - 1} className="rounded px-1.5 py-1 text-xs bg-slate-800 hover:bg-slate-700 disabled:opacity-30">▼</button>
-                    <button onClick={() => removeStep(flow.id, st.id)} title="Xóa step" className="rounded px-1.5 py-1 text-xs bg-slate-800 hover:bg-red-800">✕</button>
+                    <button onClick={() => removeStep(flow.id, st.id)} title={t.flow.deleteStepTitle} className="rounded px-1.5 py-1 text-xs bg-slate-800 hover:bg-red-800">✕</button>
                   </div>
                   {showRules && (
                     <div className="ml-8 flex flex-col gap-1.5 border-l-2 border-emerald-800 pl-3">
@@ -567,7 +592,7 @@ export default function Flow({ onGoBuilder }: { onGoBuilder?: () => void }) {
                           <input
                             value={r.name}
                             onChange={(e) => updateRule(flow.id, st.id, r.id, { name: e.target.value })}
-                            placeholder="ten_bien"
+                            placeholder="var_name"
                             className="bg-slate-900 border border-slate-700 rounded px-2 py-1 text-sm w-28 font-mono"
                           />
                           <span className="text-slate-500 text-xs">{'}}'} =</span>
@@ -588,8 +613,190 @@ export default function Flow({ onGoBuilder }: { onGoBuilder?: () => void }) {
                           <button onClick={() => removeRule(flow.id, st.id, r.id)} className="text-slate-500 hover:text-red-400 text-xs px-1">✕</button>
                         </div>
                       ))}
-                      <button onClick={() => addRule(flow.id, st.id, sampleRule())} className="self-start text-xs text-emerald-400 hover:text-emerald-300">＋ Thêm rule</button>
-                      <p className="text-[11px] text-slate-500">Step sau dùng biến bằng {`{{ten_bien}}`} trong URL/params/headers/body/auth.</p>
+                      <button onClick={() => addRule(flow.id, st.id, sampleRule())} className="self-start text-xs text-emerald-400 hover:text-emerald-300">{t.flow.addRule}</button>
+                      <p className="text-[11px] text-slate-500">{t.flow.ruleHelp}</p>
+                    </div>
+                  )}
+
+                  {/* Condition & Branching Panel */}
+                  {showCondition && (
+                    <div className="ml-8 flex flex-col gap-2 border-l-2 border-sky-800 pl-3 bg-sky-950/20 p-2.5 rounded-r">
+                      <div className="flex items-center gap-2">
+                        <label className="flex items-center gap-1.5 text-xs font-semibold text-sky-300 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={st.condition?.enabled ?? false}
+                            onChange={(e) => updateStep(flow.id, st.id, {
+                              condition: {
+                                enabled: e.target.checked,
+                                varName: st.condition?.varName ?? '',
+                                operator: st.condition?.operator ?? '==',
+                                value: st.condition?.value ?? '',
+                                onFalse: st.condition?.onFalse ?? 'skip',
+                                jumpStepId: st.condition?.jumpStepId,
+                              }
+                            })}
+                            className="rounded text-sky-500"
+                          />
+                          <span>Kiểm tra điều kiện trước khi chạy (Pre-condition)</span>
+                        </label>
+                      </div>
+                      {st.condition?.enabled && (
+                        <div className="flex flex-wrap items-center gap-2 text-xs">
+                          <span className="text-slate-400">Nếu biến</span>
+                          <div className="flex items-center">
+                            <span className="text-slate-500 font-mono text-xs">{'{{'}</span>
+                            <input
+                              value={st.condition.varName}
+                              onChange={(e) => updateStep(flow.id, st.id, {
+                                condition: { ...st.condition!, varName: e.target.value }
+                              })}
+                              placeholder="var_name"
+                              className="bg-slate-900 border border-slate-700 rounded px-1.5 py-1 text-xs w-28 font-mono text-sky-300"
+                            />
+                            <span className="text-slate-500 font-mono text-xs">{'}}'}</span>
+                          </div>
+                          <select
+                            value={st.condition.operator}
+                            onChange={(e) => updateStep(flow.id, st.id, {
+                              condition: { ...st.condition!, operator: e.target.value as StepConditionOp }
+                            })}
+                            className="bg-slate-900 border border-slate-700 rounded px-1.5 py-1 text-xs font-mono"
+                          >
+                            <option value="==">== (Bằng)</option>
+                            <option value="!=">!= (Khác)</option>
+                            <option value="contains">chứa (contains)</option>
+                            <option value=">">&gt; (Lớn hơn)</option>
+                            <option value="<">&lt; (Nhỏ hơn)</option>
+                            <option value="exists">có giá trị (exists)</option>
+                            <option value="empty">rỗng (empty)</option>
+                          </select>
+                          {st.condition.operator !== 'exists' && st.condition.operator !== 'empty' && (
+                            <input
+                              value={st.condition.value}
+                              onChange={(e) => updateStep(flow.id, st.id, {
+                                condition: { ...st.condition!, value: e.target.value }
+                              })}
+                              placeholder="giá trị so sánh"
+                              className="bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs w-32 font-mono"
+                            />
+                          )}
+                          <span className="text-slate-400">Nếu SAI:</span>
+                          <select
+                            value={st.condition.onFalse ?? 'skip'}
+                            onChange={(e) => updateStep(flow.id, st.id, {
+                              condition: { ...st.condition!, onFalse: e.target.value as 'skip' | 'jump' }
+                            })}
+                            className="bg-slate-900 border border-slate-700 rounded px-1.5 py-1 text-xs"
+                          >
+                            <option value="skip">Bỏ qua bước này (Skip)</option>
+                            <option value="jump">Nhảy tới bước (Jump)</option>
+                          </select>
+                          {st.condition.onFalse === 'jump' && (
+                            <select
+                              value={st.condition.jumpStepId ?? ''}
+                              onChange={(e) => updateStep(flow.id, st.id, {
+                                condition: { ...st.condition!, jumpStepId: e.target.value }
+                              })}
+                              className="bg-slate-900 border border-slate-700 rounded px-1.5 py-1 text-xs max-w-44"
+                            >
+                              <option value="">-- Chọn bước nhảy tới --</option>
+                              {flow.steps.filter((s) => s.id !== st.id).map((s, sIdx) => {
+                                const reqObj = requests[s.requestId];
+                                return <option key={s.id} value={s.id}>#{sIdx + 1} {reqObj?.name ?? s.id}</option>;
+                              })}
+                            </select>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Post-execution branching jumps */}
+                      <div className="flex flex-wrap items-center gap-3 pt-1 border-t border-sky-900/40 text-xs">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-emerald-400 font-medium">Khi Thành công (OK):</span>
+                          <select
+                            value={st.onSuccessJump ?? ''}
+                            onChange={(e) => updateStep(flow.id, st.id, { onSuccessJump: e.target.value || undefined })}
+                            className="bg-slate-900 border border-slate-700 rounded px-1.5 py-1 text-xs max-w-40"
+                          >
+                            <option value="">Tiếp tục bước kế</option>
+                            {flow.steps.filter((s) => s.id !== st.id).map((s, sIdx) => {
+                              const reqObj = requests[s.requestId];
+                              return <option key={s.id} value={s.id}>Nhảy tới #{sIdx + 1} {reqObj?.name ?? s.id}</option>;
+                            })}
+                          </select>
+                        </div>
+
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-rose-400 font-medium">Khi Thất bại (Lỗi):</span>
+                          <select
+                            value={st.onFailJump ?? ''}
+                            onChange={(e) => updateStep(flow.id, st.id, { onFailJump: e.target.value || undefined })}
+                            className="bg-slate-900 border border-slate-700 rounded px-1.5 py-1 text-xs max-w-40"
+                          >
+                            <option value="">Dừng flow / kế tiếp</option>
+                            {flow.steps.filter((s) => s.id !== st.id).map((s, sIdx) => {
+                              const reqObj = requests[s.requestId];
+                              return <option key={s.id} value={s.id}>Nhảy tới #{sIdx + 1} {reqObj?.name ?? s.id}</option>;
+                            })}
+                          </select>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Retry Configuration Panel */}
+                  {showRetry && (
+                    <div className="ml-8 flex flex-col gap-2 border-l-2 border-amber-800 pl-3 bg-amber-950/20 p-2.5 rounded-r">
+                      <div className="flex items-center gap-2">
+                        <label className="flex items-center gap-1.5 text-xs font-semibold text-amber-300 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={st.retry?.enabled ?? false}
+                            onChange={(e) => updateStep(flow.id, st.id, {
+                              retry: {
+                                enabled: e.target.checked,
+                                maxAttempts: st.retry?.maxAttempts ?? 3,
+                                delayMs: st.retry?.delayMs ?? 1000,
+                              }
+                            })}
+                            className="rounded text-amber-500"
+                          />
+                          <span>Tự động thử lại khi gặp lỗi (Retry on Failure)</span>
+                        </label>
+                      </div>
+                      {st.retry?.enabled && (
+                        <div className="flex flex-wrap items-center gap-3 text-xs">
+                          <label className="flex items-center gap-1.5">
+                            <span className="text-slate-400">Số lần chạy tối đa:</span>
+                            <input
+                              type="number"
+                              min={2}
+                              max={10}
+                              value={st.retry.maxAttempts}
+                              onChange={(e) => updateStep(flow.id, st.id, {
+                                retry: { ...st.retry!, maxAttempts: Math.max(1, Math.min(10, parseInt(e.target.value, 10) || 1)) }
+                              })}
+                              className="bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs w-16 font-mono text-amber-300"
+                            />
+                            <span className="text-slate-500">(gốc + thử lại)</span>
+                          </label>
+                          <label className="flex items-center gap-1.5">
+                            <span className="text-slate-400">Thời gian chờ giữa các lần:</span>
+                            <input
+                              type="number"
+                              min={0}
+                              step={500}
+                              value={st.retry.delayMs}
+                              onChange={(e) => updateStep(flow.id, st.id, {
+                                retry: { ...st.retry!, delayMs: Math.max(0, parseInt(e.target.value, 10) || 0) }
+                              })}
+                              className="bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs w-20 font-mono text-amber-300"
+                            />
+                            <span className="text-slate-500">ms</span>
+                          </label>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
@@ -605,22 +812,22 @@ export default function Flow({ onGoBuilder }: { onGoBuilder?: () => void }) {
                 disabled={collections.length === 0}
                 className="bg-slate-800 hover:bg-slate-700 rounded px-3 py-1.5 text-sm disabled:opacity-40"
               >
-                ＋ Thêm step
+                {t.flow.addStep}
               </button>
-              {collections.length === 0 && <span className="text-amber-400 text-xs self-center">Cần có collection/request trước.</span>}
+              {collections.length === 0 && <span className="text-amber-400 text-xs self-center">{t.flow.needCollection}</span>}
             </div>
           </div>
 
           {/* Cảnh báo biến thiếu — nguyên nhân 401 thường gặp nhất */}
           {varIssues.length > 0 && (
             <div className="border border-amber-700 bg-amber-950/40 rounded p-3 flex flex-col gap-1.5 text-sm">
-              <p className="font-semibold text-amber-300">⚠ Biến chưa có nguồn — chạy sẽ gửi đi nguyên văn {`{{...}}`}:</p>
+              <p className="font-semibold text-amber-300">{t.flow.missingVarsWarning}</p>
               {varIssues.map((iss) => {
                 const target = prevStepFor(iss.stepIndex);
                 return (
                   <div key={iss.stepIndex} className="flex flex-wrap items-center gap-2 text-xs">
                     <span>
-                      Step #{iss.stepIndex + 1} “{iss.stepName}” dùng{' '}
+                      {t.flow.stepUses.replace('{step}', String(iss.stepIndex + 1)).replace('{name}', iss.stepName)}{' '}
                       {iss.vars.map((v, i) => (
                         <span key={v}>{i > 0 && ', '}<code className="font-mono text-amber-200">{`{{${v}}}`}</code></span>
                       ))}
@@ -630,10 +837,10 @@ export default function Flow({ onGoBuilder }: { onGoBuilder?: () => void }) {
                         onClick={() => quickAddRules(target.id, iss.vars)}
                         className="bg-amber-700 hover:bg-amber-600 rounded px-2 py-1 text-xs"
                       >
-                        ＋ Thêm rule vào step #{flow!.steps.indexOf(target) + 1}
+                        {t.flow.addRuleToStep.replace('{step}', String(flow!.steps.indexOf(target) + 1))}
                       </button>
                     ) : (
-                      <span className="text-slate-400">(thêm vào Environment, hoặc tạo bằng script pre-request)</span>
+                      <span className="text-slate-400">{t.flow.addEnvOrPreScript}</span>
                     )}
                   </div>
                 );
@@ -644,67 +851,99 @@ export default function Flow({ onGoBuilder }: { onGoBuilder?: () => void }) {
           {/* Chạy */}
           <div className="flex flex-wrap items-end gap-3 border-t border-slate-800 pt-3">
             <label className="flex flex-col gap-1 text-sm">
-              Timeout (s)
+              {t.flow.timeout}
               <input type="number" min={5} max={300} value={timeoutS} onChange={(e) => setTimeoutS(Math.min(300, Math.max(5, Number(e.target.value) || 30)))} className="bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 w-24" />
             </label>
             <label className="flex flex-col gap-1 text-sm">
-              Nghỉ giữa steps (ms)
+              {t.flow.delay}
               <input type="number" min={0} step={100} value={delayMs} onChange={(e) => setDelayMs(Math.max(0, Number(e.target.value) || 0))} className="bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 w-28" />
             </label>
             <label className="flex items-center gap-1.5 text-sm pb-2">
               <input type="checkbox" checked={stopOnError} onChange={(e) => setStopOnError(e.target.checked)} />
-              Dừng khi lỗi
+              {t.flow.stopOnError}
             </label>
             {!running ? (
               <button onClick={start} disabled={activeSteps === 0} className="bg-emerald-700 hover:bg-emerald-600 rounded px-4 py-1.5 text-sm font-semibold disabled:opacity-40">
-                ▶ Chạy flow ({activeSteps} steps)
+                {t.flow.runFlow.replace('{count}', String(activeSteps))}
               </button>
             ) : (
-              <button onClick={() => abortRef.current?.abort()} className="bg-red-700 hover:bg-red-600 rounded px-4 py-1.5 text-sm font-semibold">⏹ Dừng</button>
+              <button onClick={() => abortRef.current?.abort()} className="bg-red-700 hover:bg-red-600 rounded px-4 py-1.5 text-sm font-semibold">⏹ {t.flow.stop}</button>
             )}
-            {results.length > 0 && <span className="text-sm pb-2">OK <b className={okCount === results.length ? 'text-emerald-400' : 'text-red-400'}>{okCount}/{results.length}</b></span>}
+            {results.length > 0 && (
+              <div className="flex items-center gap-3 ml-auto pb-1">
+                <span className="text-sm">OK <b className={okCount === results.length ? 'text-emerald-400' : 'text-red-400'}>{okCount}/{results.length}</b></span>
+                <div className="flex items-center bg-slate-900 border border-slate-700 rounded p-0.5 text-xs">
+                  <button
+                    onClick={() => setResultViewMode('timeline')}
+                    className={`px-2.5 py-1 rounded transition-colors flex items-center gap-1.5 ${
+                      resultViewMode === 'timeline'
+                        ? 'bg-sky-600 text-white font-medium shadow-sm'
+                        : 'text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    <span>⏱️</span>
+                    <span>Timeline</span>
+                  </button>
+                  <button
+                    onClick={() => setResultViewMode('list')}
+                    className={`px-2.5 py-1 rounded transition-colors flex items-center gap-1.5 ${
+                      resultViewMode === 'list'
+                        ? 'bg-sky-600 text-white font-medium shadow-sm'
+                        : 'text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    <span>📋</span>
+                    <span>Danh sách</span>
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Kết quả */}
           {results.length > 0 && (
-            <div className="flex flex-col gap-1.5">
-              {results.map((r, i) => (
-                <div key={`${r.stepId}-${i}`} className={`border rounded px-3 py-2 text-sm ${r.ok ? 'border-slate-800' : 'border-red-800'}`}>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span>{r.skipped ? '⏭' : r.ok ? '✅' : '❌'}</span>
-                    <b>#{i + 1} {r.name}</b>
-                    {r.status !== undefined && <span className="font-mono text-xs text-slate-400">{r.status}</span>}
-                    {r.timeMs !== undefined && <span className="font-mono text-xs text-slate-500">{r.timeMs}ms</span>}
-                    {r.error && <span className="text-red-400 text-xs font-mono">{r.error}</span>}
-                  </div>
-                  {r.extracted.length > 0 && (
-                    <div className="mt-1.5 flex flex-col gap-0.5 font-mono text-xs">
-                      {r.extracted.map((e) => (
-                        <div key={e.name} className="flex gap-2">
-                          <span className="text-emerald-400 shrink-0">{`{{${e.name}}}`}</span>
-                          <span className="text-slate-300 break-all">{e.value.length > 120 ? `${e.value.slice(0, 120)}…` : e.value}</span>
-                        </div>
-                      ))}
+            resultViewMode === 'timeline' ? (
+              <FlowTimelineView results={results} />
+            ) : (
+              <div className="flex flex-col gap-1.5">
+                {results.map((r, i) => (
+                  <div key={`${r.stepId}-${i}`} className={`border rounded px-3 py-2 text-sm ${r.ok ? 'border-slate-800' : 'border-red-800'}`}>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span>{r.skipped ? '⏭' : r.ok ? '✅' : '❌'}</span>
+                      <b>#{i + 1} {r.name}</b>
+                      {r.status !== undefined && <span className="font-mono text-xs text-slate-400">{r.status}</span>}
+                      {r.timeMs !== undefined && <span className="font-mono text-xs text-slate-500">{r.timeMs}ms</span>}
+                      {r.error && <span className="text-red-400 text-xs font-mono">{r.error}</span>}
                     </div>
-                  )}
-                  {r.extractErrors.map((e, j) => (
-                    <p key={j} className="text-amber-400 text-xs mt-1">⚠ trích “{e.rule}”: {e.message}</p>
-                  ))}
-                  {r.logs.length > 0 && (
-                    <details className="mt-1 text-xs text-slate-500">
-                      <summary className="cursor-pointer">logs ({r.logs.length})</summary>
-                      <pre className="whitespace-pre-wrap font-mono mt-1">{r.logs.join('\n')}</pre>
-                    </details>
-                  )}
-                </div>
-              ))}
-            </div>
+                    {r.extracted.length > 0 && (
+                      <div className="mt-1.5 flex flex-col gap-0.5 font-mono text-xs">
+                        {r.extracted.map((e) => (
+                          <div key={e.name} className="flex gap-2">
+                            <span className="text-emerald-400 shrink-0">{`{{${e.name}}}`}</span>
+                            <span className="text-slate-300 break-all">{e.value.length > 120 ? `${e.value.slice(0, 120)}…` : e.value}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {r.extractErrors.map((e, j) => (
+                      <p key={j} className="text-amber-400 text-xs mt-1">⚠ trích “{e.rule}”: {e.message}</p>
+                    ))}
+                    {r.logs.length > 0 && (
+                      <details className="mt-1 text-xs text-slate-500">
+                        <summary className="cursor-pointer">logs ({r.logs.length})</summary>
+                        <pre className="whitespace-pre-wrap font-mono mt-1">{r.logs.join('\n')}</pre>
+                      </details>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )
           )}
 
           {/* Biến flow live */}
           {Object.keys(flowVars).length > 0 && (
             <div className="border border-emerald-900 rounded p-3">
-              <p className="text-xs font-semibold text-emerald-400 mb-1.5">BIẾN FLOW ({Object.keys(flowVars).length}) — dùng {`{{ten}}`} ở lần chạy sau trong cùng phiên</p>
+              <p className="text-xs font-semibold text-emerald-400 mb-1.5">{t.flow.liveVarsTitle.replace('{count}', String(Object.keys(flowVars).length))}</p>
               <div className="grid gap-0.5 font-mono text-xs max-h-40 overflow-auto">
                 {Object.entries(flowVars).map(([k, v]) => (
                   <div key={k} className="flex gap-2">
@@ -720,12 +959,12 @@ export default function Flow({ onGoBuilder }: { onGoBuilder?: () => void }) {
           {flowRuns.length > 0 && (
             <div className="border-t border-slate-800 pt-3">
               <div className="flex items-center gap-2 mb-1.5">
-                <h4 className="text-sm font-semibold">Lịch sử chạy tay ({flowRuns.length})</h4>
+                <h4 className="text-sm font-semibold">{t.runner.historyTitle} ({flowRuns.length})</h4>
                 <button
-                  onClick={() => { if (flow && confirm(`Xóa lịch sử chạy của flow “${flow.name}”?`)) clearRuns('flow', flow.id); }}
+                  onClick={() => { if (flow && confirm(t.runner.clearHistoryConfirm.replace('{name}', flow.name))) clearRuns('flow', flow.id); }}
                   className="text-xs text-slate-500 hover:text-red-300"
                 >
-                  Xóa hết
+                  {t.runner.clearHistory}
                 </button>
               </div>
               {flowRuns.map((rec) => (
@@ -733,7 +972,7 @@ export default function Flow({ onGoBuilder }: { onGoBuilder?: () => void }) {
                   <summary className="cursor-pointer font-mono text-xs">
                     {fmtTime(rec.at)} — OK{' '}
                     <b className={rec.ok === rec.total ? 'text-emerald-400' : 'text-red-400'}>{rec.ok}/{rec.total}</b>
-                    {' '}• {rec.timeMs}ms{rec.stopped ? ' • dừng giữa chừng' : ''} ▸
+                    {' '}• {rec.timeMs}ms{rec.stopped ? t.runner.stoppedMidway : ''} ▸
                   </summary>
                   <ul className="mt-1.5 ml-2 flex flex-col gap-1 border-l border-slate-800 pl-2 text-xs">
                     {rec.steps.map((st, i) => (
@@ -753,10 +992,10 @@ export default function Flow({ onGoBuilder }: { onGoBuilder?: () => void }) {
                             onClick={() => setViewing({ key: st.bodyKey!, name: st.name, status: st.status, ct: st.contentType })}
                             className="block mt-0.5 text-sky-400 hover:text-sky-300"
                           >
-                            📄 Xem body
+                            {t.runner.viewBody}
                           </button>
                         ) : st.bodyOmitted ? (
-                          <span className="block text-slate-600">(body quá to, không lưu)</span>
+                          <span className="block text-slate-600">{t.runner.bodyTooLarge}</span>
                         ) : null}
                       </li>
                     ))}

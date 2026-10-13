@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState } from 'react';
 import { useAppStore } from '../stores/app';
 import { useFlowStore } from '../stores/flow';
+import { useTranslation, useLanguageStore } from '../stores/language';
 import { runRequestList, runCollectionWithData, type RunItemResult, type DataIterationResult } from '../lib/runner';
 import { parseDataFile, rowSummary } from '../lib/datafile';
 import { confirmUntrustedScripts } from '../lib/scripts';
@@ -15,6 +16,8 @@ import type { ApiRequest } from '../types/api';
 export default function Runner() {
   const { collections, dirs, requests, environments, activeEnvId, globals, setEnvVar, setGlobal } = useAppStore();
   const { runs, pushRun, clearRuns } = useFlowStore();
+  const { t } = useTranslation();
+  const { language } = useLanguageStore();
   const [colId, setColId] = useState(collections[0]?.id ?? '');
   const [folderId, setFolderId] = useState<string>('all');
   const [delayMs, setDelayMs] = useState(0);
@@ -28,6 +31,9 @@ export default function Runner() {
   const [iterations, setIterations] = useState<DataIterationResult[]>([]);
   const [maxRows, setMaxRows] = useState(0); // 0 = chạy hết
   const [total, setTotal] = useState(0);
+  const [contractTestingEnabled, setContractTestingEnabled] = useState(false);
+  const [contractSpec, setContractSpec] = useState<{ name: string; spec: any } | null>(null);
+  const [contractError, setContractError] = useState('');
   const [viewing, setViewing] = useState<{ key: string; name: string; status?: number; ct?: string } | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
@@ -63,12 +69,12 @@ export default function Runner() {
   const totalTime = results.reduce((a, r) => a + (r.timeMs ?? 0), 0);
 
   const scopeName =
-    folderId === 'all' ? 'Tất cả'
-    : folderId === 'root' ? 'Ngoài thư mục'
+    folderId === 'all' ? t.runner.scopeAll
+    : folderId === 'root' ? t.runner.scopeRoot
     : `📁 ${col?.folders.find((f) => f.id === folderId)?.name ?? '?'}`;
   const refId = `${colId}:${folderId}`;
   const colRuns = runs.filter((r) => r.kind === 'collection' && r.refId === refId);
-  const fmtTime = (t: number) => new Date(t).toLocaleString('vi-VN');
+  const fmtTime = (t: number) => new Date(t).toLocaleString(language === 'vi' ? 'vi-VN' : 'en-US');
 
   const onPickDataFile = (f: File | undefined) => {
     if (!f) return;
@@ -129,6 +135,7 @@ export default function Runner() {
         stopOnError,
         collections,
         signal: ctrl.signal,
+        contractTesting: { enabled: contractTestingEnabled, spec: contractSpec?.spec },
         onIteration: (it) => setIterations((prev) => [...prev, it]),
       });
       const flat: RunItemResult[] = iters.flatMap((it) =>
@@ -164,6 +171,7 @@ export default function Runner() {
       stopOnError,
       collections,
       signal: ctrl.signal,
+      contractTesting: { enabled: contractTestingEnabled, spec: contractSpec?.spec },
       onItem: (r) => {
         collected.push(r);
         setResults((prev) => [...prev, r]);
@@ -196,7 +204,7 @@ export default function Runner() {
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-end gap-3">
         <label className="flex flex-col gap-1 text-sm">
-          Collection
+          {t.runner.collection}
           <select
             value={colId}
             onChange={(e) => { setColId(e.target.value); setFolderId('all'); setResults([]); setIterations([]); setSkippedInfo({ n: 0, names: [] }); }}
@@ -209,21 +217,21 @@ export default function Runner() {
           </select>
         </label>
         <label className="flex flex-col gap-1 text-sm">
-          Phạm vi
+          {t.runner.scope}
           <select
             value={folderId}
             onChange={(e) => { setFolderId(e.target.value); setResults([]); setIterations([]); setSkippedInfo({ n: 0, names: [] }); }}
             className="bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5"
           >
-            <option value="all">Tất cả ({list.length})</option>
-            <option value="root">Ngoài thư mục ({col?.rootRequestIds.length ?? 0})</option>
+            <option value="all">{t.runner.scopeAll} ({list.length})</option>
+            <option value="root">{t.runner.scopeRoot} ({col?.rootRequestIds.length ?? 0})</option>
             {col?.folders.map((f) => (
               <option key={f.id} value={f.id}>📁 {f.name} ({f.requestIds.length})</option>
             ))}
           </select>
         </label>
         <label className="flex flex-col gap-1 text-sm">
-          Nghỉ giữa requests (ms)
+          {t.runner.delay}
           <input
             type="number" min={0} step={100} value={delayMs}
             onChange={(e) => setDelayMs(Math.max(0, Number(e.target.value) || 0))}
@@ -231,7 +239,7 @@ export default function Runner() {
           />
         </label>
         <label className="flex flex-col gap-1 text-sm">
-          Timeout (s)
+          {t.runner.timeout}
           <input
             type="number" min={5} max={300} value={timeoutS}
             onChange={(e) => setTimeoutS(Math.min(300, Math.max(5, Number(e.target.value) || 30)))}
@@ -240,10 +248,55 @@ export default function Runner() {
         </label>
         <label className="flex items-center gap-2 text-sm pb-2">
           <input type="checkbox" checked={stopOnError} onChange={(e) => setStopOnError(e.target.checked)} />
-          Dừng khi lỗi
+          {t.runner.stopOnError}
         </label>
+        <label className="flex items-center gap-2 text-sm pb-2 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={contractTestingEnabled}
+            onChange={(e) => setContractTestingEnabled(e.target.checked)}
+            className="rounded border-slate-700 text-emerald-500 focus:ring-0"
+          />
+          <span className="font-semibold text-emerald-400">🛡️ Contract Test (OpenAPI)</span>
+        </label>
+        {contractTestingEnabled && (
+          <label className="flex flex-col gap-1 text-sm">
+            <span className="text-xs text-slate-300">OpenAPI Spec (Tùy chọn)</span>
+            <span className="flex items-center gap-2">
+              <input
+                type="file"
+                accept=".json,.yaml,.yml"
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (!f) return;
+                  const reader = new FileReader();
+                  reader.onload = () => {
+                    try {
+                      const spec = JSON.parse(String(reader.result ?? ''));
+                      setContractSpec({ name: f.name, spec });
+                      setContractError('');
+                    } catch {
+                      setContractError('Không thể đọc file OpenAPI JSON!');
+                    }
+                  };
+                  reader.readAsText(f);
+                }}
+                className="text-xs text-slate-400 file:bg-slate-800 file:border file:border-slate-700 file:rounded file:px-2 file:py-1 file:text-xs file:text-slate-200"
+              />
+              {contractSpec && (
+                <button
+                  type="button"
+                  onClick={() => setContractSpec(null)}
+                  className="text-xs text-slate-500 hover:text-red-300"
+                >
+                  Gỡ file
+                </button>
+              )}
+            </span>
+          </label>
+        )}
         <label className="flex flex-col gap-1 text-sm">
-          Data file (.csv/.json)
+          {t.runner.dataFile}
           <span className="flex items-center gap-2">
             <input
               type="file" accept=".csv,.json"
@@ -255,14 +308,14 @@ export default function Runner() {
                 onClick={() => { setDataFile(null); setDataError(''); setIterations([]); }}
                 className="text-xs text-slate-500 hover:text-red-300"
               >
-                ✕ Bỏ
+                {t.runner.removeDataFile}
               </button>
             )}
           </span>
         </label>
         {dataFile && (
           <label className="flex flex-col gap-1 text-sm">
-            Số dòng (0=hết)
+            {t.runner.maxRows}
             <input
               type="number" min={0} max={dataFile.rows.length} value={maxRows}
               onChange={(e) => setMaxRows(Math.max(0, Number(e.target.value) || 0))}
@@ -277,51 +330,63 @@ export default function Runner() {
               disabled={!col || runCount === 0 || (dataFile != null && dataRows.length === 0)}
               className="bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 rounded px-4 py-1.5 font-semibold"
             >
-              {dataFile ? `▶ Chạy data (${dataRows.length} dòng × ${runCount} req)` : `▶ Chạy (${runCount})`}
+              {dataFile ? `▶ ${t.runner.runData} (${dataRows.length} ${t.runner.rows} × ${runCount} req)` : `▶ ${t.runner.run} (${runCount})`}
             </button>
           ) : (
             <button onClick={stop} className="bg-red-600 hover:bg-red-500 rounded px-4 py-1.5 font-semibold">
-              ⏹ Dừng
+              ⏹ {t.runner.stop}
             </button>
           )}
         </div>
       </div>
 
+      {contractTestingEnabled && (
+        <div className="text-xs bg-emerald-950/40 border border-emerald-800/80 rounded px-3 py-2 flex items-center justify-between">
+          <div>
+            <span className="font-semibold text-emerald-300">🛡️ Contract Testing đang BẬT: </span>
+            <span className="text-emerald-200/90">
+              {contractSpec
+                ? `Đang áp dụng spec "${contractSpec.name}". Mọi response sẽ được so sánh tự động với OpenAPI schema.`
+                : 'Tự động kiểm thử response khớp với schema được khai báo trong request (OpenAPI import / JsonSchema).'}
+            </span>
+          </div>
+          {contractError && <span className="text-rose-400 font-semibold">{contractError}</span>}
+        </div>
+      )}
+
       {dataError && (
-        <p className="text-xs text-red-400">Data file lỗi: {dataError}</p>
+        <p className="text-xs text-red-400">{t.runner.dataFileError} {dataError}</p>
       )}
       {dataFile && (
         <div className="text-xs bg-violet-950/50 border border-violet-800 rounded px-3 py-2">
           <span className="font-semibold text-violet-300">📄 {dataFile.name}</span>
-          <span className="text-violet-200/80"> — {dataFile.rows.length} dòng, cột: {dataFile.columns.join(', ')}</span>
+          <span className="text-violet-200/80"> — {dataFile.rows.length} {t.runner.rows}, {t.runner.columns} {dataFile.columns.join(', ')}</span>
           <ul className="mt-1 ml-4 list-disc text-violet-200/70 font-mono">
             {dataFile.rows.slice(0, 3).map((r, i) => (
               <li key={i}>#{i + 1} {rowSummary(r, dataFile.columns)}</li>
             ))}
-            {dataFile.rows.length > 3 && <li>…và {dataFile.rows.length - 3} dòng nữa</li>}
+            {dataFile.rows.length > 3 && <li>{t.runner.andMoreRows.replace('{count}', String(dataFile.rows.length - 3))}</li>}
           </ul>
           <p className="mt-1 text-violet-200/60">
-            Mỗi dòng = 1 iteration chạy hết scope. Cột thắng env cùng tên; script đọc qua <span className="font-mono">pm.iterationData.get('tên_cột')</span>.
+            {t.runner.iterationDataDesc}
           </p>
         </div>
       )}
 
       <p className="text-xs text-slate-500">
-        Môi trường: <b>{environments.find((e) => e.id === activeEnvId)?.name ?? '—'}</b> •
-        biến do script set (pm.environment.set) được giữ lại giữa các request — tiện chuỗi login → dùng token.
-        Biến do <b>flow trích</b> thì ở đây không có — request nào cần sẽ bị bỏ qua (xem cảnh báo dưới).
+        {t.runner.envNotice.replace('{env}', environments.find((e) => e.id === activeEnvId)?.name ?? '—')}
       </p>
 
       {blocked.length > 0 && (
         <div className="text-xs bg-amber-950/60 border border-amber-800 rounded px-3 py-2">
           <label className="flex items-center gap-2 font-semibold text-amber-300 cursor-pointer">
             <input type="checkbox" checked={skipMissing} onChange={(e) => setSkipMissing(e.target.checked)} />
-            Bỏ qua {blocked.length} request thiếu biến {'{{...}}'} (chạy cũng lỗi) — muốn chạy thì sang tab Flow hoặc chuột phải vào collection 
+            {t.runner.skipMissingVars.replace('{count}', String(blocked.length)).replace('{vars}', '{{...}}')}
           </label>
           <ul className="mt-1 ml-6 list-disc text-amber-200/90">
             {blocked.map((r) => (
               <li key={r.id}>
-                {r.name} — thiếu: {missingOf(r).map((v) => `{{${v}}}`).join(', ')}
+                {r.name} — {t.runner.missing} {missingOf(r).map((v) => `{{${v}}}`).join(', ')}
               </li>
             ))}
           </ul>
@@ -329,25 +394,107 @@ export default function Runner() {
       )}
 
       {(results.length > 0 || running) && !dataFile && (
-        <div className="text-sm bg-slate-950 border border-slate-800 rounded px-3 py-2 flex flex-wrap gap-x-4 gap-y-1">
-          <span>Tiến độ: <b>{results.length}/{total}</b></span>
-          <span>Request OK: <b className="text-emerald-400">{okCount}</b>/{results.length}</span>
-          <span>Tests: <b className="text-emerald-400">{passTests}</b>/{totalTests}</span>
-          <span>Tổng thời gian: <b>{totalTime}ms</b></span>
-          {skippedInfo.n > 0 && (
-            <span title={skippedInfo.names.join(', ')}>
-              Bỏ qua thiếu biến: <b className="text-amber-300">{skippedInfo.n}</b>
-            </span>
+        <div className="text-sm bg-slate-950 border border-slate-800 rounded px-3 py-2 flex items-center justify-between flex-wrap gap-2">
+          <div className="flex flex-wrap gap-x-4 gap-y-1">
+            <span>{t.runner.progress} <b>{results.length}/{total}</b></span>
+            <span>{t.runner.requestsOk} <b className="text-emerald-400">{okCount}</b>/{results.length}</span>
+            <span>{t.runner.testsOk} <b className="text-emerald-400">{passTests}</b>/{totalTests}</span>
+            <span>{t.runner.totalTime} <b>{totalTime}ms</b></span>
+            {skippedInfo.n > 0 && (
+              <span title={skippedInfo.names.join(', ')}>
+                {t.runner.skippedMissing} <b className="text-amber-300">{skippedInfo.n}</b>
+              </span>
+            )}
+          </div>
+
+          {!running && results.length > 0 && (
+            <div className="flex items-center gap-2">
+              <button
+                onClick={async () => {
+                  const { saveExportBesideApp } = await import('../lib/response-file');
+                  const d = new Date();
+                  const pad = (n: number) => String(n).padStart(2, '0');
+                  const fname = `reqx-runner-${col?.name || 'collection'}-${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}.csv`;
+                  const head = ['#', 'Request Name', 'Method', 'URL', 'Status', 'Time (ms)', 'Tests Passed', 'Tests Total', 'Result', 'Error'];
+                  const lines = results.map((r, i) => [
+                    i + 1,
+                    `"${(r.name || '').replace(/"/g, '""')}"`,
+                    r.method,
+                    `"${r.url.replace(/"/g, '""')}"`,
+                    r.status ?? '',
+                    r.timeMs ?? '',
+                    r.testsPassed,
+                    r.testsTotal,
+                    r.ok ? 'PASS' : 'FAIL',
+                    `"${(r.error || '').replace(/"/g, '""')}"`,
+                  ].join(','));
+                  const csv = '\uFEFF' + head.join(',') + '\n' + lines.join('\n');
+                  const saved = await saveExportBesideApp(fname, csv);
+                  if (!saved) {
+                    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = fname;
+                    a.click();
+                  } else {
+                    alert(t.runner.exportedCsvAlert.replace('{path}', saved.path));
+                  }
+                }}
+                className="px-2.5 py-1 rounded bg-slate-900 border border-slate-700 hover:bg-slate-800 text-xs text-slate-300 font-semibold"
+                title={t.runner.exportCsvTitle}
+              >
+                {t.runner.exportCsv}
+              </button>
+              <button
+                onClick={async () => {
+                  const { generateRunnerHtmlReport } = await import('../lib/reporter');
+                  const { saveExportBesideApp } = await import('../lib/response-file');
+                  const html = generateRunnerHtmlReport({
+                    collectionName: col?.name || 'Collection',
+                    scopeName,
+                    results,
+                    totalTimeMs: totalTime,
+                    environmentName: environments.find((e) => e.id === activeEnvId)?.name,
+                  });
+                  const d = new Date();
+                  const pad = (n: number) => String(n).padStart(2, '0');
+                  const slug = (col?.name || 'collection')
+                    .toLowerCase()
+                    .normalize('NFD')
+                    .replace(/[\u0300-\u036f]/g, '')
+                    .replace(/[^a-z0-9_-]+/g, '-')
+                    .replace(/^-|-$/g, '') || 'collection';
+                  const fname = `reqx-runner-report-${slug}-${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}.html`;
+                  const saved = await saveExportBesideApp(fname, html);
+                  if (!saved) {
+                    const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = fname;
+                    a.click();
+                  } else {
+                    alert(t.runner.exportedHtmlAlert.replace('{path}', saved.path));
+                  }
+                }}
+                className="px-2.5 py-1 rounded bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-slate-950 font-bold text-xs shadow-md shadow-emerald-950 flex items-center gap-1"
+                title={t.runner.exportHtmlTitle}
+              >
+                <span>📄</span>
+                <span>{t.runner.exportHtml}</span>
+              </button>
+            </div>
           )}
         </div>
       )}
 
       {dataFile && (iterations.length > 0 || running) && (
         <div className="text-sm bg-slate-950 border border-slate-800 rounded px-3 py-2 flex flex-wrap gap-x-4 gap-y-1">
-          <span>Tiến độ: <b>{iterations.reduce((a, x) => a + x.items.length, 0)}/{dataTotal}</b></span>
-          <span>Iteration OK: <b className="text-emerald-400">{iterations.filter((x) => x.ok).length}</b>/{iterations.length}</span>
-          <span>Tests: <b className="text-emerald-400">{iterations.reduce((a, x) => a + x.passedTests, 0)}</b>/{iterations.reduce((a, x) => a + x.totalTests, 0)}</span>
-          <span>Tổng thời gian: <b>{iterations.reduce((a, x) => a + x.timeMs, 0)}ms</b></span>
+          <span>{t.runner.progress} <b>{iterations.reduce((a, x) => a + x.items.length, 0)}/{dataTotal}</b></span>
+          <span>{t.runner.iterationOk} <b className="text-emerald-400">{iterations.filter((x) => x.ok).length}</b>/{iterations.length}</span>
+          <span>{t.runner.testsOk} <b className="text-emerald-400">{iterations.reduce((a, x) => a + x.passedTests, 0)}</b>/{iterations.reduce((a, x) => a + x.totalTests, 0)}</span>
+          <span>{t.runner.totalTime} <b>{iterations.reduce((a, x) => a + x.timeMs, 0)}ms</b></span>
         </div>
       )}
 
@@ -357,7 +504,7 @@ export default function Runner() {
             <details key={it.rowIndex} className="bg-slate-950 border border-slate-800 rounded px-3 py-2 text-sm">
               <summary className="cursor-pointer">
                 <span className="mr-1">{it.ok ? '✅' : '❌'}</span>
-                <b>Dòng #{it.rowIndex + 1}</b>
+                <b>{language === 'vi' ? 'Dòng' : 'Row'} #{it.rowIndex + 1}</b>
                 <span className="text-slate-400 font-mono text-xs ml-2">{rowSummary(it.row, dataFile.columns)}</span>
                 <span className="text-slate-500 text-xs ml-2">
                   {it.items.filter((r) => r.ok).length}/{it.items.length} req • {it.passedTests}/{it.totalTests} tests • {it.timeMs}ms
@@ -377,10 +524,10 @@ export default function Runner() {
             </details>
           ))}
           {running && (
-            <p className="text-sm text-slate-400 animate-pulse">Đang chạy dòng {iterations.length + 1}/{dataRows.length}…</p>
+            <p className="text-sm text-slate-400 animate-pulse">{t.runner.runningRow.replace('{current}', String(iterations.length + 1)).replace('{total}', String(dataRows.length))}</p>
           )}
           {!running && iterations.length === 0 && (
-            <p className="text-sm text-slate-500">Chưa chạy. Nạp file data → bấm ▶.</p>
+            <p className="text-sm text-slate-500">{t.runner.emptyDataPrompt}</p>
           )}
         </div>
       )}
@@ -404,10 +551,10 @@ export default function Runner() {
           </div>
         ))}
         {running && results.length < total && (
-          <p className="text-sm text-slate-400 animate-pulse">Đang chạy {results.length + 1}/{total}…</p>
+          <p className="text-sm text-slate-400 animate-pulse">{t.runner.runningPrompt.replace('{current}', String(results.length + 1)).replace('{total}', String(total))}</p>
         )}
         {!running && results.length === 0 && (
-          <p className="text-sm text-slate-500">Chưa chạy. Chọn collection → bấm ▶.</p>
+          <p className="text-sm text-slate-500">{t.runner.emptyPrompt}</p>
         )}
       </div>
       )}
@@ -415,12 +562,12 @@ export default function Runner() {
       {colRuns.length > 0 && (
         <div className="border-t border-slate-800 pt-3">
           <div className="flex items-center gap-2 mb-1.5">
-            <h4 className="text-sm font-semibold">Lịch sử chạy tay ({colRuns.length})</h4>
+            <h4 className="text-sm font-semibold">{t.runner.historyTitle} ({colRuns.length})</h4>
             <button
-              onClick={() => { if (confirm(`Xóa lịch sử chạy của “${col?.name} • ${scopeName}”?`)) clearRuns('collection', refId); }}
+              onClick={() => { if (confirm(t.runner.clearHistoryConfirm.replace('{name}', `${col?.name} • ${scopeName}`))) clearRuns('collection', refId); }}
               className="text-xs text-slate-500 hover:text-red-300"
             >
-              Xóa hết
+              {t.runner.clearHistory}
             </button>
           </div>
           {colRuns.map((rec) => (
@@ -428,7 +575,7 @@ export default function Runner() {
               <summary className="cursor-pointer font-mono text-xs">
                 {fmtTime(rec.at)} — OK{' '}
                 <b className={rec.ok === rec.total ? 'text-emerald-400' : 'text-red-400'}>{rec.ok}/{rec.total}</b>
-                {' '}• {rec.timeMs}ms{rec.stopped ? ' • dừng giữa chừng' : ''} ▸
+                {' '}• {rec.timeMs}ms{rec.stopped ? t.runner.stoppedMidway : ''} ▸
               </summary>
               <ul className="mt-1.5 ml-2 flex flex-col gap-1 border-l border-slate-800 pl-2 text-xs">
                 {rec.steps.map((st, i) => (
@@ -443,10 +590,10 @@ export default function Runner() {
                         onClick={() => setViewing({ key: st.bodyKey!, name: st.name, status: st.status, ct: st.contentType })}
                         className="block mt-0.5 text-sky-400 hover:text-sky-300"
                       >
-                        📄 Xem body
+                        {t.runner.viewBody}
                       </button>
                     ) : st.bodyOmitted ? (
-                      <span className="block text-slate-600">(body quá to, không lưu)</span>
+                      <span className="block text-slate-600">{t.runner.bodyTooLarge}</span>
                     ) : null}
                   </li>
                 ))}
@@ -466,7 +613,7 @@ export default function Runner() {
       )}
 
       <hr className="border-slate-800" />
-      <h2 className="font-semibold">⏰ Chạy theo lịch</h2>
+      <h2 className="font-semibold">{t.runner.scheduleHeader}</h2>
       <Scheduler />
     </div>
   );

@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { createPortal } from 'react-dom';
 
 export interface MenuItem {
   label: string;
@@ -6,7 +7,7 @@ export interface MenuItem {
   onClick: () => void;
 }
 
-/** Menu chuột phải: hiện tại vị trí click, tự nép vào viewport, đóng khi click ra ngoài / Esc / scroll. */
+/** Menu chuột phải: render bằng createPortal ra document.body để không bao giờ bị overflow/backdrop-blur che mất. */
 export default function ContextMenu({ x, y, items, onClose }: {
   x: number;
   y: number;
@@ -32,10 +33,10 @@ export default function ContextMenu({ x, y, items, onClose }: {
   const left = Math.max(8, Math.min(x, window.innerWidth - w - 8));
   const top = Math.max(8, Math.min(y, window.innerHeight - h - 8));
 
-  return (
+  return createPortal(
     <>
       <div
-        className="fixed inset-0 z-40"
+        className="fixed inset-0 z-[9998]"
         onClick={onClose}
         onContextMenu={(e) => {
           e.preventDefault();
@@ -43,7 +44,7 @@ export default function ContextMenu({ x, y, items, onClose }: {
         }}
       />
       <div
-        className="fixed z-50 bg-slate-800 border border-slate-600 rounded-md shadow-xl py-1 text-sm overflow-y-auto"
+        className="fixed z-[9999] bg-slate-900 dark:bg-[#0d1622] border border-teal-500/40 rounded-xl shadow-[0_0_30px_rgba(0,0,0,0.8)] py-1 text-xs overflow-y-auto backdrop-blur-xl"
         style={{ left, top, width: w, maxHeight: h }}
       >
         {items.map((it, i) => (
@@ -53,12 +54,15 @@ export default function ContextMenu({ x, y, items, onClose }: {
               onClose();
               it.onClick();
             }}
-            className={`w-full text-left px-3 py-1.5 hover:bg-slate-700 whitespace-nowrap ${it.danger ? 'text-red-300' : 'text-slate-200'}`}
+            className={`w-full text-left px-3.5 py-2 hover:bg-teal-950/70 hover:text-cyan-300 transition-colors whitespace-nowrap ${
+              it.danger ? 'text-red-400 hover:text-red-300' : 'text-slate-200'
+            }`}
           >
             {it.label}
           </button>
         ))}
       </div>
-    </>
+    </>,
+    document.body,
   );
 }

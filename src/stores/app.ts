@@ -5,7 +5,8 @@ import type { ApiRequest, ApiResponse, Collection, Dir, Environment, Folder, His
 import { uid } from '../lib/variables';
 import { GEMINI_DEFAULT_MODEL, sanitizeContents, type GeminiContent } from '../lib/ai/gemini';
 import type { AiChainEntry, AiStrategy, AiUsage } from '../lib/ai/ai-providers';
-import { stripRequestSecrets } from '../lib/secrets';
+import { stripRequestSecrets, looksSecret } from '../lib/secrets';
+import { maskSensitiveBody } from '../lib/mask';
 import type { ScriptOutcome } from '../lib/scripts';
 
 function escapeRegex(str: string): string {
@@ -569,11 +570,21 @@ export const useAppStore = create<AppState>()(
   setActiveEnv: (id) => set({ activeEnvId: id }),
 
   setEnvVar: (envId, key, value) =>
-    set((s) => ({
-      environments: s.environments.map((e) =>
-        e.id === envId ? { ...e, variables: { ...e.variables, [key]: value } } : e,
-      ),
-    })),
+    set((s) => {
+      // Tên/giá trị dạng credential tự nhảy secret: giá trị không xuống đĩa (policy RAM-only).
+      const secret = looksSecret(key, value);
+      const cur = s.envSecrets[envId] ?? [];
+      const nextSecrets =
+        secret && !cur.includes(key)
+          ? { ...s.envSecrets, [envId]: [...cur, key] }
+          : s.envSecrets;
+      return {
+        environments: s.environments.map((e) =>
+          e.id === envId ? { ...e, variables: { ...e.variables, [key]: value } } : e,
+        ),
+        envSecrets: nextSecrets,
+      };
+    }),
 
   deleteEnvVar: (envId, key) =>
     set((s) => ({
@@ -649,7 +660,14 @@ export const useAppStore = create<AppState>()(
       globalSecrets: snap.globalSecrets,
     }),
 
-  setGlobal: (key, value) => set((s) => ({ globals: { ...s.globals, [key]: value } })),
+  setGlobal: (key, value) =>
+    set((s) => ({
+      globals: { ...s.globals, [key]: value },
+      globalSecrets:
+        looksSecret(key, value) && !s.globalSecrets.includes(key)
+          ? [...s.globalSecrets, key]
+          : s.globalSecrets,
+    })),
 
   renameGlobal: (oldKey, newKey) =>
     set((s) => {
@@ -810,7 +828,19 @@ export const useAppStore = create<AppState>()(
           globals,
           envSecrets: s.envSecrets,
           globalSecrets: s.globalSecrets,
-          history: s.history.map((h) => ({ ...h, request: stripRequestSecrets(h.request) })),
+          history: s.history.map((h) => {
+            const safeRequest = stripRequestSecrets(h.request);
+            if (!h.response) return { ...h, request: safeRequest };
+            const safeHeaders: Record<string, string> = {};
+            for (const [k, v] of Object.entries(h.response.headers)) {
+              if (/^(set-cookie|cookie|authorization|x-api-key|api-key)$/i.test(k)) continue;
+              safeHeaders[k] = v;
+            }
+            // Body nhị phân (base64) không che nổi bằng regex -> chỉ giữ kích thước.
+            const safeBody =
+              h.response.bodyKind === 'binary' ? '' : maskSensitiveBody(h.response.body).slice(0, 20000);
+            return { ...h, request: safeRequest, response: { ...h.response, headers: safeHeaders, body: safeBody } };
+          }),
           aiKey: s.aiKey,
           aiKeyBackup: s.aiKeyBackup,
           aiModel: s.aiModel,

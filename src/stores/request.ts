@@ -5,11 +5,16 @@ import { DEFAULT_REQUEST } from '../types/api';
 import { uid } from '../lib/variables';
 import { stripRequestSecrets } from '../lib/secrets';
 
+export type ReqSubTab = 'params' | 'headers' | 'body' | 'auth' | 'pre' | 'tests';
+
 export interface ReqTab {
   id: string;
   request: ApiRequest;
   /** true = đã sửa, chưa lưu vào collection */
   dirty: boolean;
+  /** Bảng con (Params/Headers/…/Pre-request/Tests) đang mở ở tab này.
+   * Mỗi tab giữ riêng — thiếu thì RequestTabs coi như 'params'. */
+  subTab?: ReqSubTab;
 }
 
 interface RequestState {
@@ -28,6 +33,8 @@ interface RequestState {
   openTab: (req?: ApiRequest) => void;
   closeTab: (id: string) => void;
   setActiveTab: (id: string) => void;
+  /** Chọn bảng con cho tab đang mở (không ảnh hưởng các tab khác) */
+  setSubTab: (tab: ReqSubTab) => void;
   /** Nạp lại bản mới nhất của request vào các tab đang mở chưa sửa (sau khi đổi hàng loạt) */
   refreshTabs: (requests: Record<string, ApiRequest>) => void;
   markClean: () => void;
@@ -40,6 +47,11 @@ function fresh(): ApiRequest {
 function newTab(request?: ApiRequest, dirty = false): ReqTab {
   const req = request ? { ...request } : fresh();
   return { id: uid('tab'), request: req, dirty };
+}
+
+/** Bảng con đang mở của tab hoạt động — tab cũ (trước khi thêm tính năng) chưa có subTab thì về Params. */
+export function activeSubTab(s: { tabs: ReqTab[]; activeId: string }): ReqSubTab {
+  return s.tabs.find((t) => t.id === s.activeId)?.subTab ?? 'params';
 }
 
 /** Tab có phải tab trắng chưa đụng gì không (để tái dùng khi load)? */
@@ -156,6 +168,9 @@ export const useRequestStore = create<RequestState>()(
           if (!t) return {};
           return { activeId: id, current: t.request, dirty: t.dirty };
         }),
+
+      setSubTab: (tab) =>
+        set((s) => ({ tabs: s.tabs.map((t) => (t.id === s.activeId ? { ...t, subTab: tab } : t)) })),
 
       markClean: () =>
         set((s) => ({

@@ -3,6 +3,7 @@ import { useFlowStore } from '../stores/flow';
 import { importPostmanCollection } from './postman-io';
 import { parseFlowObject, parseReqxFlowFile, mergeReqxImport } from './flow';
 import { parseBackup } from './backup';
+import { isOpenApiSpec, importOpenApiSpec } from './openapi-import';
 
 export interface AnyImportResult {
   collections: { name: string; requests: number }[];
@@ -15,7 +16,7 @@ export interface AnyImportResult {
 /**
  * Nhập 1 JSON đã parse thuộc bất kỳ loại nào app hiểu:
  * backup full (reqx-backup) | file gộp (reqx-flow) | flow JSON lẻ (có steps)
- * | collection Postman v2.1 | mảng các loại trên.
+ * | OpenAPI 3.x / Swagger 2.0 | collection Postman v2.1 | mảng các loại trên.
  * Nhập thẳng vào store, trả tóm tắt để hiển thị.
  */
 export function importAnyJson(json: unknown, label = 'dữ liệu'): AnyImportResult {
@@ -64,6 +65,11 @@ export function importAnyJson(json: unknown, label = 'dữ liệu'): AnyImportRe
           if (!data) throw new Error(error ?? 'flow lỗi');
           useFlowStore.getState().importFlow(data, colOf);
           res.flows.push(data.name);
+        } else if (isOpenApiSpec(raw)) {
+          const { collection, requests: reqs, warnings } = importOpenApiSpec(raw, label);
+          useAppStore.getState().importData(collection, reqs);
+          res.collections.push({ name: collection.name, requests: reqs.length });
+          if (warnings.length > 0) res.warnings.push(...warnings);
         } else {
           const { collection, requests: reqs } = importPostmanCollection(raw);
           useAppStore.getState().importData(collection, reqs);

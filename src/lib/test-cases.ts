@@ -2,6 +2,7 @@ import type { ApiRequest, Collection } from '../types/api';
 import { uid } from './variables';
 import { toCurl } from './codegen';
 import { runOneRequest, type RunnerHooks } from './runner';
+import { maskSensitiveBody, maskUrl } from './mask';
 
 /** Giá trị đặc biệt người dùng/AI điền vào ô dữ liệu để xóa field hoặc gửi null. */
 export const OMIT_VALUE = '<<xóa field>>';
@@ -524,7 +525,8 @@ export async function runTestCases(
         timeMs: r.timeMs,
         why: v.why,
         error: r.error?.slice(0, 300),
-        body: flatten(r.response?.body ?? '').slice(0, 1000),
+        // Che credential ngay lúc tạo kết quả: body này đi vào cả bảng UI, CSV lẫn HTML report.
+        body: maskSensitiveBody(flatten(r.response?.body ?? '')).slice(0, 1000),
         curl: maskCurl(toCurl(clone, envVars, globals)),
       };
       out.push(row);
@@ -571,7 +573,7 @@ export function casesToCsv(base: ApiRequest, cases: TestCase[], results: Record<
     ].map(esc).join(',');
   });
   const meta = [
-    `# Test case: ${base.name} — ${base.method} ${base.url}`,
+    `# Test case: ${base.name} — ${base.method} ${maskUrl(base.url)}`,
     `# Sinh luc: ${new Date().toLocaleString('vi-VN')} — ${cases.length} case`,
     `# Mong doi: status = 2xx/4xx/any/200/!=200; Cot "Ket luan" DAT = khop mong doi`,
   ].join('\n');

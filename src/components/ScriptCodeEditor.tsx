@@ -130,6 +130,24 @@ const POSTMAN_SUGGESTIONS: Suggestion[] = [
     detail: 'Khẳng định số nhỏ hơn',
     kind: 'function',
   },
+  {
+    label: 'pm.response.to.have.jsonSchema(schema)',
+    insert: 'pm.response.to.have.jsonSchema({\n  type: "object",\n  required: ["id"],\n  properties: {\n    id: { type: "number" }\n  }\n});',
+    detail: 'Kiểm tra cấu trúc response khớp với JSON Schema',
+    kind: 'snippet',
+  },
+  {
+    label: '.to.have.jsonSchema(schema)',
+    insert: '.to.have.jsonSchema(schema)',
+    detail: 'Kiểm tra đối tượng thỏa mãn JSON Schema',
+    kind: 'function',
+  },
+  {
+    label: '.to.matchSchema(schema)',
+    insert: '.to.matchSchema(schema)',
+    detail: 'Kiểm tra đối tượng khớp với JSON Schema',
+    kind: 'function',
+  },
   // Request mutations (pre-request)
   {
     label: 'request.headers[...] = ...',
@@ -316,30 +334,37 @@ export default function ScriptCodeEditor({
 
   return (
     <div className="relative flex flex-col bg-slate-950 border border-slate-700 focus-within:border-emerald-600 rounded">
-      {/* Background Syntax Highlight */}
-      <div
-        ref={backRef}
-        aria-hidden
-        className="absolute inset-0 p-2.5 font-mono text-xs whitespace-pre-wrap break-words overflow-hidden pointer-events-none text-slate-200"
-        style={{ minHeight }}
-      >
-        {value ? highlightJs(value) : <span className="text-slate-600 italic">{placeholder}</span>}
-      </div>
+      {/* Vùng editor riêng để lớp highlight ôm khít textarea — inset-0 của container ngoài
+          sẽ tràn xuống cả footer phụ trợ và chữ lọt ra sau footer. */}
+      <div className="relative">
+        {/* Background Syntax Highlight */}
+        <div
+          ref={backRef}
+          aria-hidden
+          className="absolute inset-0 p-2.5 font-mono text-xs whitespace-pre-wrap break-words overflow-hidden pointer-events-none text-slate-200"
+          // Lớp highlight phải rộng đúng bằng phần chữ của textarea: textarea có scrollbar
+          // chiếm ~8px, nếu không chừa gutter giống nhau thì 2 lớp xuống dòng lệch nhau
+          // và chữ nhân đôi khi cuộn.
+          style={{ minHeight, scrollbarGutter: 'stable' }}
+        >
+          {value ? highlightJs(value) : <span className="text-slate-600 italic">{placeholder}</span>}
+        </div>
 
-      {/* Interactive Textarea */}
-      <textarea
-        ref={taRef}
-        rows={rows}
-        spellCheck={false}
-        style={{ minHeight }}
-        value={value}
-        onChange={handleInput}
-        onKeyDown={handleKeyDown}
-        onScroll={syncScroll}
-        onBlur={() => setTimeout(() => setMenuOpen(false), 200)}
-        placeholder=""
-        className="relative block w-full p-2.5 font-mono text-xs bg-transparent outline-none text-transparent caret-emerald-400 selection:bg-emerald-900/60 whitespace-pre-wrap break-words resize-y"
-      />
+        {/* Interactive Textarea */}
+        <textarea
+          ref={taRef}
+          rows={rows}
+          spellCheck={false}
+          style={{ minHeight, scrollbarGutter: 'stable' }}
+          value={value}
+          onChange={handleInput}
+          onKeyDown={handleKeyDown}
+          onScroll={syncScroll}
+          onBlur={() => setTimeout(() => setMenuOpen(false), 200)}
+          placeholder=""
+          className="relative block w-full p-2.5 font-mono text-xs bg-transparent outline-none text-transparent caret-emerald-400 selection:bg-emerald-900/60 whitespace-pre-wrap break-words resize-y"
+        />
+      </div>
 
       {/* Autocomplete Popup */}
       {menuOpen && filtered.length > 0 && (

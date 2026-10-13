@@ -1,4 +1,4 @@
-import type { ApiRequest, AuthConfig, BodyType, Collection, ExtractFrom, ExtractRule, Flow, KeyValue } from '../types/api';
+import type { ApiRequest, AuthConfig, BodyType, Collection, ExtractFrom, ExtractRule, Flow, KeyValue, StepCondition, StepRetry } from '../types/api';
 import { runOneRequest, type RunnerHooks } from './runner';
 import { contentTypeOf } from './response-file';
 import { stripRequestSecrets } from './secrets';
@@ -111,15 +111,28 @@ export function applyExtract(
   return { values, errors };
 }
 
+export interface StepRetryAttempt {
+  attempt: number;
+  ok: boolean;
+  status?: number;
+  error?: string;
+  timeMs?: number;
+}
+
 export interface FlowStepResult {
   stepId: string;
   name: string;
   method: string;
   url: string;
   skipped?: boolean;
+  skipReason?: string;
   ok: boolean;
   status?: number;
   timeMs?: number;
+  startTimeMs?: number; // thời điểm bắt đầu (ms tính từ đầu flow)
+  endTimeMs?: number;   // thời điểm kết thúc (ms tính từ đầu flow)
+  attempts?: number;    // số lần chạy (1 + retries)
+  retryHistory?: StepRetryAttempt[];
   testsPassed: number;
   testsTotal: number;
   error?: string;
@@ -143,8 +156,46 @@ export interface FlowRunOpts {
 }
 
 /**
- * Chạy flow: từng step qua runOneRequest, biến flow ({{ten}}) có độ ưu tiên cao nhất,
- * `pm.environment.set()` trong script cũng ghi vào biến flow (không đụng env thật).
+ * Đánh giá điều kiện rẽ nhánh dựa trên biến môi trường & biến flow
+ */
+export function evaluateCondition(cond: StepCondition, vars: Record<string, string>): boolean {
+  if (!cond.enabled) return true;
+  const rawActual = vars[cond.varName.trim()] ?? '';
+  const actual = String(rawActual).trim();
+  const target = String(cond.value ?? '').trim();
+
+  switch (cond.operator) {
+    case '==':
+      return actual === target;
+    case '!=':
+      return actual !== target;
+    case 'contains':
+      return actual.includes(target);
+    case '>': {
+      const numA = parseFloat(actual);
+      const numB = parseFloat(target);
+      return !isNaN(numA) && !isNaN(numB) && numA > numB;
+    }
+    case '<': {
+      const numA = parseFloat(actual);
+      const numB = parseFloat(target);
+      return !isNaN(numA) && !isNaN(numB) && numA < numB;
+    }
+    case 'exists':
+      return actual !== '';
+    case 'empty':
+      return actual === '';
+    default:
+      return true;
+  }
+}
+
+/**
+ * Chạy flow thông minh:
+ * - Hỗ trợ rẽ nhánh theo điều kiện (Pre-condition skip / jump)
+ * - Tự động thử lại khi lỗi (Retry policy)
+ * - Rẽ nhánh hậu kỳ (On success / On fail jump)
+ * - Đo đạc thời gian bắt đầu, kết thúc cho biểu đồ Timeline
  */
 export async function runFlow(
   flow: Flow,
@@ -155,32 +206,116 @@ export async function runFlow(
   const flowVars: Record<string, string> = {};
   const results: FlowStepResult[] = [];
   const steps = flow.steps.filter((s) => !s.disabled);
+  const flowStart = performance.now();
 
-  for (let i = 0; i < steps.length; i++) {
+  let currentIdx = 0;
+  let executionCount = 0;
+  const maxExecutionSteps = Math.max(100, steps.length * 10); // Ngăn lặp vô tận khi jump
+
+  while (currentIdx < steps.length && executionCount < maxExecutionSteps) {
     if (opts.signal?.aborted) break;
-    const step = steps[i];
+    executionCount++;
+
+    const step = steps[currentIdx];
     const req = requests[step.requestId];
+
     if (!req) {
+      const nowRel = Math.round(performance.now() - flowStart);
       const r: FlowStepResult = {
         stepId: step.id, name: '(request đã bị xóa)', method: '', url: '',
         ok: false, testsPassed: 0, testsTotal: 0, error: 'request trong step này đã bị xóa khỏi collection', extracted: [], extractErrors: [], logs: [],
+        startTimeMs: nowRel, endTimeMs: nowRel, timeMs: 0, attempts: 1,
       };
       results.push(r);
-      opts.onStep?.(r, i);
+      opts.onStep?.(r, results.length - 1);
       if (opts.stopOnError) break;
+      currentIdx++;
       continue;
     }
+
+    const { envVars, globals } = baseHooks.getVars();
+    const mergedVars = { ...globals, ...envVars, ...flowVars };
+
+    // 1. Kiểm tra điều kiện thực thi bước (Pre-condition)
+    if (step.condition?.enabled) {
+      const isMet = evaluateCondition(step.condition, mergedVars);
+      if (!isMet) {
+        const nowRel = Math.round(performance.now() - flowStart);
+        const skipReason = `Điều kiện không thỏa: {{${step.condition.varName}}} ${step.condition.operator} "${step.condition.value}" (thực tế: "${mergedVars[step.condition.varName] ?? ''}")`;
+        const r: FlowStepResult = {
+          stepId: step.id,
+          name: req.name,
+          method: req.method,
+          url: req.url,
+          skipped: true,
+          skipReason,
+          ok: true,
+          testsPassed: 0,
+          testsTotal: 0,
+          extracted: [],
+          extractErrors: [],
+          logs: [`[Branching] ⏭ Bỏ qua bước: ${skipReason}`],
+          startTimeMs: nowRel,
+          endTimeMs: nowRel,
+          timeMs: 0,
+          attempts: 0,
+        };
+        results.push(r);
+        opts.onStep?.(r, results.length - 1);
+
+        // Nhảy bước nếu cấu hình onFalse === 'jump'
+        if (step.condition.onFalse === 'jump' && step.condition.jumpStepId) {
+          const targetIdx = steps.findIndex((s) => s.id === step.condition!.jumpStepId);
+          if (targetIdx >= 0) {
+            currentIdx = targetIdx;
+            continue;
+          }
+        }
+        currentIdx++;
+        continue;
+      }
+    }
+
     const hooks: RunnerHooks = {
       getVars: () => {
-        const { envVars, globals } = baseHooks.getVars();
-        return { envVars: { ...envVars, ...flowVars }, globals };
+        const { envVars: freshEnv, globals: freshGlobals } = baseHooks.getVars();
+        return { envVars: { ...freshEnv, ...flowVars }, globals: freshGlobals };
       },
       setEnv: (k, v) => {
         flowVars[k] = v;
       },
       setGlobal: baseHooks.setGlobal,
     };
-    const item = await runOneRequest(req, hooks, opts.timeoutMs, opts.signal, undefined, opts.collections);
+
+    // 2. Chạy request với cơ chế Retry khi lỗi
+    const stepStart = Math.round(performance.now() - flowStart);
+    let item = await runOneRequest(req, hooks, opts.timeoutMs, opts.signal, undefined, opts.collections);
+    let attempts = 1;
+    const retryHistory: StepRetryAttempt[] = [
+      { attempt: 1, ok: item.ok, status: item.status, error: item.error, timeMs: item.timeMs }
+    ];
+
+    const maxAttempts = (step.retry?.enabled && step.retry.maxAttempts > 1) ? Math.min(10, step.retry.maxAttempts) : 1;
+    const retryDelay = step.retry?.delayMs ?? 1000;
+
+    while (!item.ok && attempts < maxAttempts) {
+      if (opts.signal?.aborted) break;
+      if (retryDelay > 0) {
+        await new Promise<void>((resolve) => {
+          const t = setTimeout(resolve, retryDelay);
+          opts.signal?.addEventListener('abort', () => { clearTimeout(t); resolve(); }, { once: true });
+        });
+      }
+      attempts++;
+      const retryItem = await runOneRequest(req, hooks, opts.timeoutMs, opts.signal, undefined, opts.collections);
+      retryItem.logs.unshift(`[Retry #${attempts}/${maxAttempts}] Chạy lại sau ${retryDelay}ms do lần trước gặp lỗi: ${item.error ?? item.status ?? 'failed'}`);
+      item = retryItem;
+      retryHistory.push({ attempt: attempts, ok: item.ok, status: item.status, error: item.error, timeMs: item.timeMs });
+    }
+
+    const stepEnd = Math.round(performance.now() - flowStart);
+
+    // 3. Trích xuất biến từ Response
     const extracted: ExtractedVar[] = [];
     const extractErrors: ExtractError[] = [];
     if (item.response) {
@@ -193,24 +328,62 @@ export async function runFlow(
     } else if (step.extract.length > 0) {
       extractErrors.push({ rule: '(chung)', message: 'không có response để trích' });
     }
+
     const r: FlowStepResult = {
-      stepId: step.id, name: req.name, method: req.method, url: req.url,
-      ok: item.ok, status: item.status, timeMs: item.timeMs,
-      testsPassed: item.testsPassed, testsTotal: item.testsTotal,
-      error: item.error, extracted, extractErrors, logs: item.logs,
-      body: item.response?.body, bodyKind: item.response?.bodyKind,
+      stepId: step.id,
+      name: req.name,
+      method: req.method,
+      url: req.url,
+      ok: item.ok,
+      status: item.status,
+      timeMs: item.timeMs ?? (stepEnd - stepStart),
+      startTimeMs: stepStart,
+      endTimeMs: stepEnd,
+      attempts,
+      retryHistory: retryHistory.length > 1 ? retryHistory : undefined,
+      testsPassed: item.testsPassed,
+      testsTotal: item.testsTotal,
+      error: item.error,
+      extracted,
+      extractErrors,
+      logs: item.logs,
+      body: item.response?.body,
+      bodyKind: item.response?.bodyKind,
       contentType: item.response ? contentTypeOf(item.response.headers) : undefined,
     };
     results.push(r);
-    opts.onStep?.(r, i);
-    if (!r.ok && opts.stopOnError) break;
-    if (opts.delayMs > 0 && i < steps.length - 1) {
+    opts.onStep?.(r, results.length - 1);
+
+    // 4. Kiểm tra rẽ nhánh hậu kỳ (Post-execution Jumps)
+    let jumped = false;
+    if (item.ok && step.onSuccessJump) {
+      const targetIdx = steps.findIndex((s) => s.id === step.onSuccessJump);
+      if (targetIdx >= 0) {
+        currentIdx = targetIdx;
+        jumped = true;
+      }
+    } else if (!item.ok && step.onFailJump) {
+      const targetIdx = steps.findIndex((s) => s.id === step.onFailJump);
+      if (targetIdx >= 0) {
+        currentIdx = targetIdx;
+        jumped = true;
+      }
+    }
+
+    if (!jumped) {
+      if (!item.ok && opts.stopOnError) break;
+      currentIdx++;
+    }
+
+    // Delay giữa các bước (nếu có và chưa hết flow)
+    if (opts.delayMs > 0 && currentIdx < steps.length) {
       await new Promise<void>((resolve) => {
         const t = setTimeout(resolve, opts.delayMs);
         opts.signal?.addEventListener('abort', () => { clearTimeout(t); resolve(); }, { once: true });
       });
     }
   }
+
   return { results, flowVars };
 }
 

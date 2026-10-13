@@ -1,9 +1,12 @@
 import { useMemo, useState } from 'react';
 import { useAppStore } from '../stores/app';
+import { useRequestStore } from '../stores/request';
 import { contentTypeOf, downloadResponse, guessFileName, openDownloadsFolder, responseDataUrl } from '../lib/response-file';
 import { isTauri } from '../lib/http-client';
+import { generateJsonSchema } from '../lib/json-schema';
+import { useTranslation } from '../stores/language';
 
-type View = 'pretty' | 'raw' | 'headers' | 'preview' | 'tests' | 'file';
+type View = 'pretty' | 'schema' | 'raw' | 'headers' | 'preview' | 'tests' | 'file';
 
 function statusColor(status: number): string {
   if (status >= 200 && status < 300) return 'bg-emerald-600';
@@ -46,11 +49,14 @@ function highlightJson(pretty: string): string {
 }
 
 export default function ResponseViewer() {
-  const { response, sending, testRun } = useAppStore();
+  const { t: i18n } = useTranslation();
+  const { response, sending, testRun, setResponse } = useAppStore();
   const [view, setView] = useState<View>('pretty');
   const [copied, setCopied] = useState(false);
   const [saved, setSaved] = useState(false);
   const [folderMsg, setFolderMsg] = useState('');
+  const [schemaLocked, setSchemaLocked] = useState(false);
+  const [copiedSchema, setCopiedSchema] = useState(false);
 
   const pretty = useMemo(
     () => (response && response.bodyKind !== 'binary' ? tryPretty(response.body) : { ok: false, text: '' }),
@@ -60,11 +66,30 @@ export default function ResponseViewer() {
     () => (pretty.ok ? highlightJson(pretty.text) : ''),
     [pretty],
   );
+  const lineCount = useMemo(() => (pretty.ok ? pretty.text.split('\n').length : 0), [pretty]);
+
+  const generatedSchema = useMemo(() => {
+    if (!pretty.ok || !response?.body) return null;
+    try {
+      const parsed = JSON.parse(response.body);
+      return generateJsonSchema(parsed);
+    } catch {
+      return null;
+    }
+  }, [pretty.ok, response?.body]);
+
+  const schemaPrettyText = useMemo(() => {
+    return generatedSchema ? JSON.stringify(generatedSchema, null, 2) : '';
+  }, [generatedSchema]);
+
+  const schemaHighlighted = useMemo(() => {
+    return schemaPrettyText ? highlightJson(schemaPrettyText) : '';
+  }, [schemaPrettyText]);
 
   if (sending) {
     return (
       <div className="border border-slate-700 rounded p-6 text-center text-slate-300">
-        <span className="animate-pulse">Đang gửi request...</span>
+        <span className="animate-pulse">{i18n.response.sendingState}</span>
       </div>
     );
   }
@@ -72,7 +97,7 @@ export default function ResponseViewer() {
   if (!response) {
     return (
       <div className="border border-dashed border-slate-700 rounded p-6 text-center text-slate-400">
-        Chưa có response. Nhấn <b className="text-slate-200">Gửi</b> để test API.
+        {i18n.response.noResponse}
       </div>
     );
   }
@@ -100,6 +125,28 @@ export default function ResponseViewer() {
     }
   }
 
+  async function copySchema() {
+    if (!schemaPrettyText) return;
+    try {
+      await navigator.clipboard.writeText(schemaPrettyText);
+      setCopiedSchema(true);
+      window.setTimeout(() => setCopiedSchema(false), 1500);
+    } catch {
+      setCopiedSchema(false);
+    }
+  }
+
+  function lockSchema() {
+    if (!generatedSchema) return;
+    const testSnippet = `\n// --- Tự động xác thực JSON Schema ---\npm.test("Validate JSON Schema", () => {\n  pm.response.to.have.jsonSchema(${schemaPrettyText});\n});\n`;
+    const cur = useRequestStore.getState().current;
+    const existing = (cur.tests ?? '').trim();
+    const updated = existing ? `${existing}\n${testSnippet}` : testSnippet.trimStart();
+    useRequestStore.getState().set({ tests: updated });
+    setSchemaLocked(true);
+    window.setTimeout(() => setSchemaLocked(false), 2500);
+  }
+
   function saveFile() {
     downloadResponse(response!);
     setSaved(true);
@@ -119,71 +166,115 @@ export default function ResponseViewer() {
 
   return (
     <div>
-      <div className="flex flex-wrap items-center gap-2 mb-3">
-        <h2 className="font-semibold mr-1">Response</h2>
-        <span className={`text-white text-xs font-bold rounded px-2 py-1 ${statusColor(response.status)}`}>
-          {response.status} {response.statusText}
-        </span>
-        <span className="text-xs bg-slate-800 rounded px-2 py-1">⏱ {response.timeMs} ms</span>
-        <span className="text-xs bg-slate-800 rounded px-2 py-1">📦 {formatSize(response.sizeBytes)}</span>
-        {testRun && testRun.results.length > 0 && (
-          <span className={`text-xs font-bold rounded px-2 py-1 ${failed === 0 ? 'bg-emerald-600' : 'bg-red-600'}`}>
-            Tests {passed}/{passed + failed}
+      {/* Response Header with Metrics (⇄ Status, Time, Size, Clear) */}
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-2 pb-1.5 border-b border-slate-800">
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1 pb-0.5 border-b-2 border-emerald-400">
+            <h2 className="font-bold text-xs text-white">Response</h2>
+          </div>
+          <span className="text-xs text-slate-500 font-medium">Viewer</span>
+
+          {/* Sub-tabs */}
+          <div className="flex items-center gap-1 ml-2">
+            {(
+              (isBinary
+                ? [
+                    ['file', `📁 File (${fileName})`],
+                    ['headers', `Headers (${headerEntries.length})`],
+                    ...(testRun ? [['tests', `Tests (${testRun.results.length})`] as [View, string]] : []),
+                  ]
+                : [
+                    ['pretty', `${i18n.response.pretty}${pretty.ok ? ' (JSON)' : ''}`],
+                    ...(pretty.ok ? [['schema', '🛡️ Schema']] as [View, string][] : []),
+                    ['raw', i18n.response.raw],
+                    ['headers', `${i18n.response.headersTab} (${headerEntries.length})`],
+                    ['preview', i18n.response.preview],
+                    ...(testRun ? [['tests', `Tests (${testRun.results.length})`] as [View, string]] : []),
+                  ]) as [View, string][]
+            ).map(([id, label]) => (
+              <button
+                key={id}
+                onClick={() => setView(id)}
+                className={`px-2 py-0.5 text-xs rounded transition-colors ${
+                  effectiveView === id
+                    ? 'bg-slate-800 font-semibold text-emerald-300'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Right side metrics matching mockup */}
+        <div className="flex items-center gap-3 text-xs">
+          <span className="text-emerald-400 font-bold flex items-center gap-1 font-mono">
+            <span>⇄</span> {response.status} {response.statusText}
           </span>
-        )}
-        <button
-          onClick={saveFile}
-          className="text-xs bg-emerald-700 hover:bg-emerald-600 rounded px-2.5 py-1 font-semibold"
-          title={isBinary ? undefined : 'Lưu body ra file'}
-        >
-          {saved ? 'Đã lưu ✓' : '💾 Lưu file'}
-        </button>
-        {inTauri && (
+          <span className="text-emerald-400 font-mono font-medium">
+            {response.timeMs} ms
+          </span>
+          <span className="text-emerald-400 font-mono font-medium">
+            {formatSize(response.sizeBytes)}
+          </span>
           <button
-            onClick={openFolder}
-            className="text-xs bg-slate-800 hover:bg-slate-700 rounded px-2.5 py-1"
-            title="Mở thư mục Downloads trong Explorer"
+            onClick={() => setResponse(null)}
+            title={i18n.response.clear}
+            className="text-slate-500 hover:text-rose-400 transition-colors p-0.5 text-xs"
           >
-            {folderMsg || '📂 Thư mục'}
+            🗑
           </button>
-        )}
-        {!isBinary && (
           <button
-            onClick={copyBody}
-            className="text-xs bg-slate-800 hover:bg-slate-700 rounded px-2.5 py-1"
+            onClick={saveFile}
+            className="text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 rounded px-2 py-0.5"
+            title={isBinary ? undefined : i18n.response.saveFile}
           >
-            {copied ? 'Đã copy ✓' : 'Copy body'}
+            {saved ? '✓' : `💾 ${i18n.response.saveFile}`}
           </button>
-        )}
+          {!isBinary && pretty.ok && generatedSchema && (
+            <button
+              onClick={lockSchema}
+              className={`text-xs rounded px-2 py-0.5 font-semibold transition-all border ${
+                schemaLocked
+                  ? 'bg-cyan-900 text-cyan-200 border-cyan-400 shadow-[0_0_10px_rgba(6,182,212,0.6)]'
+                  : 'bg-cyan-950/80 hover:bg-cyan-900 text-cyan-300 border-cyan-700/80 hover:border-cyan-400'
+              }`}
+              title={i18n.response.lockSchema}
+            >
+              {schemaLocked ? i18n.response.schemaLocked : `✨ ${i18n.response.lockSchema}`}
+            </button>
+          )}
+        </div>
       </div>
 
-      <div className="flex gap-1 border-b border-slate-800 mb-2">
-        {(
-          (isBinary
-            ? [
-                ['file', `📁 File (${fileName})`],
-                ['headers', `Headers (${headerEntries.length})`],
-                ...(testRun ? [['tests', `Tests (${testRun.results.length})`] as [View, string]] : []),
-              ]
-            : [
-                ['pretty', `Pretty${pretty.ok ? ' (JSON)' : ''}`],
-                ['raw', 'Raw'],
-                ['headers', `Headers (${headerEntries.length})`],
-                ['preview', 'Preview'],
-                ...(testRun ? [['tests', `Tests (${testRun.results.length})`] as [View, string]] : []),
-              ]) as [View, string][]
-        ).map(([id, label]) => (
-          <button
-            key={id}
-            onClick={() => setView(id)}
-            className={`px-3 py-1.5 text-sm rounded-t ${
-              effectiveView === id ? 'bg-slate-800 font-semibold' : 'text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
+      {effectiveView === 'schema' && generatedSchema && (
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center justify-between bg-slate-900/80 border border-slate-800 rounded px-3 py-2 text-xs">
+            <span className="text-slate-300">
+              🧬 <b className="text-cyan-400">JSON Schema (Draft-07)</b> {i18n.response.schemaAuto}
+            </span>
+            <div className="flex gap-2">
+              <button
+                onClick={copySchema}
+                className="bg-slate-800 hover:bg-slate-700 text-slate-200 px-2.5 py-1 rounded transition-colors"
+              >
+                {copiedSchema ? i18n.common.copied : `📋 ${i18n.response.copySchema}`}
+              </button>
+              <button
+                onClick={lockSchema}
+                className="bg-cyan-900 hover:bg-cyan-800 text-cyan-200 border border-cyan-600 px-2.5 py-1 rounded font-semibold transition-colors"
+              >
+                {schemaLocked ? i18n.response.schemaLocked : `🔒 ${i18n.response.lockSchema}`}
+              </button>
+            </div>
+          </div>
+          <pre
+            className="bg-slate-950 border border-slate-700 rounded p-3 text-xs overflow-auto max-h-96 font-mono"
+            dangerouslySetInnerHTML={{ __html: schemaHighlighted }}
+          />
+        </div>
+      )}
 
       {effectiveView === 'file' && (
         <div className="bg-slate-950 border border-slate-700 rounded p-4">
@@ -214,14 +305,21 @@ export default function ResponseViewer() {
 
       {effectiveView === 'pretty' && (
         pretty.ok ? (
-          <pre
-            className="bg-slate-950 border border-slate-700 rounded p-3 text-xs overflow-auto max-h-96 font-mono"
-            dangerouslySetInnerHTML={{ __html: highlighted }}
-          />
+          <div className="bg-slate-950 dark:bg-[#0b1219] border border-slate-750 dark:border-slate-800 rounded-lg overflow-hidden flex font-mono text-xs max-h-96 shadow-inner">
+            <div className="bg-slate-900 dark:bg-[#080e14] py-3 px-3 text-right select-none text-slate-400 dark:text-slate-600 border-r border-slate-750 dark:border-slate-800/80 text-[11px] leading-relaxed">
+              {Array.from({ length: lineCount }).map((_, i) => (
+                <div key={i}>{i + 1}</div>
+              ))}
+            </div>
+            <pre
+              className="flex-1 p-3 overflow-auto whitespace-pre leading-relaxed font-mono"
+              dangerouslySetInnerHTML={{ __html: highlighted }}
+            />
+          </div>
         ) : (
           <div>
             <p className="text-xs text-slate-500 mb-1">Không phải JSON — hiển thị dạng text:</p>
-            <pre className="bg-slate-950 border border-slate-700 rounded p-3 text-xs overflow-auto max-h-96 whitespace-pre-wrap font-mono">
+            <pre className="bg-slate-950 dark:bg-[#0b1219] border border-slate-750 dark:border-slate-800 rounded p-3 text-xs overflow-auto max-h-96 whitespace-pre-wrap font-mono">
               {response.body || '(body trống)'}
             </pre>
           </div>

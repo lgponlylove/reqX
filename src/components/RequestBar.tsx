@@ -9,12 +9,14 @@ import { useTestCaseStore } from '../stores/testcases';
 import { scriptChainFor } from '../lib/script-chain';
 import { uid, resolveVariables } from '../lib/variables';
 import VarHighlightInput from './VarHighlightInput';
+import { useTranslation } from '../stores/language';
 import type { HttpMethod, ApiRequest } from '../types/api';
 
 const METHODS: HttpMethod[] = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'];
 const TIMEOUT_KEY = 'postman-clone-timeout-s';
 
 export default function RequestBar() {
+  const { t: i18n } = useTranslation();
   const { current, set, dirty, markClean } = useRequestStore();
   const {
     environments, activeEnvId, globals, requests, collections, saveRequest, pushHistory,
@@ -190,6 +192,7 @@ export default function RequestBar() {
         responseStatus: res.status,
         timeMs: res.timeMs,
         createdAt: Date.now(),
+        response: res,
       });
     } catch (e) {
       if (e instanceof DOMException && e.name === 'AbortError') {
@@ -204,61 +207,77 @@ export default function RequestBar() {
   }
 
   return (
-    <div className="flex flex-col gap-2">
-      <div className="flex gap-2">
-        <select
-          className="bg-slate-900 border border-slate-700 rounded px-2 py-2"
-          value={current.method}
-          onChange={(e) => set({ method: e.target.value as HttpMethod })}
-        >
-          {METHODS.map((m) => (
-            <option key={m} value={m}>{m}</option>
-          ))}
-        </select>
-        <VarHighlightInput
-          value={current.url}
-          onChange={(v) => set({ url: v })}
-          placeholder="https://api... hoặc {{baseUrl}}/users"
-          hasVar={hasVar}
-        />
+    <div className="flex flex-col gap-2.5">
+      {/* Modern Cyber URL Bar Group */}
+      <div className="flex items-center gap-2 bg-slate-950 dark:bg-[#0c141e] border border-slate-750 dark:border-slate-800 hover:border-slate-700 focus-within:border-emerald-500/50 p-1.5 rounded-lg shadow-inner transition-all">
+        <div className="relative">
+          <select
+            className="bg-emerald-500/15 dark:bg-[#122e2c] border border-emerald-500/40 text-emerald-700 dark:text-emerald-400 font-mono font-bold text-xs rounded-md px-3 py-2 outline-none appearance-none pr-6 cursor-pointer transition-colors"
+            value={current.method}
+            onChange={(e) => set({ method: e.target.value as HttpMethod })}
+          >
+            {METHODS.map((m) => (
+              <option key={m} value={m} className="bg-slate-900 text-slate-100 font-bold">{m}</option>
+            ))}
+          </select>
+          <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[9px] text-emerald-400">▼</span>
+        </div>
+
+        <div className="flex-1 min-w-0">
+          <VarHighlightInput
+            value={current.url}
+            onChange={(v) => set({ url: v })}
+            placeholder={i18n.request.urlPlaceholder}
+            hasVar={hasVar}
+          />
+        </div>
+
         {sending ? (
           <button
             onClick={onCancel}
-            className="bg-red-600 hover:bg-red-500 rounded px-5 font-semibold"
+            className="bg-rose-600 hover:bg-rose-500 text-white rounded-md px-5 py-2 font-bold text-xs shadow-md shadow-rose-900/40 flex items-center gap-1.5 transition-all"
           >
-            Hủy
+            <span>⏹</span> {i18n.common.cancel}
           </button>
         ) : (
           <button
             onClick={onSend}
-            className="bg-emerald-600 hover:bg-emerald-500 rounded px-5 font-semibold"
+            className="bg-emerald-400 hover:bg-emerald-300 text-slate-950 font-bold text-xs rounded-md px-5 py-2 shadow-[0_0_15px_rgba(52,211,153,0.45)] flex items-center gap-2 transition-all active:scale-95"
           >
-            Gửi
+            <span>{i18n.request.send}</span>
+            <span className="text-[10px] opacity-75">▼</span>
           </button>
         )}
+
+        <div className="h-4 w-[1px] bg-slate-800 mx-0.5" />
+
         <button
           onClick={openKeyTest}
           disabled={sending}
-          className="bg-violet-700 hover:bg-violet-600 disabled:opacity-40 rounded px-3 font-semibold text-sm"
-          title="Lên bộ key test cực đoan cho request này (thiếu field, null, sai kiểu, token sai, quét action...) — mở bảng duyệt, chỉ gửi khi bạn bấm Chạy"
+          className="bg-violet-950/60 hover:bg-violet-900/60 border border-violet-850/80 text-violet-300 disabled:opacity-40 rounded-lg px-2.5 py-2 font-bold text-xs flex items-center gap-1 transition-all"
+          title={i18n.request.keyTestTitle}
         >
-          🧪 Key test
+          <span>🧪</span>
+          <span>{i18n.request.keyTest}</span>
         </button>
+
         <button
           type="button"
           onClick={async () => {
             const { useMockStore } = await import('../stores/mock');
             useMockStore.getState().createRuleFromRequest(current);
-            setSavedFlash(`Đã tạo Mock Rule cho ${current.name || current.url}!`);
+            setSavedFlash(`Mock Rule created for ${current.name || current.url}!`);
             window.setTimeout(() => setSavedFlash(''), 2500);
           }}
           disabled={sending}
-          className="bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded px-2.5 font-semibold text-xs text-purple-300 flex items-center gap-1"
-          title="Tạo Mock Rule từ request này sang Mock Server"
+          className="bg-slate-950/80 hover:bg-slate-850 border border-slate-800 text-purple-300 rounded-lg px-2.5 py-2 font-bold text-xs flex items-center gap-1 transition-all"
+          title={i18n.request.mockTitle}
         >
-          🎭 Mock
+          <span>🎭</span>
+          <span>{i18n.request.mock}</span>
         </button>
-        <label className="flex items-center gap-1 text-xs text-slate-400" title="Timeout (giây)">
+
+        <label className="flex items-center gap-1 text-xs text-slate-400" title={i18n.request.timeoutTitle}>
           <input
             type="number"
             min={5}
@@ -274,23 +293,22 @@ export default function RequestBar() {
       <div className="flex gap-2">
         <input
           className="bg-slate-900 border border-slate-700 rounded px-3 py-1.5 text-sm w-1/3"
-          placeholder="Tên request (vd: Lấy danh sách user)"
+          placeholder={i18n.request.namePlaceholder}
           value={current.name}
           onChange={(e) => set({ name: e.target.value })}
-          title="Tên request"
+          title={i18n.request.namePlaceholder}
         />
         <input
           className="bg-slate-900 border border-slate-700 rounded px-3 py-1.5 text-sm flex-1"
-          placeholder="Mô tả công dụng (tìm kiếm nhanh Ctrl+K)..."
+          placeholder={i18n.request.descPlaceholder}
           value={current.description || ''}
           onChange={(e) => set({ description: e.target.value })}
-          title="Mô tả request"
+          title={i18n.request.descPlaceholder}
         />
         {!hasOrigin && collections.length > 0 && (
           <select
             value={saveColId || collections[0].id}
             onChange={(e) => setSaveColId(e.target.value)}
-            title="Request mới sẽ được lưu vào collection này"
             className="bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-sm max-w-44"
           >
             {collections.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
@@ -299,18 +317,16 @@ export default function RequestBar() {
         <button
           onClick={doSave}
           disabled={sending}
-          title={hasOrigin ? `Lưu đè vào “${originCol ?? 'collection'}” (Ctrl+S)` : 'Lưu request mới (Ctrl+S)'}
           className="bg-sky-700 hover:bg-sky-600 rounded px-4 font-semibold disabled:opacity-40 shrink-0"
         >
-          💾 Lưu{dirty ? ' ●' : ''}
+          💾 {i18n.request.saveButton}{dirty ? ' ●' : ''}
         </button>
       </div>
       {savedFlash && <p className="text-emerald-400 text-sm">{savedFlash}</p>}
-      {error && <p className="text-red-400 text-sm">Lỗi: {error}</p>}
+      {error && <p className="text-red-400 text-sm">Error: {error}</p>}
       {missingVars.length > 0 && (
         <p className="text-xs text-red-400">
-          Thiếu biến: {missingVars.map((v) => <code key={v} className="font-mono bg-red-950 rounded px-1">{`{{${v}}}`}</code>)}{' '}
-          — kiểm tra Environment/Globals.
+          Missing variables: {missingVars.map((v) => <code key={v} className="font-mono bg-red-950 rounded px-1">{`{{${v}}}`}</code>)}{' '}
         </p>
       )}
       <div className="flex items-center gap-2">
@@ -318,7 +334,7 @@ export default function RequestBar() {
           onClick={() => setShowCurl((v) => !v)}
           className="text-xs bg-slate-800 hover:bg-slate-700 rounded px-2.5 py-1 font-mono"
         >
-          {showCurl ? 'Ẩn code ▴' : 'Xem code ▾'}
+          {showCurl ? i18n.request.hideCode : i18n.request.showCode}
         </button>
         {(Object.entries({ curl: 'cURL', fetch: 'fetch', python: 'Python' }) as ['curl' | 'fetch' | 'python', string][]).map(
           ([id, label]) =>

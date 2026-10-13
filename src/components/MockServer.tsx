@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useMockStore } from '../stores/mock';
+import { useTranslation } from '../stores/language';
 import type { MockRule, HttpMethod } from '../types/api';
 import KeyValueEditor from './KeyValueEditor';
 
@@ -32,6 +33,7 @@ export default function MockServer() {
     clearLogs,
   } = useMockStore();
 
+  const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<'rules' | 'logs'>('rules');
   const [filter, setFilter] = useState('');
   const [selectedLogId, setSelectedLogId] = useState<string | null>(null);
@@ -54,19 +56,19 @@ export default function MockServer() {
             <span className="text-xl">🎭</span>
             <div>
               <h2 className="font-bold text-sm text-slate-100 flex items-center gap-2">
-                Local Mock Server
+                {t.mock.title}
                 {isRunning ? (
                   <span className="px-2 py-0.5 rounded-full text-[10px] bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center gap-1 font-semibold">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" /> Đang chạy
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" /> {t.mock.running}
                   </span>
                 ) : (
                   <span className="px-2 py-0.5 rounded-full text-[10px] bg-slate-800 text-slate-400 border border-slate-700">
-                    Đã dừng
+                    {t.mock.stopped}
                   </span>
                 )}
               </h2>
               <p className="text-xs text-slate-400">
-                Mock URL gốc: <code className="text-emerald-400 font-mono">http://localhost:{port}</code> (hoặc port bất kỳ)
+                {t.mock.baseUrl} <code className="text-emerald-400 font-mono">http://localhost:{port}</code>
               </p>
             </div>
           </div>
@@ -74,7 +76,7 @@ export default function MockServer() {
 
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-1.5 bg-slate-950 px-2.5 py-1 rounded border border-slate-800 text-xs">
-            <span className="text-slate-400">Cổng (Port):</span>
+            <span className="text-slate-400">{t.mock.port}</span>
             <input
               type="number"
               disabled={isRunning}
@@ -89,14 +91,14 @@ export default function MockServer() {
               onClick={stopServer}
               className="px-3.5 py-1.5 rounded text-xs font-bold bg-rose-600 hover:bg-rose-500 text-white shadow flex items-center gap-1.5"
             >
-              <span>⏹</span> Dừng Mock Server
+              <span>⏹</span> {t.mock.stopServer}
             </button>
           ) : (
             <button
               onClick={startServer}
               className="px-3.5 py-1.5 rounded text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white shadow flex items-center gap-1.5"
             >
-              <span>▶</span> Bật Mock Server
+              <span>▶</span> {t.mock.startServer}
             </button>
           )}
 
@@ -109,7 +111,7 @@ export default function MockServer() {
                 activeTab === 'rules' ? 'bg-slate-800 text-white' : 'text-slate-400 hover:text-slate-200'
               }`}
             >
-              Danh sách Rules ({rules.length})
+              {t.mock.rulesTab.replace('{count}', String(rules.length))}
             </button>
             <button
               onClick={() => setActiveTab('logs')}
@@ -117,7 +119,7 @@ export default function MockServer() {
                 activeTab === 'logs' ? 'bg-slate-800 text-white' : 'text-slate-400 hover:text-slate-200'
               }`}
             >
-              Lịch sử gọi ({logs.length})
+              {t.mock.logsTab.replace('{count}', String(logs.length))}
               {logs.length > 0 && <span className="w-2 h-2 rounded-full bg-emerald-400" />}
             </button>
           </div>
@@ -132,7 +134,7 @@ export default function MockServer() {
             <div className="p-2 border-b border-slate-800 flex items-center gap-2">
               <input
                 type="text"
-                placeholder="Tìm rule / đường dẫn..."
+                placeholder={t.mock.filterRules}
                 value={filter}
                 onChange={(e) => setFilter(e.target.value)}
                 className="flex-1 bg-slate-950 border border-slate-800 rounded px-2 py-1 text-xs text-slate-200 outline-none focus:border-emerald-600"
@@ -140,9 +142,9 @@ export default function MockServer() {
               <button
                 onClick={() => addRule()}
                 className="px-2.5 py-1 rounded bg-emerald-700 hover:bg-emerald-600 text-xs text-white font-bold shrink-0"
-                title="Tạo Rule mới"
+                title={t.mock.addRule}
               >
-                + Thêm
+                {t.common.add}
               </button>
             </div>
 
@@ -201,7 +203,7 @@ export default function MockServer() {
               })}
 
               {filteredRules.length === 0 && (
-                <div className="p-6 text-center text-xs text-slate-500">Chưa có rule nào phù hợp.</div>
+                <div className="p-6 text-center text-xs text-slate-500">{t.mock.noRules}</div>
               )}
             </div>
           </div>
@@ -216,15 +218,17 @@ export default function MockServer() {
                     value={selectedRule.name}
                     onChange={(e) => updateRule(selectedRule.id, { name: e.target.value })}
                     className="font-bold text-base bg-transparent border-b border-transparent hover:border-slate-700 focus:border-emerald-600 outline-none text-slate-100 flex-1 px-1 py-0.5"
-                    placeholder="Tên Rule"
+                    placeholder={t.mock.ruleName}
                   />
                 </div>
                 <div className="flex items-center gap-2">
                   <button
-                    onClick={() => deleteRule(selectedRule.id)}
+                    onClick={() => {
+                      if (confirm(t.mock.deleteRuleConfirm)) deleteRule(selectedRule.id);
+                    }}
                     className="px-2.5 py-1 rounded text-xs bg-rose-950/40 text-rose-400 border border-rose-850 hover:bg-rose-900/60"
                   >
-                    Xóa Rule này
+                    {t.mock.deleteThisRule}
                   </button>
                 </div>
               </div>
@@ -232,7 +236,7 @@ export default function MockServer() {
               {/* Endpoint Match Settings */}
               <div className="grid grid-cols-4 gap-3 bg-slate-900/40 p-3 rounded-lg border border-slate-800 text-xs">
                 <div>
-                  <label className="text-slate-400 block mb-1">Phương thức (Method):</label>
+                  <label className="text-slate-400 block mb-1">{t.request.method}:</label>
                   <select
                     value={selectedRule.method}
                     onChange={(e) => updateRule(selectedRule.id, { method: e.target.value as any })}
@@ -248,7 +252,7 @@ export default function MockServer() {
 
                 <div className="col-span-2">
                   <label className="text-slate-400 block mb-1">
-                    Đường dẫn khớp (Path) <span className="text-slate-500">— hỗ trợ /api/:id hoặc /api/*</span>
+                    {t.mock.path} <span className="text-slate-500">— /api/:id | /api/*</span>
                   </label>
                   <input
                     type="text"
@@ -260,32 +264,32 @@ export default function MockServer() {
                 </div>
 
                 <div>
-                  <label className="text-slate-400 block mb-1">HTTP Status Code:</label>
+                  <label className="text-slate-400 block mb-1">{t.mock.statusCode}:</label>
                   <input
                     type="number"
                     value={selectedRule.statusCode}
                     onChange={(e) => updateRule(selectedRule.id, { statusCode: Number(e.target.value) })}
-                    className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1.5 font-mono text-amber-400 font-bold outline-none focus:border-emerald-600"
+                    className="w-full bg-slate-950 border border-slate-700 rounded px-2.5 py-1.5 font-mono text-amber-400 font-bold outline-none focus:border-emerald-600"
                   />
                 </div>
 
                 <div>
-                  <label className="text-slate-400 block mb-1">Độ trễ giả lập (Delay ms):</label>
+                  <label className="text-slate-400 block mb-1">{t.mock.delayMs}:</label>
                   <input
                     type="number"
                     value={selectedRule.delayMs || 0}
                     onChange={(e) => updateRule(selectedRule.id, { delayMs: Number(e.target.value) })}
-                    className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1.5 font-mono text-slate-300 outline-none"
+                    className="w-full bg-slate-950 border border-slate-700 rounded px-2.5 py-1.5 font-mono text-slate-300 outline-none"
                     placeholder="0"
                   />
                 </div>
 
                 <div>
-                  <label className="text-slate-400 block mb-1">Định dạng Body trả về:</label>
+                  <label className="text-slate-400 block mb-1">{t.mock.bodyType}</label>
                   <select
                     value={selectedRule.responseBodyType}
                     onChange={(e) => updateRule(selectedRule.id, { responseBodyType: e.target.value as any })}
-                    className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1.5 text-slate-300 outline-none"
+                    className="w-full bg-slate-950 border border-slate-700 rounded px-2.5 py-1.5 text-slate-300 outline-none"
                   >
                     <option value="json">JSON</option>
                     <option value="text">Plain Text</option>
@@ -295,7 +299,7 @@ export default function MockServer() {
 
                 <div className="col-span-2 flex items-end pb-1.5">
                   <span className="text-slate-400 text-[11px]">
-                    URL test trực tiếp:{' '}
+                    {t.mock.directTestUrl}{' '}
                     <code className="text-sky-300">
                       http://localhost:{port}
                       {selectedRule.path.startsWith('/') ? selectedRule.path : '/' + selectedRule.path}
@@ -306,19 +310,19 @@ export default function MockServer() {
 
               {/* Custom Response Headers */}
               <div>
-                <h4 className="text-xs font-semibold text-slate-300 mb-1.5">Headers tùy chỉnh trả về:</h4>
+                <h4 className="text-xs font-semibold text-slate-300 mb-1.5">{t.mock.customHeaders}</h4>
                 <KeyValueEditor
                   items={selectedRule.headers || []}
                   onChange={(headers) => updateRule(selectedRule.id, { headers })}
-                  keyPlaceholder="Header (vd: X-Custom-Header)"
-                  valuePlaceholder="Giá trị"
+                  keyPlaceholder="Header (e.g. X-Custom-Header)"
+                  valuePlaceholder="Value"
                 />
               </div>
 
               {/* Response Body Editor */}
               <div className="flex-1 flex flex-col min-h-[220px]">
                 <div className="flex items-center justify-between mb-1.5">
-                  <h4 className="text-xs font-semibold text-slate-300">Nội dung Body trả về:</h4>
+                  <h4 className="text-xs font-semibold text-slate-300">{t.mock.responseBody}:</h4>
                   {selectedRule.responseBodyType === 'json' && (
                     <button
                       type="button"
@@ -332,7 +336,7 @@ export default function MockServer() {
                       }}
                       className="text-[11px] text-slate-400 hover:text-emerald-300 bg-slate-900 border border-slate-800 px-2 py-0.5 rounded"
                     >
-                      ✨ Căn lề JSON
+                      {t.mock.formatJson}
                     </button>
                   )}
                 </div>
@@ -348,7 +352,7 @@ export default function MockServer() {
             </div>
           ) : (
             <div className="flex-1 flex items-center justify-center text-slate-500 text-sm">
-              Chọn hoặc tạo mới một Mock Rule để bắt đầu.
+              {t.mock.selectRuleHint}
             </div>
           )}
         </div>
@@ -357,13 +361,13 @@ export default function MockServer() {
         <div className="flex-1 flex overflow-hidden">
           <div className="w-96 border-r border-slate-800 flex flex-col bg-slate-900/30">
             <div className="p-2 border-b border-slate-800 flex items-center justify-between text-xs">
-              <span className="text-slate-400">Danh sách lượt gọi gần nhất:</span>
+              <span className="text-slate-400">{t.mock.recentCalls}</span>
               <button
                 onClick={clearLogs}
                 disabled={logs.length === 0}
                 className="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 disabled:opacity-40"
               >
-                Xóa logs
+                {t.mock.clearLogs}
               </button>
             </div>
             <div className="flex-1 overflow-y-auto divide-y divide-slate-850">
@@ -409,7 +413,7 @@ export default function MockServer() {
 
               {logs.length === 0 && (
                 <div className="p-8 text-center text-xs text-slate-500">
-                  Chưa có request nào gửi tới Mock Server. Bật server và gọi thử một endpoint!
+                  {t.mock.emptyLogs}
                 </div>
               )}
             </div>
@@ -424,7 +428,7 @@ export default function MockServer() {
                     {selectedLog.method} {selectedLog.url}
                   </h3>
                   <p className="text-slate-500 text-[11px] mt-0.5">
-                    Thời gian: {new Date(selectedLog.timestamp).toLocaleString()} • Trả về sau {selectedLog.timeMs}ms
+                    {t.mock.time} {new Date(selectedLog.timestamp).toLocaleString()} • {t.mock.returnedAfter} {selectedLog.timeMs}ms
                   </p>
                 </div>
                 <div className="text-right">
@@ -440,7 +444,7 @@ export default function MockServer() {
 
               {selectedLog.body && (
                 <div>
-                  <h4 className="font-semibold text-slate-400 mb-1">Request Body đã nhận:</h4>
+                  <h4 className="font-semibold text-slate-400 mb-1">{t.mock.receivedRequestBody}</h4>
                   <pre className="p-2.5 rounded bg-slate-900 border border-slate-800 font-mono text-slate-300 overflow-x-auto max-h-40">
                     {selectedLog.body}
                   </pre>
@@ -448,7 +452,7 @@ export default function MockServer() {
               )}
 
               <div className="flex-1 flex flex-col">
-                <h4 className="font-semibold text-slate-400 mb-1">Mock Response đã trả về:</h4>
+                <h4 className="font-semibold text-slate-400 mb-1">{t.mock.sentMockResponse}</h4>
                 <pre className="flex-1 p-2.5 rounded bg-slate-900 border border-slate-800 font-mono text-emerald-300 overflow-x-auto min-h-[140px]">
                   {selectedLog.responseBody}
                 </pre>
@@ -456,7 +460,7 @@ export default function MockServer() {
             </div>
           ) : (
             <div className="flex-1 flex items-center justify-center text-slate-500 text-xs">
-              Chọn 1 dòng log bên trái để xem chi tiết request & response.
+              {t.mock.selectLogHint}
             </div>
           )}
         </div>
