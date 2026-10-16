@@ -17,6 +17,63 @@ export interface UpdateInfo {
   latest: string;
   url: string;
   notes: string;
+  /** Link trực tiếp tới file cài đúng OS của máy này (nếu dò được). */
+  downloadUrl?: string;
+}
+
+interface FeedAssets {
+  win_nsis?: string;
+  win_msi?: string;
+  mac_arm?: string;
+  mac_intel?: string;
+  linux_appimage?: string;
+  linux_deb?: string;
+}
+
+export type OsKind = 'win' | 'mac-arm' | 'mac-intel' | 'linux' | 'unknown';
+
+/** Dò OS từ userAgent (chạy được cả web lẫn Tauri WebView). arch: 'arm'|'x86' nếu lấy được từ userAgentData. */
+export function detectOs(ua: string, arch = ''): OsKind {
+  const s = ua.toLowerCase();
+  const a = arch.toLowerCase();
+  if (s.includes('windows')) return 'win';
+  if (s.includes('macintosh') || s.includes('mac os')) {
+    if (a.includes('arm')) return 'mac-arm';
+    return 'mac-intel'; // UA mac không phân biệt chip → mặc định Intel, user chip M tự đổi file trên trang release
+  }
+  if (s.includes('linux') || s.includes('x11')) return 'linux';
+  return 'unknown';
+}
+
+/** Chọn file asset đúng OS. Windows ưu tiên NSIS .exe (cài không cần admin). */
+export function pickAsset(os: OsKind, assets: FeedAssets): string | null {
+  switch (os) {
+    case 'win': return assets.win_nsis || assets.win_msi || null;
+    case 'mac-arm': return assets.mac_arm || assets.mac_intel || null;
+    case 'mac-intel': return assets.mac_intel || assets.mac_arm || null;
+    case 'linux': return assets.linux_appimage || assets.linux_deb || null;
+    default: return null;
+  }
+}
+
+function currentOs(): OsKind {
+  if (typeof navigator === 'undefined') return 'unknown';
+  const nav = navigator as Navigator & {
+    userAgentData?: { platform?: string; architecture?: string };
+  };
+  const ua = nav.userAgentData?.platform
+    ? `${nav.userAgentData.platform}`
+    : navigator.userAgent;
+  // userAgentData.platform chỉ cho "Windows"/"macOS" chung chung → ghép architecture khi có
+  const arch = nav.userAgentData?.architecture ?? '';
+  if (nav.userAgentData?.platform) {
+    const p = nav.userAgentData.platform.toLowerCase();
+    if (p.includes('win')) return 'win';
+    if (p.includes('mac')) return arch.toLowerCase().includes('arm') ? 'mac-arm' : 'mac-intel';
+    if (p.includes('linux')) return 'linux';
+    return detectOs(navigator.userAgent, arch);
+  }
+  return detectOs(ua, arch);
 }
 
 interface CacheEntry extends UpdateInfo {
@@ -69,12 +126,16 @@ export async function checkForUpdate(force = false): Promise<UpdateInfo | null> 
   try {
     const res = await fetch(UPDATE_FEED_URL, { signal: ctrl.signal, cache: 'no-store' });
     if (!res.ok) return cached && isNewer(cached.latest, APP_VERSION) ? cached : null;
-    const j = (await res.json()) as Partial<UpdateInfo>;
+    const j = (await res.json()) as Partial<UpdateInfo> & { assets?: FeedAssets };
     if (!j.latest || !isNewer(j.latest, APP_VERSION)) return null;
+    const tag = `v${j.latest}`;
+    const fallbackUrl = j.url || `https://github.com/lgponlylove/reqX/releases/tag/${tag}`;
+    const file = j.assets ? pickAsset(currentOs(), j.assets) : null;
     const info: UpdateInfo = {
       latest: j.latest,
-      url: j.url || 'https://github.com/lgponlylove/reqX/releases',
+      url: fallbackUrl,
       notes: j.notes || '',
+      downloadUrl: file ? `https://github.com/lgponlylove/reqX/releases/download/${tag}/${file}` : fallbackUrl,
     };
     const prev = readCache();
     writeCache({ ...info, at: Date.now(), dismissed: prev?.dismissed ?? '' });

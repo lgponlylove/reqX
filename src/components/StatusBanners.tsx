@@ -48,12 +48,21 @@ export default function StatusBanners() {
             {lang === 'vi' ? ' Tải về rồi chép đè folder portable cũ (giữ lại file reqx.lic).' : ' Download and overwrite the old portable folder (keep reqx.lic).'}
           </span>
           <a
-            href={update.url}
+            href={update.downloadUrl || update.url}
             target="_blank"
             rel="noreferrer"
             className="px-2 py-0.5 rounded-lg bg-emerald-500/20 border border-emerald-500/50 hover:bg-emerald-500/30 font-semibold whitespace-nowrap"
           >
             {t.license.updateDownload}
+          </a>
+          <a
+            href={update.url}
+            target="_blank"
+            rel="noreferrer"
+            title={lang === 'vi' ? 'Mở trang release (đủ file mọi hệ điều hành)' : 'Open the release page (all OS files)'}
+            className="text-emerald-400/70 hover:text-emerald-200 whitespace-nowrap underline underline-offset-2"
+          >
+            {lang === 'vi' ? 'File khác' : 'Other files'}
           </a>
           <button
             type="button"

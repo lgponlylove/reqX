@@ -32,4 +32,8 @@
 - Quy trình release cho tác giả:
   1. Đổi `version` trong `package.json` + `src-tauri/tauri.conf.json` + `src-tauri/Cargo.toml` + `APP_VERSION` (`src/lib/update-check.ts`).
   2. Build portable zip, đăng GitHub Releases.
-  3. Sửa `latest.json` ở branch main: `{"latest": "<version>", "url": "<link releases>", "notes": "<điểm mới ngắn gọn>"}`.
+  3. Sửa `latest.json` ở branch main: `{"latest": "<version>", "url": "<link trang tag>", "notes": "<điểm mới ngắn gọn>", "assets": {...}}`.
+     `url` trỏ trang tag của version đó (đủ file mọi OS, phòng khi dò OS sai).
+     `assets` liệt kê đúng tên file workflow vừa build (Windows: `ReqX_<ver>_x64-setup.exe` + `ReqX_<ver>_x64_en-US.msi`;
+     mac: `ReqX_<ver>_aarch64.dmg` + `ReqX_<ver>_x64.dmg`; Linux: `reqx_<ver>_amd64.AppImage` + `reqx_<ver>_amd64.deb`).
+     Sau khi build xong, mở thử link `.../releases/download/v<ver>/<tên file>` để chắc không 404 rồi mới push `latest.json`.

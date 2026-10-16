@@ -1,5 +1,13 @@
 {
   "latest": "0.2.0",
   "url": "https://github.com/lgponlylove/reqX/releases/tag/v0.2.0",
-  "notes": "Trial 60 ngày, tự báo bản mới, chính sách 1 key = 1 máy"
+  "notes": "Trial 60 ngày, tự báo bản mới, chính sách 1 key = 1 máy",
+  "assets": {
+    "win_nsis": "ReqX_0.2.0_x64-setup.exe",
+    "win_msi": "ReqX_0.2.0_x64_en-US.msi",
+    "mac_arm": "ReqX_0.2.0_aarch64.dmg",
+    "mac_intel": "ReqX_0.2.0_x64.dmg",
+    "linux_appimage": "reqx_0.2.0_amd64.AppImage",
+    "linux_deb": "reqx_0.2.0_amd64.deb"
+  }
 }
