@@ -23,6 +23,7 @@ import { generateCases, runTestCases, casesToCsv, csvFileName, GROUP_LABEL, type
 import { useTestCaseStore } from '../stores/testcases';
 import { useScheduleStore } from '../stores/schedule';
 import { engineRunning } from '../lib/scheduleEngine';
+import { getDocTopic, listDocTopics, searchDocs } from '../lib/docs/app-guide';
 import type { ApiRequest, HttpMethod } from '../types/api';
 
 /** Mục lục mẫu script — nhét vào prompt để model biết đường gọi get_script_snippet, không phải copy cả code. */
@@ -32,6 +33,7 @@ const SNIPPET_INDEX = SCRIPT_SNIPPETS.map(
 
 const SYSTEM = `Bạn là trợ lý trong app ReqX (test API kiểu Postman). Trả lời NGẮN GỌN bằng Tiếng Việt.
 Bạn có tools để xem và điều khiển app. Quy tắc:
+- Khi người dùng hỏi về tính năng của reqX, cách sử dụng, phím tắt, cấu hình, CLI, script, runner, flow, mock, environment: BẮT BUỘC gọi tool get_feature_guide để tra cứu tài liệu chính thống của app rồi giải thích chi tiết, kèm ví dụ cụ thể.
 - Khi người dùng nhắc tên (collection/request/flow/env): gọi tool list tương ứng trước để kiểm tra. Nếu KHÔNG có tên khớp chính xác 100% (hoặc có nhiều tên gần giống, VD người dùng bảo 'order/get' nhưng chỉ có 'order/print by id' hoặc 'order/get by id'): BẮT BUỘC liệt kê các request tìm được và HỎI LẠI người dùng để xác nhận, TUYỆT ĐỐI KHÔNG tự ý chọn bừa request khác để sửa hay chèn script.
 - Được phép gửi request / chạy flow / đổi biến NGAY, không cần xin phép thêm (app đã hỏi riêng khi gặp script lạ).
 - Tóm tắt kết quả gọn: status, thời gian, tests pass/fail, biến trích được. Không dán cả body dài.
@@ -88,6 +90,7 @@ const TOOLS: GeminiFunctionDecl[] = [
   { name: 'refine_test_case', description: 'Sửa 1 case trong bảng key test đang mở (đổi tên/nhóm/data/mong đợi status/mong đợi body chứa) theo nghiệp vụ, VD đổi case "null cho totalamount" từ any sang 400. Dùng số thứ tự hoặc case_id.', parameters: { type: 'OBJECT', properties: { case: { type: 'STRING', description: 'case_id hoặc số thứ tự case (1 = đầu tiên)' }, name: { type: 'STRING' }, data: { type: 'STRING', description: 'JSON object {"ten field":"gia tri"}; "<<xóa field>>" = bỏ hẳn key, "<<null>>" = gửi null, "" = chuỗi rỗng; key "body" (không có dấu :) thay cả body, VD {"body":"{}"}' }, expect_status: { type: 'STRING', description: '2xx | 4xx | 401 | 200 | !=200 | >=400 | any' }, expect_contains: { type: 'STRING', description: 'Chuỗi phải có trong response body (rỗng = không kiểm)' } }, required: ['case'] } },
   { name: 'run_test_cases', description: 'Chạy bộ key test đang mở (từng case = 1 lần gửi request với dữ liệu case, kèm pre-request + tests). Kết quả ✅/❌ so với mong đợi từng case hiện ngay ở bảng. Sau đó gọi export_test_cases để xuất file Excel.', parameters: { type: 'OBJECT', properties: { limit: { type: 'NUMBER', description: 'Số case tối đa để chạy (mặc định 25, tối đa 60)' } }, required: [] } },
   { name: 'export_test_cases', description: 'Xuất bộ key test + kết quả vừa chạy ra file CSV có BOM (mở trực tiếp bằng Excel, tiếng Việt không lỗi font): 1 dòng = 1 case với dữ liệu, mong đợi, status, kết luận, lý do, thời gian, response tóm tắt, curl đã che secret. File lưu cạnh app (bản web tải về Downloads).', parameters: { type: 'OBJECT', properties: {} } },
+  { name: 'get_feature_guide', description: 'Tra cứu tài liệu hướng dẫn sử dụng tính năng của ReqX (overview, builder-requests, environments, scripts-sandbox, runner-and-data, flows, mock-server, protocols, cli, ai-assistant, shortcuts). Để trống topic hoặc truyền "list" để lấy mục lục tất cả tính năng.', parameters: { type: 'OBJECT', properties: { topic: { type: 'STRING', description: 'Tên topic hoặc từ khóa cần tra cứu: "overview", "builder-requests", "environments", "scripts-sandbox", "runner-and-data", "flows", "mock-server", "protocols", "cli", "ai-assistant", "shortcuts", hoặc từ khóa tự do (VD: "token", "csv", "git", "pre-request", "tab", "oauth2")' } } } },
 ];
 
 const METHODS: HttpMethod[] = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'];
@@ -329,6 +332,44 @@ export default function AiAssistant({
   const execTool = async (name: string, args: Record<string, unknown>): Promise<Record<string, unknown>> => {
     const app = useAppStore.getState();
     switch (name) {
+      case 'get_feature_guide': {
+        const query = str(args.topic).trim();
+        if (!query || query === 'list') {
+          return {
+            ok: true,
+            topics: listDocTopics(),
+            hint: 'Truyền tên topic cụ thể hoặc từ khóa bất kỳ để nhận tài liệu hướng dẫn chi tiết.',
+          };
+        }
+        const exact = getDocTopic(query);
+        if (exact) {
+          return {
+            ok: true,
+            topic: exact.id,
+            title: exact.title,
+            summary: exact.summary,
+            content: exact.content,
+          };
+        }
+        const searchResults = searchDocs(query);
+        if (searchResults.length > 0) {
+          const first = searchResults[0];
+          return {
+            ok: true,
+            matchedKeyword: query,
+            topic: first.id,
+            title: first.title,
+            summary: first.summary,
+            content: first.content,
+            otherMatches: searchResults.slice(1, 4).map((m) => ({ id: m.id, title: m.title, summary: m.summary })),
+          };
+        }
+        return {
+          ok: false,
+          error: `Không tìm thấy tài liệu nào khớp với từ khóa "${query}".`,
+          availableTopics: listDocTopics(),
+        };
+      }
       case 'list_collections':
         return {
           ok: true,
@@ -1340,7 +1381,12 @@ export default function AiAssistant({
     }
   };
 
-  const suggestions = ['Có những collection nào?', 'Env đang dùng là gì?', 'Liệt kê flows', '🧪 Lên bộ key test cho request đang mở rồi xuất Excel'];
+  const suggestions = [
+    '📖 Hướng dẫn các tính năng của ReqX',
+    '💡 Làm sao để truyền token giữa các request?',
+    '⚡ Hướng dẫn chạy Collection bằng CLI',
+    '🧪 Lên bộ key test cho request đang mở rồi xuất Excel',
+  ];
 
   return (
     <div className="flex flex-col gap-2 h-full min-h-0">

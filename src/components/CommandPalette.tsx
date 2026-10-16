@@ -80,6 +80,15 @@ export default function CommandPalette({ onOpenView }: { onOpenView?: (view: str
       ),
       { kind: 'command', label: t.commandPalette.cmdToggleLang, sub: t.commandPalette.cmdGroup, run: () => toggleLanguage() },
       { kind: 'command', label: t.diagnostics.title, sub: t.diagnostics.button, run: () => window.dispatchEvent(new CustomEvent('reqx:open-diagnostics')) },
+      {
+        kind: 'command',
+        label: '📖 Hướng dẫn tính năng & Cẩm nang ReqX',
+        sub: 'Trợ lý AI / Docs',
+        run: () => {
+          useAppStore.getState().setAiSeedPrompt('Hướng dẫn các tính năng chính của ReqX và cách sử dụng');
+          onOpenView?.('ai');
+        },
+      },
     ];
     return list;
   }, [t, onOpenView, openTab, toggleLanguage]);
