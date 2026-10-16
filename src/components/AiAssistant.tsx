@@ -314,6 +314,27 @@ export default function AiAssistant({
     useAppStore.getState().setAiSeedPrompt(null);
   }, [aiSeedPrompt]);
   const [busy, setBusy] = useState(false);
+  const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
+  const copyText = async (text: string, index: number) => {
+    try {
+      if (navigator?.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+      }
+      setCopiedIdx(index);
+      setTimeout(() => setCopiedIdx((curr) => (curr === index ? null : curr)), 1800);
+    } catch (err) {
+      console.error('Failed to copy to clipboard', err);
+    }
+  };
   const contentsRef = useRef<GeminiContent[]>(sanitizeContents(aiContents));
   /** Bucket đếm RPM + trạng thái học trần (AIMD) + breaker khóa tạm — giữ suốt session */
   const bucketsRef = useRef<Record<string, { b: TierBucket; rpm: number }>>({});
@@ -1794,18 +1815,94 @@ export default function AiAssistant({
             “đổi sang env Staging”, “tạo request GET đơn hàng mới”.
           </p>
         )}
-        {msgs.map((m, i) => (
-          <div
-            key={i}
-            className={`text-sm rounded px-2.5 py-1.5 whitespace-pre-wrap ${
-              m.role === 'user' ? 'bg-slate-800 self-end max-w-[90%]'
-              : m.role === 'tool' ? 'text-slate-400 text-xs font-mono'
-              : 'bg-emerald-950/60 self-start max-w-[95%]'
-            }`}
-          >
-            {m.text}
-          </div>
-        ))}
+        {msgs.map((m, i) => {
+          if (m.role === 'user') {
+            return (
+              <div
+                key={i}
+                className="group relative text-sm rounded-xl px-3 py-2 bg-slate-800 text-slate-100 self-end max-w-[90%] shadow-sm border border-slate-700/60"
+              >
+                <div className="whitespace-pre-wrap break-words pr-6">{m.text}</div>
+                <button
+                  onClick={() => void copyText(m.text, i)}
+                  title={copiedIdx === i ? 'Đã sao chép' : 'Sao chép lời chat'}
+                  className="absolute top-1.5 right-1.5 p-1 rounded-md text-slate-400 hover:text-white bg-slate-800/90 hover:bg-slate-700 transition-all opacity-0 group-hover:opacity-100 focus:opacity-100"
+                >
+                  {copiedIdx === i ? (
+                    <span className="flex items-center gap-1 text-[10px] text-emerald-400 font-medium px-1">
+                      <svg viewBox="0 0 24 24" className="w-3.5 h-3.5 fill-none stroke-current" strokeWidth="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+                      <span>Đã chép</span>
+                    </span>
+                  ) : (
+                    <svg viewBox="0 0 24 24" className="w-3.5 h-3.5 fill-none stroke-current" strokeWidth="2">
+                      <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+                      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+                    </svg>
+                  )}
+                </button>
+              </div>
+            );
+          }
+
+          if (m.role === 'model') {
+            return (
+              <div
+                key={i}
+                className="group relative text-sm rounded-xl px-3 py-2 bg-slate-900/90 border border-slate-800 hover:border-slate-700 text-slate-200 self-start max-w-[95%] shadow-sm transition-colors"
+              >
+                <div className="flex items-center justify-between pb-1.5 mb-1.5 border-b border-slate-800/80 text-[11px]">
+                  <span className="flex items-center gap-1.5 text-cyan-400 font-medium">
+                    <span>✨</span> Trợ lý AI
+                  </span>
+                  <button
+                    onClick={() => void copyText(m.text, i)}
+                    title={copiedIdx === i ? 'Đã sao chép' : 'Sao chép câu trả lời'}
+                    className="p-1 px-1.5 rounded-md text-slate-400 hover:text-cyan-300 hover:bg-slate-800 transition-all flex items-center gap-1 text-[11px]"
+                  >
+                    {copiedIdx === i ? (
+                      <span className="flex items-center gap-1 text-emerald-400 font-medium">
+                        <svg viewBox="0 0 24 24" className="w-3.5 h-3.5 fill-none stroke-current" strokeWidth="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+                        <span>Đã chép</span>
+                      </span>
+                    ) : (
+                      <span className="flex items-center gap-1 text-slate-400 hover:text-cyan-300">
+                        <svg viewBox="0 0 24 24" className="w-3.5 h-3.5 fill-none stroke-current" strokeWidth="2">
+                          <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+                          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+                        </svg>
+                        <span className="text-[10px]">Sao chép</span>
+                      </span>
+                    )}
+                  </button>
+                </div>
+                <div className="whitespace-pre-wrap break-words">{m.text}</div>
+              </div>
+            );
+          }
+
+          return (
+            <div
+              key={i}
+              className="group text-slate-400 text-xs font-mono py-0.5 px-1.5 flex items-center justify-between hover:bg-slate-900/50 rounded transition-colors"
+            >
+              <span className="truncate pr-2">{m.text}</span>
+              <button
+                onClick={() => void copyText(m.text, i)}
+                title="Sao chép log tool"
+                className="opacity-0 group-hover:opacity-100 p-0.5 text-slate-500 hover:text-slate-300 transition-opacity shrink-0"
+              >
+                {copiedIdx === i ? (
+                  <span className="text-[10px] text-emerald-400">✓</span>
+                ) : (
+                  <svg viewBox="0 0 24 24" className="w-3 h-3 fill-none stroke-current" strokeWidth="2">
+                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+                  </svg>
+                )}
+              </button>
+            </div>
+          );
+        })}
         {busy && <div className="text-xs text-slate-500">AI đang nghĩ…</div>}
       </div>
 
