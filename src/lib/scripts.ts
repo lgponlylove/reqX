@@ -15,6 +15,8 @@ export interface ScriptOutcome {
   logs: string[];
   /** Lỗi ngoài pm.test (crash script) */
   error?: string;
+  /** HTML template render từ pm.visualizer.set(template, data) */
+  visualizerHtml?: string;
 }
 
 export interface MutableRequest {
@@ -323,6 +325,7 @@ export async function runTests(
   try {
     let jsonCache: unknown;
     let jsonTried = false;
+    let visualizerHtml: string | undefined;
     const pm = {
       ...buildPmBase(ctx),
       test: (name: string, fn: () => void) => {
@@ -334,6 +337,24 @@ export async function runTests(
         }
       },
       expect: makeExpect,
+      visualizer: {
+        set: (template: string, data?: unknown) => {
+          try {
+            if (typeof template === 'string') {
+              let rendered = template;
+              if (data && typeof data === 'object') {
+                for (const [k, v] of Object.entries(data as Record<string, unknown>)) {
+                  const valStr = typeof v === 'object' ? JSON.stringify(v) : String(v ?? '');
+                  rendered = rendered.split(`{{${k}}}`).join(valStr);
+                }
+              }
+              visualizerHtml = rendered;
+            }
+          } catch {
+            // ignore template error
+          }
+        },
+      },
       response: {
         status: res.status,
         statusText: res.statusText,
@@ -380,7 +401,7 @@ export async function runTests(
     };
     const fn = new AsyncFn('pm', 'console', `"use strict";\n${code}`);
     await runWithDrain(fn, [pm, captureConsole(logs)], pm);
-    return { results, logs };
+    return { results, logs, visualizerHtml };
   } catch (e) {
     return { results, logs, error: e instanceof Error ? e.message : String(e) };
   }

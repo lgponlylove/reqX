@@ -2,6 +2,7 @@ import type { AiUsage } from './ai-providers';
 
 /** Client gọi Google AI Studio (Gemini) qua REST, không cần SDK. Key chỉ gửi tới googleapis.com. */
 import { aiFetch } from './ai-fetch';
+import { SseStreamParser } from '../sse-parser';
 
 export const GEMINI_DEFAULT_MODEL = 'gemini-flash-lite-latest';
 
@@ -87,6 +88,90 @@ export function sanitizeContents(turns: GeminiContent[]): GeminiContent[] {
   return out;
 }
 
+async function streamGemini(
+  apiKey: string,
+  model: string,
+  system: string,
+  contents: GeminiContent[],
+  tools: GeminiFunctionDecl[],
+  onDelta: (delta: string) => void,
+): Promise<{ parts: GeminiPart[]; usage: AiUsage } | null> {
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:streamGenerateContent?alt=sse&key=${encodeURIComponent(apiKey)}`;
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 35000);
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        system_instruction: { parts: [{ text: system }] },
+        contents,
+        ...(tools.length > 0 ? { tools: [{ functionDeclarations: tools }] } : {}),
+        generationConfig: { temperature: 0.2, maxOutputTokens: 2048 },
+      }),
+      signal: ctrl.signal,
+    });
+
+    if (!res.ok || !res.body) return null;
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder('utf-8');
+    let fullText = '';
+    const collectedParts: GeminiPart[] = [];
+    let promptTokens = 0;
+    let completionTokens = 0;
+
+    const parser = new SseStreamParser((ev) => {
+      const dataStr = ev.data.trim();
+      if (!dataStr || dataStr === '[DONE]') return;
+      try {
+        const json = JSON.parse(dataStr);
+        if (json.usageMetadata) {
+          promptTokens = json.usageMetadata.promptTokenCount ?? promptTokens;
+          completionTokens = json.usageMetadata.candidatesTokenCount ?? completionTokens;
+        }
+        const candidate = json.candidates?.[0];
+        if (!candidate?.content?.parts) return;
+        for (const part of candidate.content.parts) {
+          if (typeof part.text === 'string' && part.text) {
+            fullText += part.text;
+            onDelta(part.text);
+          }
+          if (part.functionCall) {
+            collectedParts.push(part);
+          }
+        }
+      } catch {
+        // chunk JSON parse error, ignore
+      }
+    });
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (value) {
+        parser.feed(decoder.decode(value, { stream: true }));
+      }
+    }
+    parser.feed(decoder.decode());
+
+    const parts: GeminiPart[] = [];
+    if (fullText) parts.push({ text: fullText });
+    for (const p of collectedParts) parts.push(p);
+
+    if (parts.length === 0) return null;
+
+    return {
+      parts,
+      usage: { prompt: promptTokens, completion: completionTokens },
+    };
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /** Một lượt gọi generateContent — parts (text/call) + usage để ước tính chi phí. */
 export async function generateContent(
   apiKey: string,
@@ -94,7 +179,12 @@ export async function generateContent(
   system: string,
   contents: GeminiContent[],
   tools: GeminiFunctionDecl[],
+  onDelta?: (delta: string) => void,
 ): Promise<{ parts: GeminiPart[]; usage: AiUsage }> {
+  if (onDelta) {
+    const streamed = await streamGemini(apiKey, model, system, contents, tools, onDelta);
+    if (streamed) return streamed;
+  }
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
   let status = 0;
   let data: unknown = null;

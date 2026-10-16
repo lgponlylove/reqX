@@ -7,9 +7,10 @@ import { generateJsonSchema } from '../lib/json-schema';
 import ExpandOverlay from './ExpandOverlay';
 import AiTestModal from './AiTestModal';
 import SseStreamViewer from './SseStreamViewer';
+import ResponseVisualizer from './ResponseVisualizer';
 import { useTranslation } from '../stores/language';
 
-type View = 'pretty' | 'sse' | 'schema' | 'raw' | 'headers' | 'preview' | 'tests' | 'file';
+type View = 'pretty' | 'visualizer' | 'sse' | 'schema' | 'raw' | 'headers' | 'preview' | 'tests' | 'file';
 
 function statusColor(status: number): string {
   if (status >= 200 && status < 300) return 'bg-emerald-600';
@@ -158,7 +159,7 @@ export default function ResponseViewer({ onCollapse }: { onCollapse?: () => void
   const isSse = Boolean(response.isStream || (response.sseEvents && response.sseEvents.length > 0));
   // Binary thì các tab text không có ý nghĩa → ép sang tab File; Nếu là SSE thì mặc định view sse
   const effectiveView: View =
-    isBinary && (view === 'pretty' || view === 'raw' || view === 'preview' || view === 'sse')
+    isBinary && (view === 'pretty' || view === 'visualizer' || view === 'raw' || view === 'preview' || view === 'sse')
       ? 'file'
       : (view === 'pretty' && isSse && !pretty.ok)
         ? 'sse'
@@ -172,7 +173,7 @@ export default function ResponseViewer({ onCollapse }: { onCollapse?: () => void
   const failed = (testRun?.results.length ?? 0) - passed;
 
   /**
-   * Ba khung nội dung (pretty / raw / preview / sse). `tall=true` là bản trong popup phóng to:
+   * Khung nội dung (pretty / visualizer / raw / preview / sse). `tall=true` là bản trong popup phóng to:
    * lấp đầy khung thay vì bị chặn `max-h-96` như ô nhỏ.
    */
   const bodyPane = (tall: boolean) => {
@@ -181,6 +182,10 @@ export default function ResponseViewer({ onCollapse }: { onCollapse?: () => void
       <>
         {effectiveView === 'sse' && (
           <SseStreamViewer response={response} tall={tall} />
+        )}
+
+        {effectiveView === 'visualizer' && (
+          <ResponseVisualizer response={response} testRun={testRun} tall={tall} />
         )}
 
         {effectiveView === 'pretty' && (
@@ -229,7 +234,7 @@ export default function ResponseViewer({ onCollapse }: { onCollapse?: () => void
       </>
     );
   };
-  const isTextPane = !isBinary && (effectiveView === 'pretty' || effectiveView === 'raw' || effectiveView === 'preview');
+  const isTextPane = !isBinary && (effectiveView === 'pretty' || effectiveView === 'visualizer' || effectiveView === 'raw' || effectiveView === 'preview');
 
   async function copyBody() {
     try {
@@ -312,6 +317,7 @@ export default function ResponseViewer({ onCollapse }: { onCollapse?: () => void
                 : [
                     ...(isSse ? ([['sse', `📡 SSE Stream (${response.sseEvents?.length || 0})`]] as [View, string][]) : []),
                     ['pretty', `${i18n.response.pretty}${pretty.ok ? ' (JSON)' : ''}`],
+                    ...(pretty.ok || testRun?.visualizerHtml ? [['visualizer', '📊 Visualize']] as [View, string][] : []),
                     ...(pretty.ok ? [['schema', '🛡️ Schema']] as [View, string][] : []),
                     ['raw', i18n.response.raw],
                     ['headers', `${i18n.response.headersTab} (${headerEntries.length})`],

@@ -17,14 +17,18 @@ import { getBody, saveBodies, pruneBodies } from '../lib/bodyStore';
 import { summarize } from '../lib/scheduleEngine';
 import { recordManualFlowRun } from '../lib/flow-runs';
 import { uid, resolveVariables } from '../lib/variables';
-import { saveExportBesideApp } from '../lib/response-file';
+import { saveExportBesideApp, saveDocExport } from '../lib/response-file';
 import { parseDataFile } from '../lib/datafile';
 import { generateCases, runTestCases, casesToCsv, csvFileName, GROUP_LABEL, type TestCase, type CaseRunResult } from '../lib/test-cases';
 import { useTestCaseStore } from '../stores/testcases';
+import { useMockStore } from '../stores/mock';
+import { renderCollectionDocs, docsFileName } from '../lib/api-docs';
+import { renderDocsHtml } from '../lib/docs-html';
+import { collectDocsExtras } from '../lib/docs-input';
 import { useScheduleStore } from '../stores/schedule';
 import { engineRunning } from '../lib/scheduleEngine';
 import { getDocTopic, listDocTopics, searchDocs } from '../lib/docs/app-guide';
-import type { ApiRequest, ApiResponse, HttpMethod } from '../types/api';
+import type { ApiRequest, ApiResponse, HttpMethod, KeyValue } from '../types/api';
 
 /** Mục lục mẫu script — nhét vào prompt để model biết đường gọi get_script_snippet, không phải copy cả code. */
 const SNIPPET_INDEX = SCRIPT_SNIPPETS.map(
@@ -51,6 +55,8 @@ Bạn có tools để xem và điều khiển app. Quy tắc:
 - Muốn đọc body response của step: gọi get_step_body (có phân trang offset/limit, đừng đoán nội dung body).
 - Khi người dùng hỏi "tại sao request fail / lỗi", "giải thích kết quả/response vừa nhận", "tại sao API trả về...", hoặc cần viết test/assertion dựa trên response thực tế: BẮT BUỘC gọi get_last_response để đọc status, headers và body response (đừng đoán). Nếu body quá dài thì đọc tiếp bằng offset/limit.
 - Khi người dùng bảo "lên key test / lập bộ test / test API này tự động": gọi generate_test_cases (request_ref để trống = request đang mở) → bảng duyệt sẽ mở. KHÔNG tự bịa bộ case trong tin nhắn. Muốn đổi mong đợi theo nghiệp vụ (VD "thiếu invoiceno phải 400") thì gọi refine_test_case. Sau đó run_test_cases rồi export_test_cases để ra file Excel; tóm tắt bao nhiêu case ✅/❌ và case nào ❌ đáng chú ý.
+- Muốn TẠO hoặc QUẢN LÝ Mock Server / API giả lập: gọi list_mock_rules, create_mock_rule, toggle_mock_server (bật/tắt server, tạo endpoint mock trả về JSON/text giả lập theo yêu cầu).
+- Muốn XUẤT TÀI LIỆU API (API Docs) của Collection / Folder: gọi export_api_docs (hỗ trợ định dạng HTML tra cứu trực quan hoặc Markdown chuẩn để commit Git).
 
 ${PM_SANDBOX_DOC}
 
@@ -94,6 +100,10 @@ const TOOLS: GeminiFunctionDecl[] = [
   { name: 'run_test_cases', description: 'Chạy bộ key test đang mở (từng case = 1 lần gửi request với dữ liệu case, kèm pre-request + tests). Kết quả ✅/❌ so với mong đợi từng case hiện ngay ở bảng. Sau đó gọi export_test_cases để xuất file Excel.', parameters: { type: 'OBJECT', properties: { limit: { type: 'NUMBER', description: 'Số case tối đa để chạy (mặc định 25, tối đa 60)' } }, required: [] } },
   { name: 'export_test_cases', description: 'Xuất bộ key test + kết quả vừa chạy ra file CSV có BOM (mở trực tiếp bằng Excel, tiếng Việt không lỗi font): 1 dòng = 1 case với dữ liệu, mong đợi, status, kết luận, lý do, thời gian, response tóm tắt, curl đã che secret. File lưu cạnh app (bản web tải về Downloads).', parameters: { type: 'OBJECT', properties: {} } },
   { name: 'get_feature_guide', description: 'Tra cứu tài liệu hướng dẫn sử dụng tính năng của ReqX (overview, builder-requests, environments, scripts-sandbox, runner-and-data, flows, mock-server, protocols, cli, ai-assistant, shortcuts). Để trống topic hoặc truyền "list" để lấy mục lục tất cả tính năng.', parameters: { type: 'OBJECT', properties: { topic: { type: 'STRING', description: 'Tên topic hoặc từ khóa cần tra cứu: "overview", "builder-requests", "environments", "scripts-sandbox", "runner-and-data", "flows", "mock-server", "protocols", "cli", "ai-assistant", "shortcuts", hoặc từ khóa tự do (VD: "token", "csv", "git", "pre-request", "tab", "oauth2")' } } } },
+  { name: 'list_mock_rules', description: 'Liệt kê các quy tắc giả lập (mock rules) hiện có trong Mock Server của ReqX, trạng thái bật/tắt server và cổng port.', parameters: { type: 'OBJECT', properties: {} } },
+  { name: 'create_mock_rule', description: 'Tạo quy tắc phản hồi giả lập mới (Mock endpoint) trên ReqX Mock Server: chỉ định HTTP method, đường dẫn path (vd /api/users, /api/auth/login), mã trạng thái status_code (200, 201, 404...), độ trễ delay_ms, headers và nội dung response_body (JSON hoặc text).', parameters: { type: 'OBJECT', properties: { name: { type: 'STRING', description: 'Tên gợi nhớ của mock rule (VD "Mock Danh sách User")' }, method: { type: 'STRING', description: 'GET, POST, PUT, DELETE, PATCH hoặc ALL' }, path: { type: 'STRING', description: 'Đường dẫn endpoint (VD /api/v1/orders hoặc /api/users/:id)' }, status_code: { type: 'NUMBER', description: 'Mã HTTP status trả về (mặc định 200)' }, response_body: { type: 'STRING', description: 'Nội dung phản hồi (JSON string hoặc text)' }, delay_ms: { type: 'NUMBER', description: 'Độ trễ giả lập (ms, mặc định 0)' }, headers: { type: 'STRING', description: 'JSON mảng ["Key: value"] hoặc JSON object các header trả về' } }, required: ['name', 'method', 'path'] } },
+  { name: 'toggle_mock_server', description: 'Bật hoặc tắt Mock Server cục bộ của ReqX, hoặc đổi cổng port (mặc định 3001).', parameters: { type: 'OBJECT', properties: { running: { type: 'BOOLEAN', description: 'true = bật server, false = tắt server. Để trống = đảo trạng thái.' }, port: { type: 'NUMBER', description: 'Cổng port chạy Mock Server (từ 1024 đến 65535, mặc định 3001)' } } } },
+  { name: 'export_api_docs', description: 'Xuất toàn bộ tài liệu API của 1 Collection hoặc Folder ra file HTML đẹp mắt (mở bằng trình duyệt, có ô tìm kiếm, badge method màu) hoặc Markdown (để commit Git). File lưu cạnh app.', parameters: { type: 'OBJECT', properties: { collection_ref: { type: 'STRING', description: 'id hoặc tên collection cần xuất tài liệu' }, folder_ref: { type: 'STRING', description: 'id hoặc tên folder con (để trống = xuất cả collection)' }, format: { type: 'STRING', enum: ['html', 'md'], description: '"html" (mặc định, giao diện web tra cứu) hoặc "md" (file Markdown chuẩn)' } }, required: ['collection_ref'] } },
 ];
 
 const METHODS: HttpMethod[] = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'];
@@ -314,6 +324,7 @@ export default function AiAssistant({
     useAppStore.getState().setAiSeedPrompt(null);
   }, [aiSeedPrompt]);
   const [busy, setBusy] = useState(false);
+  const [streamingText, setStreamingText] = useState<string | null>(null);
   const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
   const copyText = async (text: string, index: number) => {
     try {
@@ -1325,6 +1336,130 @@ export default function AiAssistant({
             : undefined,
         };
       }
+      case 'list_mock_rules': {
+        const { isRunning, port, rules } = useMockStore.getState();
+        return {
+          ok: true,
+          isRunning,
+          port,
+          rules: rules.map((r) => ({
+            id: r.id,
+            name: r.name,
+            method: r.method,
+            path: r.path,
+            statusCode: r.statusCode,
+            delayMs: r.delayMs,
+            enabled: r.enabled,
+            responseBodyType: r.responseBodyType,
+          })),
+        };
+      }
+      case 'create_mock_rule': {
+        const name = str(args.name).trim();
+        const method = str(args.method, 'GET').toUpperCase() as any;
+        const path = str(args.path).trim();
+        const statusCode = Math.floor(Number(args.status_code) || 200);
+        const delayMs = Math.max(0, Math.floor(Number(args.delay_ms) || 0));
+        const bodyRaw = str(args.response_body);
+        let responseBody = bodyRaw;
+        let responseBodyType: 'json' | 'text' | 'xml' = 'text';
+        if (bodyRaw) {
+          try {
+            JSON.parse(bodyRaw);
+            responseBodyType = 'json';
+          } catch {
+            if (/^\s*<\?xml|^\s*<[a-zA-Z]/i.test(bodyRaw)) responseBodyType = 'xml';
+            else responseBodyType = 'text';
+          }
+        }
+        let headers: KeyValue[] = [{ id: uid('kv'), key: 'Content-Type', value: responseBodyType === 'json' ? 'application/json' : 'text/plain', enabled: true }];
+        if (args.headers !== undefined) {
+          const parsed = parseHeaderSpec(str(args.headers));
+          if (parsed.length > 0) {
+            headers = parsed.map((h) => ({ id: uid('kv'), key: h.key, value: h.value, enabled: true }));
+          }
+        }
+        const newId = useMockStore.getState().addRule({
+          name,
+          method,
+          path,
+          statusCode,
+          delayMs,
+          responseBody,
+          responseBodyType,
+          headers,
+          enabled: true,
+        });
+        const { isRunning, port } = useMockStore.getState();
+        return {
+          ok: true,
+          id: newId,
+          name,
+          method,
+          path,
+          statusCode,
+          serverStatus: isRunning ? `Đang chạy tại http://localhost:${port}` : 'Server đang tắt (gọi toggle_mock_server để bật)',
+          message: `Đã tạo mock rule "${name}" [${method} ${path} -> ${statusCode}].`,
+        };
+      }
+      case 'toggle_mock_server': {
+        const mock = useMockStore.getState();
+        if (args.port !== undefined) {
+          const p = Math.floor(Number(args.port));
+          if (p >= 1024 && p <= 65535) mock.setPort(p);
+        }
+        let newRunning = mock.isRunning;
+        if (args.running !== undefined) {
+          newRunning = Boolean(args.running);
+          if (newRunning) mock.startServer();
+          else mock.stopServer();
+        } else {
+          newRunning = !mock.isRunning;
+          if (newRunning) mock.startServer();
+          else mock.stopServer();
+        }
+        const port = useMockStore.getState().port;
+        return {
+          ok: true,
+          isRunning: newRunning,
+          port,
+          message: newRunning ? `Mock Server đã BẬT tại http://localhost:${port}` : 'Mock Server đã TẮT.',
+        };
+      }
+      case 'export_api_docs': {
+        const colRef = str(args.collection_ref);
+        const col = matchByRef(app.collections, colRef, (c) => c);
+        if (!col) return { ok: false, error: `Không tìm thấy collection "${colRef}".` };
+        const folderRef = str(args.folder_ref).trim();
+        let folderId: string | undefined = undefined;
+        let folderName = '';
+        if (folderRef && folderRef !== 'root' && folderRef !== 'all') {
+          const folder = matchByRef(col.folders, folderRef, (f) => f);
+          if (!folder) return { ok: false, error: `Không tìm thấy folder "${folderRef}" trong collection "${col.name}".` };
+          folderId = folder.id;
+          folderName = folder.name;
+        }
+        const format = (str(args.format).toLowerCase() === 'md' ? 'md' : 'html') as 'md' | 'html';
+        const env = app.environments.find((e) => e.id === app.activeEnvId);
+        const extras = collectDocsExtras();
+        const md = renderCollectionDocs(col, app.requests, {
+          env: { name: env?.name, variables: env?.variables ?? {}, globals: app.globals },
+          folderId,
+          ...extras,
+        });
+        const label = folderName ? `${col.name}-${folderName}` : col.name;
+        const text = format === 'html' ? renderDocsHtml(md, { lang: extras.lang }) : md;
+        const fname = docsFileName(label, format);
+        const where = await saveDocExport(fname, text, format);
+        return {
+          ok: true,
+          collection: col.name,
+          folder: folderName || 'toàn bộ collection',
+          format,
+          savedPath: where,
+          message: `Đã xuất tài liệu API (${format.toUpperCase()}) thành công cho ${folderName ? `folder "${folderName}"` : `collection "${col.name}"`} → ${where}`,
+        };
+      }
       default:
         return { ok: false, error: `Không có tool ${name}.` };
     }
@@ -1355,13 +1490,17 @@ export default function AiAssistant({
       if (!b || b.rpm !== rpm) bucketsRef.current[entry.id] = { b: new TierBucket(rpm), rpm };
       return bucketsRef.current[entry.id].b;
     };
-    const callEntry = async (entry: AiChainEntry, overrideTools?: GeminiFunctionDecl[]) => {
+    const callEntry = async (
+      entry: AiChainEntry,
+      overrideTools?: GeminiFunctionDecl[],
+      onDelta?: (delta: string) => void,
+    ) => {
       const def = providerDef(entry.providerId);
       if (!def) throw new Error(`Provider lạ: ${entry.providerId}`);
       const model = entry.model.trim() || def.defaultModel;
       const activeTools = overrideTools !== undefined ? overrideTools : TOOLS;
       if (def.style === 'gemini') {
-        const r = await generateContent(entry.key, model, SYSTEM, contentsRef.current, activeTools);
+        const r = await generateContent(entry.key, model, SYSTEM, contentsRef.current, activeTools, onDelta);
         return { parts: r.parts, usage: r.usage, rateLimit: undefined as AiRateLimit | undefined, entry };
       }
       const base = buildBaseURL(def, entry.accountId, entry.customBaseURL);
@@ -1371,10 +1510,14 @@ export default function AiAssistant({
         system: SYSTEM, contents: contentsRef.current, tools: activeTools,
         maxTokens: Math.min(4096, def.maxTokensCap ?? 4096),
         extraHeaders: def.id === 'openrouter' ? { 'HTTP-Referer': 'https://reqx.app', 'X-Title': 'ReqX' } : undefined,
+        onDelta,
       });
       return { parts: r.parts, usage: r.usage, rateLimit: r.rateLimit, entry };
     };
-    const gen = async (overrideTools?: GeminiFunctionDecl[]) => {
+    const gen = async (
+      overrideTools?: GeminiFunctionDecl[],
+      onDelta?: (delta: string) => void,
+    ) => {
       const st = useAppStore.getState();
       const order = orderChain(st.aiChain, st.aiRrIndex, st.aiStrategy);
       let lastErr: unknown = new Error('Chain trống.');
@@ -1408,7 +1551,7 @@ export default function AiAssistant({
         }
         bucket.take(now);
         try {
-          const r = await callEntry(entry, overrideTools);
+          const r = await callEntry(entry, overrideTools, onDelta);
           delete breakersRef.current[entry.id]; // thành công → mở lại breaker
           // Học trần: header hãng cho số thật thì theo, không thì AIMD tăng dần
           const hl = r.rateLimit?.limit;
@@ -1437,7 +1580,7 @@ export default function AiAssistant({
             push({ role: 'tool', text: `⏳ ${label} giới hạn tốc độ — đợi ${sec}s thử lại 1 lần…` });
             await new Promise((r) => setTimeout(r, sec));
             try {
-              const r2 = await callEntry(entry, overrideTools);
+              const r2 = await callEntry(entry, overrideTools, onDelta);
               st.recordAiUsage(entry.id, r2.usage, true);
               return r2.parts;
             } catch (e2) {
@@ -1458,7 +1601,13 @@ export default function AiAssistant({
     try {
       let reply = '';
       for (let i = 0; i < 6; i++) {
-        const parts = await gen();
+        setStreamingText('');
+        const handleDelta = (delta: string) => {
+          setStreamingText((prev) => (prev ?? '') + delta);
+          scrollDown();
+        };
+        const parts = await gen(undefined, handleDelta);
+        setStreamingText(null);
         const calls = parts.filter((p) => p.functionCall);
         const text = parts.map((p) => p.text ?? '').join('');
         if (text) reply += (reply ? '\n\n' : '') + text;
@@ -1500,14 +1649,20 @@ export default function AiAssistant({
             role: 'user',
             parts: [{ text: 'Đã hoàn tất các thao tác công cụ trên. Hãy tóm tắt rõ ràng bằng tiếng Việt cho người dùng: bạn vừa làm những gì, kết quả hoặc lỗi gặp phải là gì, và cần người dùng cung cấp hay làm gì tiếp theo.' }],
           });
-          const summaryParts = await gen([]);
+          setStreamingText('');
+          const handleDelta = (delta: string) => {
+            setStreamingText((prev) => (prev ?? '') + delta);
+            scrollDown();
+          };
+          const summaryParts = await gen([], handleDelta);
+          setStreamingText(null);
           const summaryText = summaryParts.map((p) => p.text ?? '').join('');
           if (summaryText.trim()) {
             reply = summaryText.trim();
             contentsRef.current.push({ role: 'model', parts: summaryParts });
           }
         } catch {
-          // Fallback nếu lượt tóm tắt cũng lỗi
+          setStreamingText(null);
         }
       }
 
@@ -1518,6 +1673,7 @@ export default function AiAssistant({
       if (isQuotaError(e))
         push({ role: 'model', text: 'Mọi nấc trong chain đều lỗi quota/rate limit — chờ reset, thêm key/provider khác, hoặc bấm 🗑 Xóa chat thử lại.' });
     } finally {
+      setStreamingText(null);
       setBusy(false);
       bumpAiRr(); // xoay lượt tiếp theo sang nấc khác (chia tải đều)
       setAiContents(contentsRef.current);
@@ -1903,7 +2059,17 @@ export default function AiAssistant({
             </div>
           );
         })}
-        {busy && <div className="text-xs text-slate-500">AI đang nghĩ…</div>}
+        {streamingText !== null && (
+          <div className="group relative text-sm rounded-xl px-3 py-2 bg-slate-900/90 border border-cyan-500/50 text-slate-200 self-start max-w-[95%] shadow-sm transition-colors">
+            <div className="flex items-center justify-between pb-1.5 mb-1.5 border-b border-slate-800/80 text-[11px]">
+              <span className="flex items-center gap-1.5 text-cyan-400 font-medium">
+                <span className="inline-block animate-spin text-xs">✨</span> Trợ lý AI (đang viết…)
+              </span>
+            </div>
+            <div className="whitespace-pre-wrap break-words">{streamingText || '…'}</div>
+          </div>
+        )}
+        {busy && streamingText === null && <div className="text-xs text-slate-500">AI đang nghĩ…</div>}
       </div>
 
       <div className="flex flex-wrap gap-1.5">

@@ -5,6 +5,7 @@
 import type { GeminiContent, GeminiFunctionDecl, GeminiPart } from './gemini';
 import { aiFetch } from './ai-fetch';
 import { buildBaseURL, parseRateLimitHeaders, type AiProviderDef, type AiRateLimit, type AiUsage } from './ai-providers';
+import { SseStreamParser } from '../sse-parser';
 
 // ---------------------------------------------------------------------------
 // Convert tools Gemini-format (type VIẾT HOA) → OpenAI function tools (type thường)
@@ -92,6 +93,7 @@ export interface OpenAIChatOpts {
   tools: GeminiFunctionDecl[];
   maxTokens?: number;
   extraHeaders?: Record<string, string>;
+  onDelta?: (delta: string) => void;
 }
 
 interface OpenAIResp {
@@ -100,7 +102,116 @@ interface OpenAIResp {
   error?: { message?: string; code?: string };
 }
 
+async function streamOpenAiChat(
+  o: OpenAIChatOpts,
+  onDelta: (delta: string) => void,
+): Promise<{ parts: GeminiPart[]; usage: AiUsage; rateLimit?: AiRateLimit } | null> {
+  const url = `${o.baseURL.replace(/\/$/, '')}/chat/completions`;
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 35000);
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(o.key ? { Authorization: `Bearer ${o.key}` } : {}),
+        ...(o.extraHeaders ?? {}),
+      },
+      body: JSON.stringify({
+        model: o.model,
+        messages: [{ role: 'system', content: o.system }, ...toOpenAIMessages(o.contents)],
+        tools: toOpenAITools(o.tools),
+        temperature: 0.2,
+        max_tokens: o.maxTokens ?? 2048,
+        stream: true,
+      }),
+      signal: ctrl.signal,
+    });
+
+    if (!res.ok || !res.body) return null;
+
+    const respHeaders: Record<string, string> = {};
+    res.headers.forEach((v, k) => { respHeaders[k.toLowerCase()] = v; });
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder('utf-8');
+    let fullText = '';
+    const toolMap: Record<number, { id: string; name: string; args: string }> = {};
+    let promptTokens = 0;
+    let completionTokens = 0;
+
+    const parser = new SseStreamParser((ev) => {
+      const dataStr = ev.data.trim();
+      if (!dataStr || dataStr === '[DONE]') return;
+      try {
+        const json = JSON.parse(dataStr);
+        if (json.usage) {
+          promptTokens = json.usage.prompt_tokens ?? promptTokens;
+          completionTokens = json.usage.completion_tokens ?? completionTokens;
+        }
+        const choice = json.choices?.[0];
+        if (!choice) return;
+
+        const content = choice.delta?.content ?? choice.delta?.reasoning_content;
+        if (typeof content === 'string' && content) {
+          fullText += content;
+          onDelta(content);
+        }
+
+        if (Array.isArray(choice.delta?.tool_calls)) {
+          for (const tc of choice.delta.tool_calls) {
+            const idx = tc.index ?? 0;
+            if (!toolMap[idx]) {
+              toolMap[idx] = { id: tc.id ?? `tc_${idx}`, name: tc.function?.name ?? '', args: tc.function?.arguments ?? '' };
+            } else {
+              if (tc.id) toolMap[idx].id = tc.id;
+              if (tc.function?.name) toolMap[idx].name += tc.function.name;
+              if (tc.function?.arguments) toolMap[idx].args += tc.function.arguments;
+            }
+          }
+        }
+      } catch {
+        // chunk JSON parse error, ignore
+      }
+    });
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (value) {
+        parser.feed(decoder.decode(value, { stream: true }));
+      }
+    }
+    parser.feed(decoder.decode());
+
+    const parts: GeminiPart[] = [];
+    if (fullText) parts.push({ text: fullText });
+    for (const tc of Object.values(toolMap)) {
+      if (!tc.name) continue;
+      let args: Record<string, unknown> = {};
+      try { args = JSON.parse(tc.args || '{}'); } catch { args = {}; }
+      parts.push({ functionCall: { name: tc.name, args } });
+    }
+
+    if (parts.length === 0) return null;
+
+    return {
+      parts,
+      usage: { prompt: promptTokens, completion: completionTokens },
+      rateLimit: parseRateLimitHeaders(respHeaders),
+    };
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export async function openaiChat(o: OpenAIChatOpts): Promise<{ parts: GeminiPart[]; usage: AiUsage; rateLimit?: AiRateLimit }> {
+  if (o.onDelta) {
+    const streamed = await streamOpenAiChat(o, o.onDelta);
+    if (streamed) return streamed;
+  }
   const url = `${o.baseURL.replace(/\/$/, '')}/chat/completions`;
   let status = 0;
   let data: OpenAIResp | null = null;
