@@ -4,18 +4,24 @@ import { useLicenseStore } from '../stores/license';
 import { useTranslation } from '../stores/language';
 
 export default function LicenseModal() {
-  const { isPro, info, isLoading, lastError, activateLicense, deactivateLicense } = useLicenseStore();
+  const { isPro, info, machineId, isLoading, lastError, activateLicense, deactivateLicense, getMachineId } = useLicenseStore();
   const { t } = useTranslation();
   const [isOpen, setIsOpen] = useState(false);
+  const [inputEmail, setInputEmail] = useState('');
   const [inputKey, setInputKey] = useState('');
+  const [copiedMid, setCopiedMid] = useState(false);
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
   useEffect(() => {
     if (!isOpen) {
       setFeedback(null);
+      setInputEmail('');
       setInputKey('');
+      setCopiedMid(false);
+    } else {
+      getMachineId();
     }
-  }, [isOpen]);
+  }, [isOpen, getMachineId]);
 
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
@@ -27,16 +33,29 @@ export default function LicenseModal() {
     return () => window.removeEventListener('keydown', handleKey);
   }, [isOpen]);
 
+  const handleCopyMachineId = () => {
+    if (!machineId) return;
+    navigator.clipboard.writeText(machineId).then(() => {
+      setCopiedMid(true);
+      setTimeout(() => setCopiedMid(false), 2000);
+    });
+  };
+
   const handleActivate = async (e: React.FormEvent) => {
     e.preventDefault();
     setFeedback(null);
+    const email = inputEmail.trim();
     const key = inputKey.trim();
+    if (!email) {
+      setFeedback({ type: 'error', message: t.license.emailPlaceholder });
+      return;
+    }
     if (!key) {
       setFeedback({ type: 'error', message: t.license.keyPlaceholder });
       return;
     }
 
-    const res = await activateLicense(key);
+    const res = await activateLicense(email, key);
     if (res.valid && res.is_pro) {
       setFeedback({ type: 'success', message: t.license.activationSuccess });
       setInputKey('');
@@ -193,6 +212,12 @@ export default function LicenseModal() {
                         <span className="font-semibold text-white">{info.email}</span>
                       </div>
                       <div className="flex justify-between border-b border-emerald-900/40 pb-1">
+                        <span className="text-slate-400">{t.license.deviceLockedTo}</span>
+                        <span className="font-mono text-cyan-300">
+                          {info.machine_id && info.machine_id !== '*' ? info.machine_id : t.license.universalDevice}
+                        </span>
+                      </div>
+                      <div className="flex justify-between border-b border-emerald-900/40 pb-1">
                         <span className="text-slate-400">{t.license.issuedAt}</span>
                         <span>{formatDate(info.issued_at)}</span>
                       </div>
@@ -227,19 +252,78 @@ export default function LicenseModal() {
                         <span className="w-2 h-2 rounded-full bg-slate-500" />
                         <span className="text-slate-300 font-medium">{t.license.statusFree}</span>
                       </div>
-                      <span className="text-slate-400 text-[11px]">v0.1.0</span>
+                      <span className="text-slate-400 text-[11px]">v0.1.2</span>
                     </div>
 
-                    <form onSubmit={handleActivate} className="space-y-3">
+                    {/* Machine ID Box with Copy Button */}
+                    <div className="bg-slate-950/80 border border-cyan-500/30 rounded-xl p-3.5 space-y-2 shadow-inner">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] font-bold text-cyan-300 uppercase tracking-wider flex items-center gap-1.5">
+                          <svg viewBox="0 0 24 24" className="w-3.5 h-3.5 fill-none stroke-current" strokeWidth="2">
+                            <rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
+                            <line x1="8" y1="21" x2="16" y2="21" />
+                            <line x1="12" y1="17" x2="12" y2="21" />
+                          </svg>
+                          {t.license.machineIdTitle}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={handleCopyMachineId}
+                          className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all flex items-center gap-1 border shadow-sm ${
+                            copiedMid
+                              ? 'bg-emerald-950/80 border-emerald-500/60 text-emerald-300'
+                              : 'bg-slate-800 hover:bg-slate-700 border-slate-700 text-cyan-300 hover:text-white'
+                          }`}
+                        >
+                          {copiedMid ? (
+                            <span>{t.license.copiedMachineId}</span>
+                          ) : (
+                            <>
+                              <svg viewBox="0 0 24 24" className="w-3 h-3 fill-none stroke-current" strokeWidth="2">
+                                <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                              </svg>
+                              <span>{t.license.copyMachineId}</span>
+                            </>
+                          )}
+                        </button>
+                      </div>
+
+                      <div className="font-mono text-sm font-bold text-amber-300 tracking-wider bg-slate-900/90 border border-slate-800 rounded-lg px-3 py-2 select-all flex items-center justify-between">
+                        <span>{machineId}</span>
+                        <span className="text-[10px] text-slate-500 font-sans font-normal uppercase">Node-Locked</span>
+                      </div>
+
+                      <p className="text-[11px] text-slate-400 leading-relaxed">
+                        {t.license.machineIdHint}
+                      </p>
+                    </div>
+
+                    <form onSubmit={handleActivate} className="space-y-3 pt-1">
                       <div>
-                        <label className="block text-xs font-semibold text-slate-300 mb-1.5">
-                          {t.license.upgradePro} (License Key)
+                        <label className="block text-xs font-semibold text-slate-300 mb-1">
+                          {t.license.emailLabel}
+                        </label>
+                        <input
+                          type="email"
+                          value={inputEmail}
+                          onChange={(e) => setInputEmail(e.target.value)}
+                          placeholder={t.license.emailPlaceholder}
+                          required
+                          className="w-full bg-slate-950 border border-slate-700 focus:border-amber-500 rounded-xl p-2.5 text-xs text-slate-200 placeholder:text-slate-600 outline-none transition-colors shadow-inner"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-300 mb-1">
+                          {t.license.keyLabel}
                         </label>
                         <textarea
                           rows={3}
                           value={inputKey}
                           onChange={(e) => setInputKey(e.target.value)}
                           placeholder={t.license.keyPlaceholder}
+                          required
                           className="w-full bg-slate-950 border border-slate-700 focus:border-amber-500 rounded-xl p-2.5 text-xs font-mono text-slate-200 placeholder:text-slate-600 outline-none transition-colors resize-none shadow-inner"
                         />
                       </div>
@@ -266,8 +350,8 @@ export default function LicenseModal() {
 
                       <button
                         type="submit"
-                        disabled={isLoading || !inputKey.trim()}
-                        className="w-full py-2 px-4 rounded-xl text-xs font-bold bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-400 hover:to-yellow-400 text-slate-950 shadow-md shadow-amber-500/20 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2"
+                        disabled={isLoading || !inputEmail.trim() || !inputKey.trim()}
+                        className="w-full py-2.5 px-4 rounded-xl text-xs font-bold bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-400 hover:to-yellow-400 text-slate-950 shadow-md shadow-amber-500/20 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2"
                       >
                         {isLoading ? (
                           <>

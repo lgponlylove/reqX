@@ -25,9 +25,11 @@ pub fn get_license_pubkey() -> [u8; 32] {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct LicenseInfo {
     pub email: String,
-    pub tier: String,            // "pro" | "team" | "enterprise"
-    pub issued_at: u64,          // timestamp unix ms
-    pub expires_at: Option<u64>, // None = Trọn đời (Lifetime)
+    #[serde(default)]
+    pub machine_id: Option<String>, // Mã máy (None hoặc Some("*") = không khóa máy)
+    pub tier: String,               // "pro" | "team" | "enterprise"
+    pub issued_at: u64,             // timestamp unix ms
+    pub expires_at: Option<u64>,    // None = Trọn đời (Lifetime)
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -46,6 +48,113 @@ impl LicenseVerificationResult {
             info: None,
             error: Some(err.into()),
         }
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn get_raw_system_machine_id() -> Option<String> {
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x08000000;
+    let output = std::process::Command::new("reg")
+        .args(["query", r"HKLM\SOFTWARE\Microsoft\Cryptography", "/v", "MachineGuid"])
+        .creation_flags(CREATE_NO_WINDOW)
+        .output()
+        .ok()?;
+    if output.status.success() {
+        let text = String::from_utf8_lossy(&output.stdout);
+        for line in text.lines() {
+            if line.contains("MachineGuid") {
+                let parts: Vec<&str> = line.split_whitespace().collect();
+                if let Some(val) = parts.last() {
+                    let cleaned = val.trim();
+                    if !cleaned.is_empty() && cleaned.len() >= 8 {
+                        return Some(cleaned.to_string());
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+#[cfg(target_os = "linux")]
+fn get_raw_system_machine_id() -> Option<String> {
+    std::fs::read_to_string("/etc/machine-id")
+        .or_else(|_| std::fs::read_to_string("/var/lib/dbus/machine-id"))
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+}
+
+#[cfg(target_os = "macos")]
+fn get_raw_system_machine_id() -> Option<String> {
+    let output = std::process::Command::new("ioreg")
+        .args(["-rd1", "-c", "IOPlatformExpertDevice"])
+        .output()
+        .ok()?;
+    if output.status.success() {
+        let text = String::from_utf8_lossy(&output.stdout);
+        for line in text.lines() {
+            if line.contains("IOPlatformUUID") {
+                if let Some(uuid) = line.split('"').nth(3) {
+                    let cleaned = uuid.trim();
+                    if !cleaned.is_empty() {
+                        return Some(cleaned.to_string());
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
+fn get_raw_system_machine_id() -> Option<String> {
+    None
+}
+
+/// Tauri Command: Lấy mã máy định danh duy nhất (dạng REQX-XXXX-XXXX-XXXX)
+#[tauri::command]
+pub fn get_machine_id() -> String {
+    let raw_opt = get_raw_system_machine_id();
+    let raw = match raw_opt {
+        Some(s) if !s.is_empty() => s,
+        _ => {
+            // Fallback đọc hoặc sinh UUID bền vững lưu trong ~/.reqx/.machine_id
+            let home = std::env::var("USERPROFILE")
+                .or_else(|_| std::env::var("HOME"))
+                .unwrap_or_else(|_| ".".to_string());
+            let mid_path = PathBuf::from(home).join(".reqx").join(".machine_id");
+            if let Ok(content) = std::fs::read_to_string(&mid_path) {
+                let trimmed = content.trim().to_string();
+                if !trimmed.is_empty() {
+                    return trimmed;
+                }
+            }
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(123456789);
+            let gen = format!("{:016X}", now);
+            if let Some(parent) = mid_path.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            let _ = std::fs::write(&mid_path, &gen);
+            gen
+        }
+    };
+
+    let clean: String = raw
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .collect::<String>()
+        .to_uppercase();
+
+    if clean.len() >= 12 {
+        format!("REQX-{}-{}-{}", &clean[0..4], &clean[4..8], &clean[8..12])
+    } else {
+        let padded = format!("{:0<12}", clean);
+        format!("REQX-{}-{}-{}", &padded[0..4], &padded[4..8], &padded[8..12])
     }
 }
 
@@ -143,6 +252,17 @@ pub fn verify_license_string(raw_key: &str) -> LicenseVerificationResult {
         }
     }
 
+    // Kiểm tra ràng buộc thiết bị (Machine ID) nếu có
+    if let Some(mid) = &info.machine_id {
+        let mid_clean = mid.trim().to_uppercase();
+        let current_mid = get_machine_id();
+        if mid_clean != "*" && mid_clean != current_mid {
+            return LicenseVerificationResult::invalid(format!(
+                "Mã bản quyền này được cấp cho thiết bị '{mid}', không hợp lệ trên thiết bị hiện tại ('{current_mid}')."
+            ));
+        }
+    }
+
     LicenseVerificationResult {
         valid: true,
         is_pro: true,
@@ -172,12 +292,27 @@ fn get_license_file_path() -> PathBuf {
     PathBuf::from(home).join(".reqx").join("reqx.lic")
 }
 
-/// Tauri Command: Xác thực License Key và lưu lại máy
+/// Tauri Command: Xác thực License Key kèm Email và Machine ID, sau đó lưu lại máy
 #[tauri::command]
-pub fn activate_license(key: String) -> Result<LicenseVerificationResult, String> {
+pub fn activate_license(email: String, key: String) -> Result<LicenseVerificationResult, String> {
+    let raw_email = email.trim();
+    if raw_email.is_empty() {
+        return Ok(LicenseVerificationResult::invalid("Vui lòng nhập Email đã đăng ký bản quyền."));
+    }
+
     let res = verify_license_string(&key);
     if !res.valid {
         return Ok(res);
+    }
+
+    // Kiểm tra khớp email
+    if let Some(info) = &res.info {
+        if !info.email.trim().eq_ignore_ascii_case(raw_email) {
+            return Ok(LicenseVerificationResult::invalid(format!(
+                "Email kích hoạt ('{}') không khớp với thông tin trong mã bản quyền ('{}').",
+                raw_email, info.email
+            )));
+        }
     }
 
     // Lưu vào file reqx.lic

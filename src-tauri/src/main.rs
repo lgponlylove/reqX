@@ -317,6 +317,7 @@ fn main() {
             save_workspace_file,
             read_workspace_files,
             reveal_in_explorer,
+            license::get_machine_id,
             license::activate_license,
             license::check_license,
             license::deactivate_license
