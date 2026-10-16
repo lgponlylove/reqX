@@ -10,6 +10,7 @@
     "test": "vitest run",
     "build:cli": "esbuild src/cli/index.ts --bundle --platform=node --format=esm --target=node20 --external:@tauri-apps/api/core --outfile=dist-cli/reqx.mjs",
     "cli": "npm run build:cli && node dist-cli/reqx.mjs",
+    "tauri": "tauri",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build"
   },
