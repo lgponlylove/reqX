@@ -1409,37 +1409,43 @@ export default function AiAssistant({
           </button>
         </div>
       )}
-      <div className="border border-slate-700 rounded">
+      <div className="border border-slate-800 bg-slate-950/60 rounded-xl shrink-0 overflow-hidden">
         <button
           onClick={() => setShowKeys((v) => !v)}
-          className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-slate-300 hover:bg-slate-800/60 rounded"
+          className="w-full flex items-center justify-between px-3 py-2 text-xs font-medium text-slate-300 hover:bg-slate-800/50 transition-colors"
         >
-          <span>{showKeys ? '▾' : '▸'}</span>
-          <span>🔑 AI chain ({enabledList.length} bật: {enabledList.filter((e) => entryTier(e, providerDef(e.providerId)) === 'paid').length}💰 + {enabledList.filter((e) => entryTier(e, providerDef(e.providerId)) !== 'paid').length}🆓)</span>
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="text-slate-400">{showKeys ? '▾' : '▸'}</span>
+            <span className="font-semibold text-slate-200 truncate">
+              🔑 AI Chain ({enabledList.length} bật: {enabledList.filter((e) => entryTier(e, providerDef(e.providerId)) === 'paid').length}💰 + {enabledList.filter((e) => entryTier(e, providerDef(e.providerId)) !== 'paid').length}🆓)
+            </span>
+          </div>
           {enabledList[0] && (
-            <span className="text-xs text-slate-500 font-mono">
-              {aiStrategy === 'stable' ? 'paid trước' : 'free trước'} · {providerDef(enabledList[0].providerId)?.name ?? ''} · {enabledList[0].model || '…'}
+            <span className="text-[11px] text-cyan-400/80 font-mono truncate ml-2">
+              {aiStrategy === 'stable' ? 'paid trước' : 'free trước'} · {providerDef(enabledList[0].providerId)?.name ?? ''}
             </span>
           )}
         </button>
         {showKeys && (
-          <div className="p-3 pt-1 flex flex-col gap-2">
-            <div className="flex flex-wrap items-center gap-2 text-xs text-slate-400">
-              <span>Chiến lược:</span>
-              <label className="flex items-center gap-1 cursor-pointer" title="Gọi free trước, tràn mới sang paid — rẻ nhất">
-                <input type="radio" checked={aiStrategy === 'save-cost'} onChange={() => setAiStrategy('save-cost')} />
-                Tiết kiệm (free → paid)
-              </label>
-              <label className="flex items-center gap-1 cursor-pointer" title="Gọi paid trước, free chỉ dự phòng — ổn định nhất">
-                <input type="radio" checked={aiStrategy === 'stable'} onChange={() => setAiStrategy('stable')} />
-                Ổn định (paid → free)
-              </label>
+          <div className="p-3 pt-1 border-t border-slate-800/80 flex flex-col gap-2.5 max-h-[50vh] overflow-y-auto pr-1.5">
+            <div className="flex flex-col gap-2 bg-slate-900/60 p-2.5 rounded-lg border border-slate-800/80 text-xs">
+              <div className="flex flex-wrap items-center gap-3 text-slate-300">
+                <span className="text-slate-400 font-medium">Chiến lược:</span>
+                <label className="flex items-center gap-1.5 cursor-pointer hover:text-white" title="Gọi free trước, tràn mới sang paid — rẻ nhất">
+                  <input type="radio" checked={aiStrategy === 'save-cost'} onChange={() => setAiStrategy('save-cost')} className="text-cyan-500 focus:ring-0" />
+                  <span>Tiết kiệm (free → paid)</span>
+                </label>
+                <label className="flex items-center gap-1.5 cursor-pointer hover:text-white" title="Gọi paid trước, free chỉ dự phòng — ổn định nhất">
+                  <input type="radio" checked={aiStrategy === 'stable'} onChange={() => setAiStrategy('stable')} className="text-cyan-500 focus:ring-0" />
+                  <span>Ổn định (paid → free)</span>
+                </label>
+              </div>
               <label
-                className="flex items-center gap-1 cursor-pointer ml-2 text-slate-300"
+                className="flex items-center gap-2 cursor-pointer text-slate-300 hover:text-white pt-1 border-t border-slate-800/60"
                 title="AI chèn/sửa script xong là app tự gửi thử 1 request để bắt lỗi script (model phải sửa tới khi sạch lỗi). TẮT nếu env đang trỏ hệ thống thật và bạn không muốn AI tự gửi."
               >
-                <input type="checkbox" checked={aiAutoVerify} onChange={(ev) => setAiAutoVerify(ev.target.checked)} />
-                🔁 Tự chạy thử script AI vừa viết
+                <input type="checkbox" checked={aiAutoVerify} onChange={(ev) => setAiAutoVerify(ev.target.checked)} className="rounded text-cyan-500 focus:ring-0" />
+                <span>🔁 Tự chạy thử script AI vừa viết</span>
               </label>
             </div>
             {aiChain.map((e, i) => {
@@ -1449,131 +1455,182 @@ export default function AiAssistant({
               const st = aiStats[e.id];
               const statTip = st ? `gọi ${st.calls} • lỗi ${st.fails} • tokens ${st.prompt + st.completion} (vào ${st.prompt}/ra ${st.completion})` : 'chưa gọi lần nào';
               return (
-                <div key={e.id} className="flex flex-wrap items-end gap-2 border border-slate-800 rounded p-2" title={statTip}>
-                  <label className="flex items-center gap-1 text-xs text-slate-400" title="Bật/tắt nấc này (tắt = bỏ qua khi xoay vòng)">
-                    <input type="checkbox" checked={e.enabled} onChange={(ev) => updEntry(e.id, { enabled: ev.target.checked })} />
-                    #{i + 1}
-                  </label>
-                  <label className="flex flex-col gap-1 text-xs text-slate-400" title="Bậc dùng: free (trần thấp) hay paid (trần cao, tốn tiền)">
-                    Bậc
-                    <select
-                      value={e.tier ?? ''}
-                      onChange={(ev) => updEntry(e.id, { tier: (ev.target.value || undefined) as AiChainEntry['tier'] })}
-                      className="bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-sm text-slate-200"
-                    >
-                      <option value="">Theo hãng ({def.tier === 'paid' ? '💰' : '🆓'})</option>
-                      <option value="free">🆓 Free</option>
-                      <option value="paid">💰 Paid</option>
-                    </select>
-                  </label>
-                  <label className="flex flex-col gap-1 text-xs text-slate-400">
-                    Provider
-                    <select
-                      value={e.providerId}
-                      onChange={(ev) => {
-                        const nd = providerDef(ev.target.value) ?? AI_PROVIDERS[0];
-                        updEntry(e.id, { providerId: nd.id, model: nd.defaultModel });
-                      }}
-                      className="bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-sm text-slate-200"
-                    >
-                      {AI_PROVIDERS.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-                    </select>
-                  </label>
-                  <label className="flex flex-col gap-1 text-xs text-slate-400">
-                    Model{fetched[e.id] ? ` (${fetched[e.id].length})` : ''}
-                    {customModel === e.id || (e.model.trim() !== '' && !suggestions.includes(e.model)) ? (
-                      <span className="flex gap-1">
+                <div
+                  key={e.id}
+                  className="bg-slate-900/80 border border-slate-800 rounded-xl p-3 flex flex-col gap-2.5 shadow-sm transition-colors hover:border-slate-700"
+                  title={statTip}
+                >
+                  {/* Row 1: Checkbox, Tier selector, Order & Delete */}
+                  <div className="flex items-center justify-between gap-2 border-b border-slate-800/60 pb-2">
+                    <div className="flex items-center gap-2">
+                      <label className="flex items-center gap-1.5 text-xs font-semibold text-slate-300 cursor-pointer">
                         <input
-                          value={e.model}
-                          onChange={(ev) => updEntry(e.id, { model: ev.target.value })}
-                          placeholder={def.defaultModel}
-                          className="bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-sm font-mono w-44"
+                          type="checkbox"
+                          checked={e.enabled}
+                          onChange={(ev) => updEntry(e.id, { enabled: ev.target.checked })}
+                          className="rounded border-slate-700 text-cyan-500 focus:ring-0"
                         />
-                        <button
-                          onClick={() => { setCustomModel(null); if (!suggestions.includes(e.model)) updEntry(e.id, { model: def.defaultModel }); }}
-                          title="Chọn từ danh sách"
-                          className="bg-slate-800 hover:bg-slate-700 rounded px-2 py-1.5 text-sm"
-                        >
-                          ▼
-                        </button>
-                      </span>
-                    ) : (
+                        <span>#{i + 1}</span>
+                      </label>
+                      <span className="text-slate-600">|</span>
                       <select
-                        value={e.model}
-                        onChange={(ev) => {
-                          if (ev.target.value === '__custom') setCustomModel(e.id);
-                          else updEntry(e.id, { model: ev.target.value });
-                        }}
-                        className="bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-sm font-mono max-w-60"
+                        value={e.tier ?? ''}
+                        onChange={(ev) => updEntry(e.id, { tier: (ev.target.value || undefined) as AiChainEntry['tier'] })}
+                        className="bg-slate-950 border border-slate-800 rounded-lg px-2 py-1 text-xs text-slate-300 outline-none hover:border-slate-700"
                       >
-                        {e.model === '' && <option value="">— chọn model —</option>}
-                        {suggestions.map((m) => <option key={m} value={m}>{m}</option>)}
-                        <option value="__custom">✎ Tự gõ model khác…</option>
+                        <option value="">Theo hãng ({def.tier === 'paid' ? '💰' : '🆓'})</option>
+                        <option value="free">🆓 Free tier</option>
+                        <option value="paid">💰 Paid tier</option>
                       </select>
-                    )}
-                  </label>
-                  <button
-                    onClick={() => void loadModels(e)}
-                    disabled={loadingModels === e.id || !e.key.trim()}
-                    title={e.key.trim() ? 'Lấy danh sách model của key này' : 'Dán key trước rồi mới lấy được danh sách'}
-                    className="bg-slate-800 hover:bg-slate-700 rounded px-2 py-1.5 text-sm disabled:opacity-40"
-                  >
-                    {loadingModels === e.id ? '…' : '↻'}
-                  </button>
-                  <label className="flex flex-col gap-1 text-xs text-slate-400 flex-1 min-w-40">
-                    {def.keyLabel}
-                    <input
-                      type="password"
-                      value={e.key}
-                      onChange={(ev) => updEntry(e.id, { key: ev.target.value })}
-                      placeholder={def.keyPlaceholder}
-                      className="bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-sm font-mono"
-                    />
-                  </label>
+                    </div>
+
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={() => moveEntry(e.id, -1)}
+                        title="Đẩy lên trên"
+                        className="p-1 rounded text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+                      >
+                        <svg viewBox="0 0 24 24" className="w-3.5 h-3.5 fill-none stroke-current" strokeWidth="2"><path d="M18 15l-6-6-6 6"/></svg>
+                      </button>
+                      <button
+                        onClick={() => moveEntry(e.id, 1)}
+                        title="Đẩy xuống dưới"
+                        className="p-1 rounded text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+                      >
+                        <svg viewBox="0 0 24 24" className="w-3.5 h-3.5 fill-none stroke-current" strokeWidth="2"><path d="M6 9l6 6 6-6"/></svg>
+                      </button>
+                      <button
+                        onClick={() => delEntry(e.id)}
+                        title="Xóa nấc này"
+                        className="p-1 rounded text-slate-400 hover:text-rose-400 hover:bg-rose-950/40 transition-colors ml-1"
+                      >
+                        <svg viewBox="0 0 24 24" className="w-3.5 h-3.5 fill-none stroke-current" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Row 2: Provider & Model */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <div className="flex flex-col gap-1">
+                      <span className="text-[11px] text-slate-400 font-medium">Nhà cung cấp (Provider)</span>
+                      <select
+                        value={e.providerId}
+                        onChange={(ev) => {
+                          const nd = providerDef(ev.target.value) ?? AI_PROVIDERS[0];
+                          updEntry(e.id, { providerId: nd.id, model: nd.defaultModel });
+                        }}
+                        className="w-full bg-slate-950 border border-slate-700/80 rounded-lg px-2.5 py-1.5 text-xs text-slate-200 outline-none focus:border-cyan-500"
+                      >
+                        {AI_PROVIDERS.map((p) => (
+                          <option key={p.id} value={p.id}>{p.name}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="flex flex-col gap-1">
+                      <div className="flex items-center justify-between text-[11px] text-slate-400 font-medium">
+                        <span>Model {fetched[e.id] ? `(${fetched[e.id].length})` : ''}</span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        {customModel === e.id || (e.model.trim() !== '' && !suggestions.includes(e.model)) ? (
+                          <div className="flex-1 flex gap-1 min-w-0">
+                            <input
+                              value={e.model}
+                              onChange={(ev) => updEntry(e.id, { model: ev.target.value })}
+                              placeholder={def.defaultModel}
+                              className="flex-1 min-w-0 bg-slate-950 border border-slate-700/80 rounded-lg px-2.5 py-1.5 text-xs font-mono text-slate-200 outline-none focus:border-cyan-500"
+                            />
+                            <button
+                              onClick={() => { setCustomModel(null); if (!suggestions.includes(e.model)) updEntry(e.id, { model: def.defaultModel }); }}
+                              title="Chọn từ danh sách có sẵn"
+                              className="px-2 py-1 bg-slate-800 hover:bg-slate-700 rounded-lg text-xs text-slate-300"
+                            >
+                              ▼
+                            </button>
+                          </div>
+                        ) : (
+                          <select
+                            value={e.model}
+                            onChange={(ev) => {
+                              if (ev.target.value === '__custom') setCustomModel(e.id);
+                              else updEntry(e.id, { model: ev.target.value });
+                            }}
+                            className="flex-1 min-w-0 bg-slate-950 border border-slate-700/80 rounded-lg px-2.5 py-1.5 text-xs font-mono text-slate-200 outline-none focus:border-cyan-500 truncate"
+                          >
+                            {e.model === '' && <option value="">— chọn model —</option>}
+                            {suggestions.map((m) => (
+                              <option key={m} value={m}>{m}</option>
+                            ))}
+                            <option value="__custom">✎ Tự gõ model khác…</option>
+                          </select>
+                        )}
+                        <button
+                          onClick={() => void loadModels(e)}
+                          disabled={loadingModels === e.id || !e.key.trim()}
+                          title={e.key.trim() ? 'Lấy danh sách model mới nhất của key này' : 'Dán API key trước rồi mới lấy được danh sách'}
+                          className="shrink-0 p-1.5 bg-slate-800 hover:bg-slate-700 rounded-lg text-xs text-cyan-300 disabled:opacity-40"
+                        >
+                          {loadingModels === e.id ? '…' : '↻'}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Row 3: API Key & RPM */}
+                  <div className="flex items-center gap-2">
+                    <div className="flex-1 flex flex-col gap-1 min-w-0">
+                      <span className="text-[11px] text-slate-400 font-medium truncate">{def.keyLabel}</span>
+                      <input
+                        type="password"
+                        value={e.key}
+                        onChange={(ev) => updEntry(e.id, { key: ev.target.value })}
+                        placeholder={def.keyPlaceholder}
+                        className="w-full bg-slate-950 border border-slate-700/80 rounded-lg px-2.5 py-1.5 text-xs font-mono text-slate-200 outline-none focus:border-cyan-500"
+                      />
+                    </div>
+
+                    <div className="w-20 shrink-0 flex flex-col gap-1">
+                      <span className="text-[11px] text-slate-400 font-medium" title="Trần số lượt gọi mỗi phút (RPM). Để trống = tự học">
+                        RPM
+                      </span>
+                      <input
+                        value={e.rpm ?? ''}
+                        onChange={(ev) => {
+                          const n = parseInt(ev.target.value, 10);
+                          updEntry(e.id, { rpm: Number.isFinite(n) && n > 0 ? n : undefined });
+                        }}
+                        placeholder={String(entryRpm({ ...e, rpm: undefined }, def))}
+                        inputMode="numeric"
+                        className="w-full bg-slate-950 border border-slate-700/80 rounded-lg px-2 py-1.5 text-xs font-mono text-slate-200 outline-none focus:border-cyan-500 text-center"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Account ID if needed (e.g. Cloudflare) */}
                   {def.needsAccountId && (
-                    <label className="flex flex-col gap-1 text-xs text-slate-400">
-                      {def.accountLabel ?? 'Account ID'}
+                    <div className="flex flex-col gap-1">
+                      <span className="text-[11px] text-slate-400 font-medium">{def.accountLabel ?? 'Account ID'}</span>
                       <input
                         value={e.accountId ?? ''}
                         onChange={(ev) => updEntry(e.id, { accountId: ev.target.value })}
                         placeholder="Cloudflare Account ID"
-                        className="bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-sm font-mono w-44"
+                        className="w-full bg-slate-950 border border-slate-700/80 rounded-lg px-2.5 py-1.5 text-xs font-mono text-slate-200 outline-none focus:border-cyan-500"
                       />
-                    </label>
+                    </div>
                   )}
-                  <label className="flex flex-col gap-1 text-xs text-slate-400" title="Trần gọi/phút của nấc này. Để trống = tự học + mặc định bậc. Biết số trong console hãng thì nhập vào.">
-                    RPM
-                    <input
-                      value={e.rpm ?? ''}
-                      onChange={(ev) => {
-                        const n = parseInt(ev.target.value, 10);
-                        updEntry(e.id, { rpm: Number.isFinite(n) && n > 0 ? n : undefined });
-                      }}
-                      placeholder={String(entryRpm({ ...e, rpm: undefined }, def))}
-                      inputMode="numeric"
-                      className="bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-sm font-mono w-20"
-                    />
-                  </label>
-                  <div className="flex gap-1">
-                    <button onClick={() => moveEntry(e.id, -1)} title="Lên trên" className="bg-slate-800 hover:bg-slate-700 rounded px-2 py-1.5 text-sm">↑</button>
-                    <button onClick={() => moveEntry(e.id, 1)} title="Xuống dưới" className="bg-slate-800 hover:bg-slate-700 rounded px-2 py-1.5 text-sm">↓</button>
-                    <button onClick={() => delEntry(e.id)} title="Xóa nấc này" className="bg-slate-800 hover:bg-red-800 rounded px-2 py-1.5 text-sm">✕</button>
-                  </div>
                 </div>
               );
             })}
-            <div>
-              <button onClick={addEntry} className="bg-slate-800 hover:bg-slate-700 rounded px-3 py-1.5 text-sm">
-                + Thêm provider
+            <div className="flex items-center justify-between gap-2 pt-1">
+              <button
+                onClick={addEntry}
+                className="px-3 py-1.5 bg-cyan-950/60 hover:bg-cyan-900/80 border border-cyan-500/40 text-cyan-300 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all shadow-sm"
+              >
+                <span>+</span> Thêm provider vào chuỗi
               </button>
             </div>
-            <p className="text-[11px] text-slate-500">
-              Mỗi nấc đếm RPM riêng và tự học trần thật (gọi OK tăng dần, 429 giảm nửa; hãng nào trả header
-              rate-limit thì theo số thật). Gần chạm trần thì khóa tạm để lượt sau nhảy xuống nấc kế (báo 🔒).
-              Ô RPM để trống = tự học; biết số trong console hãng thì nhập vào. Nấc nào sập quota thì khóa 60s.
-              Nấc free lỗi bỏ qua nhanh, chỉ nấc paid 429 mới đợi lùi thử lại 1 lần.
-              Chỉ nấc nào bật + có key + model mới được dùng. Key lưu trong máy này.
-              AI được gửi/ chạy flow / đổi biến trong app — gặp script từ file import vẫn hỏi xác nhận như thường.
+            <p className="text-[11px] text-slate-500 leading-relaxed bg-slate-900/40 p-2 rounded-lg border border-slate-800/60">
+              Mỗi nấc đếm RPM riêng và tự học trần thật (gần chạm trần thì khóa tạm để nhảy xuống nấc kế). Ô RPM để trống = tự học. Nấc nào sập quota thì khóa 60s. Key lưu an toàn trên máy này.
             </p>
             {Object.keys(aiStats).length > 0 && (
               <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
