@@ -57,4 +57,43 @@ describe('curl-import & multipart form-data file attachment', () => {
     expect(generated).toContain("Accept: application/json");
     expect(generated).not.toContain("--form");
   });
+
+  it('generates correct Content-Type for raw subtypes (xml, text)', () => {
+    const xmlReq: ApiRequest = {
+      id: 'r_xml',
+      name: 'XML Test',
+      method: 'POST',
+      url: 'https://api.example.com/soap',
+      params: [],
+      headers: [],
+      bodyType: 'raw',
+      rawType: 'xml',
+      body: '<soap><body>test</body></soap>',
+      auth: { type: 'none' },
+      collectionId: '',
+      updatedAt: 1,
+    };
+    const xmlCurl = toCurl(xmlReq, {});
+    expect(xmlCurl).toContain("Content-Type: application/xml");
+    expect(xmlCurl).toContain("--data-raw '<soap><body>test</body></soap>'");
+
+    const textReq: ApiRequest = {
+      id: 'r_text',
+      name: 'Text Test',
+      method: 'POST',
+      url: 'https://api.example.com/plain',
+      params: [],
+      headers: [],
+      bodyType: 'raw',
+      rawType: 'text',
+      body: 'Hello Plain Text',
+      auth: { type: 'none' },
+      collectionId: '',
+      updatedAt: 1,
+    };
+    const textCurl = toCurl(textReq, {});
+    expect(textCurl).toContain("Content-Type: text/plain");
+    expect(textCurl).toContain("--data-raw 'Hello Plain Text'");
+  });
 });
+

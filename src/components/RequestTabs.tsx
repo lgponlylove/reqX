@@ -12,17 +12,28 @@ import ScriptSnippetMenu, { insertSnippet } from './ScriptSnippetMenu';
 import AiScriptButton from './AiScriptButton';
 import { inheritedScriptCount } from '../lib/script-chain';
 import { useTranslation } from '../stores/language';
-import type { BodyType, AuthType } from '../types/api';
+import FormKeyEditor from './FormKeyEditor';
+import { uid } from '../lib/variables';
+import type { BodyType, AuthType, RawSubtype } from '../types/api';
 
 const TABS: ReqSubTab[] = ['params', 'headers', 'body', 'pre', 'tests', 'auth'];
 
-const BODY_TYPES: { id: BodyType; label: string }[] = [
-  { id: 'none', label: 'None' },
-  { id: 'json', label: 'JSON' },
-  { id: 'raw', label: 'Raw' },
-  { id: 'form-data', label: 'Form-data' },
+type PostmanBodyMode = 'none' | 'form-data' | 'urlencoded' | 'raw' | 'binary';
+
+const POSTMAN_BODY_MODES: { id: PostmanBodyMode; label: string }[] = [
+  { id: 'none', label: 'none' },
+  { id: 'form-data', label: 'form-data' },
   { id: 'urlencoded', label: 'x-www-form-urlencoded' },
-  { id: 'binary', label: 'Binary' },
+  { id: 'raw', label: 'raw' },
+  { id: 'binary', label: 'binary' },
+];
+
+const RAW_SUBTYPES: { id: RawSubtype; label: string; contentType: string }[] = [
+  { id: 'json', label: 'JSON', contentType: 'application/json' },
+  { id: 'text', label: 'Text', contentType: 'text/plain' },
+  { id: 'javascript', label: 'JavaScript', contentType: 'application/javascript' },
+  { id: 'html', label: 'HTML', contentType: 'text/html' },
+  { id: 'xml', label: 'XML', contentType: 'application/xml' },
 ];
 
 export default function RequestTabs() {
@@ -60,13 +71,68 @@ export default function RequestTabs() {
   };
 
   const showBody = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(current.method);
-  // binary chỉ có ô chọn file, none thì chẳng có gì để soạn → không cần phóng to
-  const canExpandBody = current.bodyType !== 'none' && current.bodyType !== 'binary';
+
+  const activeBodyMode: PostmanBodyMode =
+    current.bodyType === 'json' ? 'raw' : (current.bodyType as PostmanBodyMode);
+  const activeRawSubtype: RawSubtype =
+    current.rawType || (current.bodyType === 'json' ? 'json' : 'text');
+
+  // Chỉ raw mode mới cần phóng to toàn màn hình
+  const canExpandBody = activeBodyMode === 'raw';
+
+  function syncRawContentType(subtype: RawSubtype) {
+    const target = RAW_SUBTYPES.find((s) => s.id === subtype);
+    if (!target) return;
+    const currentHeaders = current.headers ?? [];
+    const knownTypes = RAW_SUBTYPES.map((s) => s.contentType.toLowerCase());
+    const existingIdx = currentHeaders.findIndex((h) => h.key.toLowerCase() === 'content-type');
+    if (existingIdx >= 0) {
+      const existingVal = currentHeaders[existingIdx].value.toLowerCase();
+      if (knownTypes.includes(existingVal)) {
+        const nextHeaders = [...currentHeaders];
+        nextHeaders[existingIdx] = { ...nextHeaders[existingIdx], value: target.contentType };
+        set({ headers: nextHeaders });
+      }
+    } else {
+      set({
+        headers: [
+          ...currentHeaders,
+          { id: uid('kv'), key: 'Content-Type', value: target.contentType, enabled: true },
+        ],
+      });
+    }
+  }
+
+  function selectBodyMode(mode: PostmanBodyMode) {
+    if (mode === 'none') {
+      set({ bodyType: 'none' });
+    } else if (mode === 'form-data') {
+      set({ bodyType: 'form-data' });
+    } else if (mode === 'urlencoded') {
+      set({ bodyType: 'urlencoded' });
+    } else if (mode === 'raw') {
+      const rawSubtype = current.rawType || 'json';
+      set({
+        bodyType: rawSubtype === 'json' ? 'json' : 'raw',
+        rawType: rawSubtype,
+      });
+      syncRawContentType(rawSubtype);
+    } else if (mode === 'binary') {
+      set({ bodyType: 'binary' });
+    }
+  }
+
+  function selectRawSubtype(subtype: RawSubtype) {
+    set({
+      bodyType: subtype === 'json' ? 'json' : 'raw',
+      rawType: subtype,
+    });
+    syncRawContentType(subtype);
+  }
+
   // Một chỗ duy nhất: ô nhỏ và popup phóng to phải cùng gợi ý mẫu
   const bodyPlaceholder =
-    current.bodyType === 'json' ? '{\n  "name": "test",\n  "userId": "{{userId}}"\n}'
-      : current.bodyType === 'form-data' ? 'files=@"D:/test/image.png"\nuserId={{userId}}\ntitle=Báo cáo'
-      : current.bodyType === 'urlencoded' ? 'name=test&userId={{userId}}'
+    activeRawSubtype === 'json' ? '{\n  "name": "test",\n  "userId": "{{userId}}"\n}'
       : i18n.request.bodyContentPlaceholder;
 
   return (
@@ -135,98 +201,126 @@ export default function RequestTabs() {
               {i18n.request.noBodyWarning.replace('{method}', current.method)}
             </p>
           )}
-          <div className="flex gap-1.5 flex-wrap shrink-0">
-            {BODY_TYPES.map((b) => (
-              <button
-                key={b.id}
-                onClick={() => set({ bodyType: b.id })}
-                className={`px-2.5 py-1 rounded text-xs ${
-                  current.bodyType === b.id
-                    ? 'bg-emerald-600 font-semibold'
-                    : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
-                }`}
-              >
-                {b.label}
-              </button>
-            ))}
-            {current.bodyType === 'json' && (
-              <button
-                onClick={() => {
-                  const r = formatJsonBody(current.body, i18n.request.jsonFormatError);
-                  if (r.ok) {
-                    set({ body: r.value });
-                    setFmtMsg('');
-                  } else {
-                    setFmtMsg(r.error);
-                  }
-                }}
-                title={i18n.request.formatJsonTitle}
-                className="ml-auto px-2.5 py-1 rounded text-xs bg-slate-800 text-slate-300 hover:bg-slate-700"
-              >
-                {i18n.request.formatJsonBtn}
-              </button>
-            )}
-            {canExpandBody && (
-              <button
-                onClick={() => setExpanded('body')}
-                title={i18n.request.expandHint}
-                className={`${current.bodyType === 'json' ? '' : 'ml-auto'} px-2.5 py-1 rounded text-xs bg-slate-800 text-slate-300 hover:bg-slate-700`}
-              >
-                {i18n.request.expand}
-              </button>
+          <div className="flex items-center gap-2 flex-wrap shrink-0 border-b border-slate-800/80 pb-2">
+            <div className="flex items-center gap-3.5">
+              {POSTMAN_BODY_MODES.map((b) => {
+                const isSelected = activeBodyMode === b.id;
+                return (
+                  <label
+                    key={b.id}
+                    className="flex items-center gap-1.5 text-xs cursor-pointer select-none text-slate-300 hover:text-white transition-colors"
+                  >
+                    <input
+                      type="radio"
+                      name="bodyModeRadio"
+                      checked={isSelected}
+                      onChange={() => selectBodyMode(b.id)}
+                      className="cursor-pointer text-emerald-500 focus:ring-0 bg-slate-900 border-slate-700 w-3.5 h-3.5"
+                    />
+                    <span className={isSelected ? 'text-emerald-400 font-bold' : ''}>
+                      {b.label}
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
+
+            {/* Subtype Dropdown & Action Buttons khi chọn 'raw' */}
+            {activeBodyMode === 'raw' && (
+              <div className="flex items-center gap-2 ml-auto">
+                <div className="flex items-center gap-1 bg-slate-900 border border-slate-700 rounded px-2 py-0.5 text-xs text-slate-300">
+                  <span className="text-[11px] text-slate-500">Định dạng:</span>
+                  <select
+                    value={activeRawSubtype}
+                    onChange={(e) => selectRawSubtype(e.target.value as RawSubtype)}
+                    className="bg-transparent text-xs text-emerald-400 font-bold font-mono outline-none cursor-pointer"
+                  >
+                    {RAW_SUBTYPES.map((st) => (
+                      <option key={st.id} value={st.id} className="bg-slate-900 text-slate-200">
+                        {st.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {activeRawSubtype === 'json' && (
+                  <button
+                    onClick={() => {
+                      const r = formatJsonBody(current.body, i18n.request.jsonFormatError);
+                      if (r.ok) {
+                        set({ body: r.value });
+                        setFmtMsg('');
+                      } else {
+                        setFmtMsg(r.error);
+                      }
+                    }}
+                    title={i18n.request.formatJsonTitle}
+                    className="px-2.5 py-1 rounded text-xs bg-slate-800 text-slate-300 hover:bg-slate-700"
+                  >
+                    {i18n.request.formatJsonBtn}
+                  </button>
+                )}
+
+                {canExpandBody && (
+                  <button
+                    onClick={() => setExpanded('body')}
+                    title={i18n.request.expandHint}
+                    className="px-2.5 py-1 rounded text-xs bg-slate-800 text-slate-300 hover:bg-slate-700"
+                  >
+                    {i18n.request.expand}
+                  </button>
+                )}
+              </div>
             )}
           </div>
-          {current.bodyType === 'json' ? (
-            <JsonBodyEditor
-              fill
+
+          {activeBodyMode === 'none' ? (
+            <div className="flex flex-col items-center justify-center flex-1 min-h-36 text-slate-500 border border-slate-800/60 rounded-lg p-6 bg-slate-950/20">
+              <div className="w-9 h-9 rounded-full bg-slate-900/80 border border-slate-800 flex items-center justify-center text-sm mb-2 text-slate-400">
+                ∅
+              </div>
+              <p className="text-xs font-semibold text-slate-400">Request này không gửi kèm Body</p>
+              <p className="text-[11px] text-slate-500 mt-1">
+                Chọn <span className="text-emerald-400">raw</span>, <span className="text-emerald-400">form-data</span> hoặc <span className="text-emerald-400">x-www-form-urlencoded</span> ở trên nếu API yêu cầu truyền dữ liệu
+              </p>
+            </div>
+          ) : activeBodyMode === 'form-data' ? (
+            <FormKeyEditor
+              value={current.body}
+              onChange={(body) => set({ body })}
+              isFormData
+            />
+          ) : activeBodyMode === 'urlencoded' ? (
+            <FormKeyEditor
+              value={current.body}
+              onChange={(body) => set({ body })}
+            />
+          ) : activeBodyMode === 'binary' ? (
+            <BinaryBodyEditor
               value={current.body}
               onChange={(v) => set({ body: v })}
-              placeholder={bodyPlaceholder}
             />
-          ) : current.bodyType === 'form-data' ? (
-            <div className="flex flex-col gap-1.5 flex-1 min-h-0">
-              <div className="flex items-center justify-between gap-2 text-xs text-slate-400 shrink-0">
-                <span>
-                  {i18n.request.formDataHelp}{' '}
-                  <code className="text-emerald-400">key=value</code> /{' '}
-                  <code className="text-emerald-400">files=@D:/path/file.png</code>
-                </span>
-                <button
-                  type="button"
-                  onClick={() => {
-                    const sample = 'files=@D:/test/image.png\nname=example';
-                    set({ body: current.body ? current.body + '\n' + sample : sample });
-                  }}
-                  className="px-2 py-0.5 rounded text-xs bg-slate-800 text-slate-300 hover:bg-slate-700"
-                >
-                  {i18n.request.fileSampleBtn}
-                </button>
-              </div>
+          ) : (
+            // raw mode
+            activeRawSubtype === 'json' ? (
+              <JsonBodyEditor
+                fill
+                value={current.body}
+                onChange={(v) => set({ body: v })}
+                placeholder={bodyPlaceholder}
+              />
+            ) : (
               <textarea
                 spellCheck={false}
-                className="bg-slate-900 border border-slate-700 rounded p-2.5 font-mono text-sm min-h-32 flex-1 resize-none"
+                className="bg-slate-900 border border-slate-700 rounded p-2.5 font-mono text-sm min-h-32 flex-1 resize-none outline-none focus:border-emerald-500"
                 rows={7}
                 placeholder={bodyPlaceholder}
                 value={current.body}
                 onChange={(e) => set({ body: e.target.value })}
               />
-            </div>
-          ) : current.bodyType === 'binary' ? (
-            <BinaryBodyEditor
-              value={current.body}
-              onChange={(v) => set({ body: v })}
-            />
-          ) : current.bodyType !== 'none' && (
-            <textarea
-              spellCheck={false}
-              className="bg-slate-900 border border-slate-700 rounded p-2.5 font-mono text-sm min-h-32 flex-1 resize-none"
-              rows={7}
-              placeholder={bodyPlaceholder}
-              value={current.body}
-              onChange={(e) => set({ body: e.target.value })}
-            />
+            )
           )}
-          {current.bodyType === 'json' && current.body.trim() !== '' && (
+          {((current.bodyType === 'json') || (current.bodyType === 'raw' && (!current.rawType || current.rawType === 'json'))) && current.body.trim() !== '' && (
             <JsonHint body={current.body} validMsg={i18n.request.jsonValid} invalidMsg={i18n.request.jsonInvalid} />
           )}
           {fmtMsg && <p className="text-xs text-red-400">{fmtMsg}</p>}

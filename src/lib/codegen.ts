@@ -72,7 +72,7 @@ function build(
   let formFields: [string, string][] = [];
   if (hasBody) {
     const resolved = rv(req.body);
-    if (req.bodyType === 'json') {
+    if (req.bodyType === 'json' || (req.bodyType === 'raw' && (!req.rawType || req.rawType === 'json'))) {
       if (!hasHeader('content-type')) headers.push(['Content-Type', 'application/json']);
       body = resolved || undefined;
     } else if (req.bodyType === 'urlencoded') {
@@ -82,6 +82,10 @@ function build(
       isFormData = true;
       formFields = parseFormFields(resolved);
     } else {
+      if (req.rawType === 'xml' && !hasHeader('content-type')) headers.push(['Content-Type', 'application/xml']);
+      else if (req.rawType === 'text' && !hasHeader('content-type')) headers.push(['Content-Type', 'text/plain']);
+      else if (req.rawType === 'html' && !hasHeader('content-type')) headers.push(['Content-Type', 'text/html']);
+      else if (req.rawType === 'javascript' && !hasHeader('content-type')) headers.push(['Content-Type', 'application/javascript']);
       body = resolved || undefined;
     }
   }

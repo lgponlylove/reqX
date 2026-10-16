@@ -16,6 +16,8 @@ export interface KeyValue {
 
 export type BodyType = 'none' | 'json' | 'raw' | 'form-data' | 'urlencoded' | 'binary';
 
+export type RawSubtype = 'json' | 'text' | 'javascript' | 'html' | 'xml';
+
 export type AuthType = 'none' | 'bearer' | 'basic' | 'apikey' | 'oauth2' | 'digest' | 'awsv4' | 'ntlm';
 
 export interface OAuth2Config {
@@ -97,6 +99,7 @@ export interface ApiRequest {
   params: KeyValue[];
   headers: KeyValue[];
   bodyType: BodyType;
+  rawType?: RawSubtype;
   body: string;
   auth: AuthConfig;
   /** Script JS chạy trước khi gửi (được phép sửa biến + request) */

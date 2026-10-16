@@ -214,18 +214,35 @@ export async function sendRequest(
   let authPayloadHash: string | undefined;
   if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method) && req.bodyType !== 'none') {
     const { resolved } = resolveVariables(req.body, envVars, globalVars);
+    const hasContentType = Object.keys(headers).some((h) => h.toLowerCase() === 'content-type');
+
     if (req.bodyType === 'json') {
-      if (!headers['Content-Type']) headers['Content-Type'] = 'application/json';
+      if (!hasContentType) headers['Content-Type'] = 'application/json';
+      fetchBody = resolved;
+      nativeBody = { kind: 'text', content_type: null, text: resolved };
+      authBodyText = resolved;
+    } else if (req.bodyType === 'raw') {
+      const rawSubtype = req.rawType || 'json';
+      const defaultCt: Record<string, string> = {
+        json: 'application/json',
+        text: 'text/plain',
+        javascript: 'application/javascript',
+        html: 'text/html',
+        xml: 'application/xml',
+      };
+      if (!hasContentType) {
+        headers['Content-Type'] = defaultCt[rawSubtype] || 'text/plain';
+      }
       fetchBody = resolved;
       nativeBody = { kind: 'text', content_type: null, text: resolved };
       authBodyText = resolved;
     } else if (req.bodyType === 'urlencoded') {
-      if (!headers['Content-Type']) headers['Content-Type'] = 'application/x-www-form-urlencoded';
+      if (!hasContentType) headers['Content-Type'] = 'application/x-www-form-urlencoded';
       fetchBody = resolved;
       nativeBody = { kind: 'text', content_type: null, text: resolved };
       authBodyText = resolved;
     } else if (req.bodyType === 'binary') {
-      if (!headers['Content-Type']) headers['Content-Type'] = 'application/octet-stream';
+      if (!hasContentType) headers['Content-Type'] = 'application/octet-stream';
       try {
         const binStr = atob(resolved);
         const bytes = new Uint8Array(binStr.length);
@@ -306,10 +323,12 @@ export async function sendRequest(
   if (isTauri() && invoke) {
     const nativeHeaders: Record<string, string> = { ...headers };
     let defaultCt: string | null = null;
-    if (nativeBody?.kind === 'text' && nativeHeaders['Content-Type']) {
-      // Chỉ tách khi chính app đã tự set mặc định ở trên (user tự set thì giữ nguyên trong headers)
-      defaultCt = nativeHeaders['Content-Type'];
-      delete nativeHeaders['Content-Type'];
+    if (nativeBody?.kind === 'text') {
+      const ctKey = Object.keys(nativeHeaders).find((k) => k.toLowerCase() === 'content-type');
+      if (ctKey) {
+        defaultCt = nativeHeaders[ctKey];
+        delete nativeHeaders[ctKey];
+      }
     } else if (nativeBody?.kind === 'multipart') {
       // Multipart: Xóa Content-Type để reqwest tự generate boundary chuẩn
       for (const k of Object.keys(nativeHeaders)) {
