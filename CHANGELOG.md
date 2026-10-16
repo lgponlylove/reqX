@@ -2,6 +2,15 @@
 
 Dự án theo SemVer, bản mới nhất nằm trên cùng. Ngày ghi theo định dạng dd/MM/yyyy.
 
+## [0.2.0] — 16/10/2026
+
+Trial 60 ngày + tự kiểm tra cập nhật + chính sách 1 key = 1 máy.
+
+- **Trial 60 ngày full tính năng** (`src/stores/license.ts`): lần chạy đầu tự ghi mốc `reqx_trial_start` (localStorage), không cần key/mạng; còn ≤14 ngày banner xanh, hết hạn banner amber — app vẫn chạy full (free như Pro). Có test `license.test.ts` (11 tests).
+- **Tự kiểm tra bản mới** (`src/lib/update-check.ts` mới + `StatusBanners.tsx` dưới header): đọc `latest.json` trên GitHub 1 lần/ngày, timeout 8s, offline im lặng; có bản mới → banner xanh + Tải về / Để sau (nhớ theo version). Quy trình release 3 bước trong `docs/CHINH-SACH-BAN-QUYEN.md`.
+- **Chính sách đổi máy**: khung 📌 trong modal Bản quyền (vi/en) + `docs/CHINH-SACH-BAN-QUYEN.md` — 1 key = 1 máy, cấp lại miễn phí tối đa 1 lần/năm, portable chép `reqx.lic` theo khi lên version.
+- Version hiển thị trong modal lấy từ `APP_VERSION` dùng chung (hết hardcode `v0.1.2`); logger `appVersion` lên 0.2.0.
+
 ## [0.1.2] — 13→15/10/2026 *(nhãn chưa bump trong `package.json`/`tauri.conf.json` — đang để 0.1.0 vì chưa build `.exe`)*
 
 Hai batch: sửa Builder/Response theo bản Postman thật, và **đóng CLI Runner P1 + P2** (`reqx run` có báo cáo + chạy theo dữ liệu, thêm `reqx env lint` và `reqx ci init`).

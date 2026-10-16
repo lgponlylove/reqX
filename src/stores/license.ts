@@ -22,6 +22,13 @@ interface LicenseState {
   isLoaded: boolean;
   isLoading: boolean;
   lastError: string | null;
+  /** Ngày bắt đầu dùng thử (ms) — lần chạy đầu tiên, lưu localStorage */
+  trialStart: number | null;
+  /** Số ngày dùng thử còn lại (60 ngày kể từ trialStart) */
+  trialDaysLeft: number;
+  /** true khi hết 60 ngày mà chưa kích hoạt Pro */
+  trialExpired: boolean;
+  initTrial: () => void;
   getMachineId: () => Promise<string>;
   checkLicense: () => Promise<LicenseVerificationResult>;
   activateLicense: (email: string, key: string) => Promise<LicenseVerificationResult>;
@@ -34,6 +41,17 @@ function inTauriApp(): boolean {
 
 const WEB_STORAGE_KEY = 'reqx_offline_license_key';
 const WEB_MACHINE_ID_KEY = 'reqx_machine_id';
+
+/** Số ngày dùng thử miễn phí full tính năng (tự đếm từ lần chạy đầu, không cần key). */
+export const TRIAL_DAYS = 60;
+const TRIAL_STORAGE_KEY = 'reqx_trial_start';
+
+/** Tính số ngày còn lại từ mốc trialStart. */
+export function trialStatus(trialStart: number | null, now = Date.now()): { daysLeft: number; expired: boolean } {
+  if (!trialStart || Number.isNaN(trialStart)) return { daysLeft: TRIAL_DAYS, expired: false };
+  const daysLeft = TRIAL_DAYS - Math.floor((now - trialStart) / 86400000);
+  return { daysLeft: Math.max(0, daysLeft), expired: daysLeft <= 0 };
+}
 
 export async function getLocalMachineId(): Promise<string> {
   if (inTauriApp()) {
@@ -128,6 +146,25 @@ export const useLicenseStore = create<LicenseState>((set, get) => ({
   isLoaded: false,
   isLoading: false,
   lastError: null,
+  trialStart: null,
+  trialDaysLeft: TRIAL_DAYS,
+  trialExpired: false,
+
+  initTrial: () => {
+    if (typeof window === 'undefined') return;
+    try {
+      let start = Number(localStorage.getItem(TRIAL_STORAGE_KEY));
+      if (!start || Number.isNaN(start)) {
+        start = Date.now();
+        localStorage.setItem(TRIAL_STORAGE_KEY, String(start));
+      }
+      const { daysLeft, expired } = trialStatus(start);
+      set({ trialStart: start, trialDaysLeft: daysLeft, trialExpired: expired });
+    } catch {
+      const { daysLeft, expired } = trialStatus(null);
+      set({ trialStart: null, trialDaysLeft: daysLeft, trialExpired: expired });
+    }
+  },
 
   getMachineId: async () => {
     const mid = await getLocalMachineId();
@@ -270,7 +307,8 @@ export const useLicenseStore = create<LicenseState>((set, get) => ({
   },
 }));
 
-// Tự động kiểm tra bản quyền và tải mã máy khi app khởi động
+// Tự động kiểm tra bản quyền, mốc dùng thử và tải mã máy khi app khởi động
 if (typeof window !== 'undefined') {
+  useLicenseStore.getState().initTrial();
   useLicenseStore.getState().checkLicense();
 }

@@ -24,6 +24,7 @@ import { useRequestStore } from './stores/request';
 import LanguageSwitcher from './components/LanguageSwitcher';
 import ThemeToggle from './components/ThemeToggle';
 import LicenseModal from './components/LicenseModal';
+import StatusBanners from './components/StatusBanners';
 import DiagnosticsModal from './components/DiagnosticsModal';
 import { useTranslation } from './stores/language';
 
@@ -343,6 +344,9 @@ export default function App() {
             <CommandPalette onOpenView={(v) => handleSelectTool(v as ToolView)} />
           </div>
         </header>
+
+        {/* Banner trial / bản mới (mỏng, dưới header) */}
+        <StatusBanners />
 
         {/* Main Workspace + AI Assistant Row (level with Request) */}
         <div className="flex-1 min-h-0 flex flex-row gap-2 overflow-hidden">

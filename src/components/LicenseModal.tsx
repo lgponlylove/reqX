@@ -1,7 +1,42 @@
 import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { useLicenseStore } from '../stores/license';
+import { APP_VERSION } from '../lib/update-check';
 import { useTranslation } from '../stores/language';
+
+/** Dòng đếm ngược 60 ngày dùng thử trong modal bản quyền. */
+function TrialLine() {
+  const { trialDaysLeft, trialExpired } = useLicenseStore();
+  const { t } = useTranslation();
+  return (
+    <div
+      className={`rounded-xl p-3 text-xs border ${
+        trialExpired
+          ? 'bg-amber-950/50 border-amber-500/40 text-amber-300'
+          : 'bg-sky-950/40 border-sky-500/30 text-sky-300'
+      }`}
+    >
+      {trialExpired ? (
+        <span>⚠ {t.license.trialExpired}</span>
+      ) : (
+        <span>
+          ⏳ {(t.license.trialLeft as string).replace('{n}', String(trialDaysLeft))} — {t.license.trialHint}
+        </span>
+      )}
+    </div>
+  );
+}
+
+/** Khung chính sách 1 key = 1 máy. */
+function DevicePolicyBox() {
+  const { t } = useTranslation();
+  return (
+    <div className="p-3 rounded-xl bg-slate-950/80 border border-slate-700/60 text-[11px] text-slate-400 leading-relaxed">
+      <p className="font-semibold text-slate-300 mb-1">📌 {t.license.devicePolicyTitle}</p>
+      <p>{t.license.devicePolicy}</p>
+    </div>
+  );
+}
 
 export default function LicenseModal() {
   const { isPro, info, machineId, isLoading, lastError, activateLicense, deactivateLicense, getMachineId } = useLicenseStore();
@@ -192,8 +227,7 @@ export default function LicenseModal() {
               {/* Body */}
               <div className="p-5 space-y-4 max-h-[75vh] overflow-y-auto">
                 {/* Active License Details */}
-                {isPro && info ? (
-                  <div className="bg-emerald-950/30 border border-emerald-500/40 rounded-xl p-4 space-y-3 shadow-inner">
+                {isPro && info ? (                  <div className="bg-emerald-950/30 border border-emerald-500/40 rounded-xl p-4 space-y-3 shadow-inner">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
                         <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)] animate-pulse" />
@@ -252,8 +286,11 @@ export default function LicenseModal() {
                         <span className="w-2 h-2 rounded-full bg-slate-500" />
                         <span className="text-slate-300 font-medium">{t.license.statusFree}</span>
                       </div>
-                      <span className="text-slate-400 text-[11px]">v0.1.2</span>
+                      <span className="text-slate-400 text-[11px]">v{APP_VERSION}</span>
                     </div>
+
+                    {/* Đếm ngược dùng thử 60 ngày */}
+                    <TrialLine />
 
                     {/* Machine ID Box with Copy Button */}
                     <div className="bg-slate-950/80 border border-cyan-500/30 rounded-xl p-3.5 space-y-2 shadow-inner">
@@ -369,8 +406,10 @@ export default function LicenseModal() {
                   </div>
                 )}
 
-                {/* Pro Features Showcase */}
-                <div className="bg-slate-950/40 border border-slate-800/80 rounded-xl p-3.5 space-y-2 text-xs">
+                {/* Chính sách 1 key = 1 máy */}
+                <DevicePolicyBox />
+
+                {/* Pro Features Showcase */}                <div className="bg-slate-950/40 border border-slate-800/80 rounded-xl p-3.5 space-y-2 text-xs">
                   <div className="font-semibold text-slate-300 flex items-center gap-1.5">
                     <span className="text-amber-400">⚡</span>
                     <span>{t.license.featuresTitle}</span>

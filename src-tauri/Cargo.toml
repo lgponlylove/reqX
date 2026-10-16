@@ -1,6 +1,6 @@
 [package]
 name = "reqx"
-version = "0.1.2"
+version = "0.2.0"
 description = "ReqX — API client (Tauri + React)"
 authors = ["you"]
 edition = "2021"

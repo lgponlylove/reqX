@@ -19,6 +19,7 @@ vi.hoisted(() => {
 });
 
 import { useLicenseStore } from '../license';
+import { trialStatus, TRIAL_DAYS } from '../license';
 
 // Ed25519 Secret/Private Key & Public Key
 const PRIVATE_KEY_HEX = '659f51dddd12659ec90109703e82cdd4d98847c2d4f8da3e3eb36787224544c6';
@@ -152,5 +153,49 @@ describe('License Store with Machine ID and Email Lock', () => {
     await store.deactivateLicense();
     expect(useLicenseStore.getState().isPro).toBe(false);
     expect(useLicenseStore.getState().info).toBeNull();
+  });
+});
+
+describe('Trial 60 ngày dùng thử', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    useLicenseStore.setState({
+      trialStart: null,
+      trialDaysLeft: TRIAL_DAYS,
+      trialExpired: false,
+    });
+  });
+
+  it('lần chạy đầu tự tạo mốc trial, còn đủ 60 ngày', () => {
+    const store = useLicenseStore.getState();
+    store.initTrial();
+    const state = useLicenseStore.getState();
+    expect(state.trialStart).toBeGreaterThan(0);
+    expect(state.trialDaysLeft).toBe(TRIAL_DAYS);
+    expect(state.trialExpired).toBe(false);
+    expect(localStorage.getItem('reqx_trial_start')).toBe(String(state.trialStart));
+  });
+
+  it('giữ nguyên mốc trial ở lần chạy sau (không reset)', () => {
+    const store = useLicenseStore.getState();
+    store.initTrial();
+    const first = useLicenseStore.getState().trialStart;
+    store.initTrial();
+    expect(useLicenseStore.getState().trialStart).toBe(first);
+  });
+
+  it('quá 60 ngày thì báo hết hạn', () => {
+    localStorage.setItem('reqx_trial_start', String(Date.now() - 61 * 86400000));
+    useLicenseStore.getState().initTrial();
+    const state = useLicenseStore.getState();
+    expect(state.trialExpired).toBe(true);
+    expect(state.trialDaysLeft).toBe(0);
+  });
+
+  it('trialStatus tính đúng số ngày còn lại', () => {
+    const start = Date.now() - 10 * 86400000;
+    expect(trialStatus(start).daysLeft).toBe(TRIAL_DAYS - 10);
+    expect(trialStatus(start).expired).toBe(false);
+    expect(trialStatus(null).daysLeft).toBe(TRIAL_DAYS);
   });
 });
