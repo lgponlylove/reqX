@@ -344,130 +344,132 @@ export default function App() {
           </div>
         </header>
 
-        {/* Main Workspace View */}
-        <section className="flex-1 min-w-0 flex flex-col bg-slate-900/50 backdrop-blur-md border border-slate-800/80 rounded-2xl p-4 shadow-2xl shadow-black/40 overflow-hidden">
-          <div ref={splitRef} className={`${vResizeActive ? 'select-none' : ''} ${view === 'builder' ? 'flex flex-col gap-1.5 flex-1 min-h-0 overflow-hidden' : 'hidden'}`}>
-            <TabBar />
-            {isEnvTab ? (
-              <div className="flex-1 min-h-0 overflow-y-auto mt-1">
-                <EnvironmentManager />
-              </div>
-            ) : (
-              <>
-                {/* Pane request: tự cuộn, không ép TabBar/Response biến mất khi body dài */}
-                <div className="flex flex-col gap-3 flex-1 min-h-[140px] overflow-y-auto pr-0.5">
-                  <RequestBar />
-                  <RequestTabs />
+        {/* Main Workspace + AI Assistant Row (level with Request) */}
+        <div className="flex-1 min-h-0 flex flex-row gap-2 overflow-hidden">
+          <section className="flex-1 min-w-0 flex flex-col bg-slate-900/50 backdrop-blur-md border border-slate-800/80 rounded-2xl p-4 shadow-2xl shadow-black/40 overflow-hidden">
+            <div ref={splitRef} className={`${vResizeActive ? 'select-none' : ''} ${view === 'builder' ? 'flex flex-col gap-1.5 flex-1 min-h-0 overflow-hidden' : 'hidden'}`}>
+              <TabBar />
+              {isEnvTab ? (
+                <div className="flex-1 min-h-0 overflow-y-auto mt-1">
+                  <EnvironmentManager />
                 </div>
-                {/* Pane response — thu gọn thành 1 thanh để request chiếm hết chiều cao */}
-                {respOpen ? (
-                  <>
-                    {/* Thanh chia kéo được (giống Postman): nhấn đúp = trả về chia đôi auto */}
-                    <div
-                      role="separator"
-                      aria-orientation="horizontal"
-                      title={t.response.dragHint}
-                      onMouseDown={(e) => {
-                        e.preventDefault();
-                        const pane = respPaneRef.current;
-                        vResize.current = { y: e.clientY, h: pane ? pane.getBoundingClientRect().height : 0 };
-                        setVResizeActive(true);
-                        document.body.style.cursor = 'row-resize';
-                      }}
-                      onDoubleClick={() => setRespH(null)}
-                      className="group shrink-0 h-2 -my-0.5 flex items-center justify-center cursor-row-resize touch-none"
-                    >
+              ) : (
+                <>
+                  {/* Pane request: tự cuộn, không ép TabBar/Response biến mất khi body dài */}
+                  <div className="flex flex-col gap-3 flex-1 min-h-[140px] overflow-y-auto pr-0.5">
+                    <RequestBar />
+                    <RequestTabs />
+                  </div>
+                  {/* Pane response — thu gọn thành 1 thanh để request chiếm hết chiều cao */}
+                  {respOpen ? (
+                    <>
+                      {/* Thanh chia kéo được (giống Postman): nhấn đúp = trả về chia đôi auto */}
                       <div
-                        className={`h-[3px] rounded-full transition-all ${
-                          respH === null ? 'w-10' : 'w-16'
-                        } ${vResizeActive ? 'bg-emerald-400' : 'bg-slate-700 group-hover:bg-emerald-500/70'}`}
-                      />
-                    </div>
-                    <div
-                      ref={respPaneRef}
-                      style={respH === null ? undefined : { height: respH }}
-                      className={`${respH === null ? 'flex-1' : 'shrink-0'} min-h-0 overflow-y-auto pr-0.5`}
+                        role="separator"
+                        aria-orientation="horizontal"
+                        title={t.response.dragHint}
+                        onMouseDown={(e) => {
+                          e.preventDefault();
+                          const pane = respPaneRef.current;
+                          vResize.current = { y: e.clientY, h: pane ? pane.getBoundingClientRect().height : 0 };
+                          setVResizeActive(true);
+                          document.body.style.cursor = 'row-resize';
+                        }}
+                        onDoubleClick={() => setRespH(null)}
+                        className="group shrink-0 h-2 -my-0.5 flex items-center justify-center cursor-row-resize touch-none"
+                      >
+                        <div
+                          className={`h-[3px] rounded-full transition-all ${
+                            respH === null ? 'w-10' : 'w-16'
+                          } ${vResizeActive ? 'bg-emerald-400' : 'bg-slate-700 group-hover:bg-emerald-500/70'}`}
+                        />
+                      </div>
+                      <div
+                        ref={respPaneRef}
+                        style={respH === null ? undefined : { height: respH }}
+                        className={`${respH === null ? 'flex-1' : 'shrink-0'} min-h-0 overflow-y-auto pr-0.5`}
+                      >
+                        <ResponseViewer onCollapse={() => setRespOpen(false)} />
+                      </div>
+                    </>
+                  ) : (
+                    <button
+                      onClick={() => setRespOpen(true)}
+                      title={t.response.expandPanel}
+                      className="shrink-0 flex items-center gap-2 px-2 py-1.5 rounded border border-slate-800/80 hover:bg-slate-800/40 text-xs text-left"
                     >
-                      <ResponseViewer onCollapse={() => setRespOpen(false)} />
-                    </div>
-                  </>
-                ) : (
-                  <button
-                    onClick={() => setRespOpen(true)}
-                    title={t.response.expandPanel}
-                    className="shrink-0 flex items-center gap-2 px-2 py-1.5 rounded border border-slate-800/80 hover:bg-slate-800/40 text-xs text-left"
-                  >
-                    <span className="text-slate-400">▸</span>
-                    <span className="font-bold text-white shrink-0">{t.response.responseTitle}</span>
-                    {sending ? (
-                      <span className="text-slate-400 animate-pulse truncate">{t.response.sendingState}</span>
-                    ) : sendError ? (
-                      <span className="text-rose-400 truncate">⚠ {sendError}</span>
-                    ) : response ? (
-                      <span className="font-mono text-emerald-400 truncate">
-                        {response.status} {response.statusText}
-                        <span className="text-slate-500"> · </span>
-                        {response.timeMs} ms
-                        <span className="text-slate-500"> · </span>
-                        {formatSize(response.sizeBytes)}
-                      </span>
-                    ) : (
-                      <span className="text-slate-500">{t.response.noResponseShort}</span>
-                    )}
-                  </button>
-                )}
-              </>
-            )}
-          </div>
-          <div className={view === 'runner' ? 'flex-1 min-h-0 overflow-y-auto' : 'hidden'}>
-            <Runner />
-          </div>
-          <div className={view === 'flow' ? 'flex-1 min-h-0 overflow-y-auto' : 'hidden'}>
-            <Flow onGoBuilder={() => setView('builder')} />
-          </div>
-          <div className={view === 'ws' ? 'flex-1 min-h-0 overflow-y-auto' : 'hidden'}>
-            <WsTester />
-          </div>
-          <div className={view === 'grpc' ? 'flex-1 min-h-0 overflow-y-auto' : 'hidden'}>
-            <GrpcTester />
-          </div>
-          <div className={view === 'mock' ? 'flex flex-col flex-1 min-h-0 h-full' : 'hidden'}>
-            <MockServer />
-          </div>
-          <div className={view === 'env' ? 'flex-1 min-h-0 overflow-y-auto' : 'hidden'}>
-            <EnvironmentManager />
-          </div>
-          <div className={view === 'ai' ? 'flex flex-col flex-1 min-h-0 h-full' : 'hidden'}>
-            <AiAssistant onGoBuilder={() => setView('builder')} />
-          </div>
-          <div className={view === 'cookies' ? 'flex-1 min-h-0 overflow-y-auto' : 'hidden'}>
-            <CookieManager />
-          </div>
-        </section>
-      </div>
+                      <span className="text-slate-400">▸</span>
+                      <span className="font-bold text-white shrink-0">{t.response.responseTitle}</span>
+                      {sending ? (
+                        <span className="text-slate-400 animate-pulse truncate">{t.response.sendingState}</span>
+                      ) : sendError ? (
+                        <span className="text-rose-400 truncate">⚠ {sendError}</span>
+                      ) : response ? (
+                        <span className="font-mono text-emerald-400 truncate">
+                          {response.status} {response.statusText}
+                          <span className="text-slate-500"> · </span>
+                          {response.timeMs} ms
+                          <span className="text-slate-500"> · </span>
+                          {formatSize(response.sizeBytes)}
+                        </span>
+                      ) : (
+                        <span className="text-slate-500">{t.response.noResponseShort}</span>
+                      )}
+                    </button>
+                  )}
+                </>
+              )}
+            </div>
+            <div className={view === 'runner' ? 'flex-1 min-h-0 overflow-y-auto' : 'hidden'}>
+              <Runner />
+            </div>
+            <div className={view === 'flow' ? 'flex-1 min-h-0 overflow-y-auto' : 'hidden'}>
+              <Flow onGoBuilder={() => setView('builder')} />
+            </div>
+            <div className={view === 'ws' ? 'flex-1 min-h-0 overflow-y-auto' : 'hidden'}>
+              <WsTester />
+            </div>
+            <div className={view === 'grpc' ? 'flex-1 min-h-0 overflow-y-auto' : 'hidden'}>
+              <GrpcTester />
+            </div>
+            <div className={view === 'mock' ? 'flex flex-col flex-1 min-h-0 h-full' : 'hidden'}>
+              <MockServer />
+            </div>
+            <div className={view === 'env' ? 'flex-1 min-h-0 overflow-y-auto' : 'hidden'}>
+              <EnvironmentManager />
+            </div>
+            <div className={view === 'ai' ? 'flex flex-col flex-1 min-h-0 h-full' : 'hidden'}>
+              <AiAssistant onGoBuilder={() => setView('builder')} />
+            </div>
+            <div className={view === 'cookies' ? 'flex-1 min-h-0 overflow-y-auto' : 'hidden'}>
+              <CookieManager />
+            </div>
+          </section>
 
-      {/* Right Column: AI Assistant Drawer (Postbot-style) */}
-      {aiDrawerOpen && (
-        <>
-          <div
-            onMouseDown={() => {
-              aiResizing.current = true;
-              document.body.style.cursor = 'col-resize';
-            }}
-            title="Kéo để chỉnh độ rộng Trợ lý AI"
-            className="hidden md:block w-1.5 shrink-0 cursor-col-resize hover:bg-cyan-500/40 rounded-full self-stretch transition-colors"
-          />
-          <aside
-            style={{ width: aiDrawerW }}
-            className="shrink-0 flex flex-col h-full bg-slate-900/95 dark:bg-[#08101a]/95 backdrop-blur-xl border border-slate-700/80 dark:border-cyan-500/30 rounded-2xl p-3 shadow-2xl shadow-cyan-950/20 overflow-hidden"
-          >
-            <AiAssistant
-              onClose={() => setAiDrawerOpen(false)}
-              onGoBuilder={() => setView('builder')}
-            />
-          </aside>
-        </>
-      )}
+          {/* Right Column: AI Assistant Drawer (Postbot-style, level with Request workspace) */}
+          {aiDrawerOpen && (
+            <>
+              <div
+                onMouseDown={() => {
+                  aiResizing.current = true;
+                  document.body.style.cursor = 'col-resize';
+                }}
+                title="Kéo để chỉnh độ rộng Trợ lý AI"
+                className="hidden md:block w-1.5 shrink-0 cursor-col-resize hover:bg-cyan-500/40 rounded-full self-stretch transition-colors"
+              />
+              <aside
+                style={{ width: aiDrawerW }}
+                className="shrink-0 flex flex-col h-full bg-slate-900/95 dark:bg-[#08101a]/95 backdrop-blur-xl border border-slate-700/80 dark:border-cyan-500/30 rounded-2xl p-3 shadow-2xl shadow-cyan-950/20 overflow-hidden"
+              >
+                <AiAssistant
+                  onClose={() => setAiDrawerOpen(false)}
+                  onGoBuilder={() => setView('builder')}
+                />
+              </aside>
+            </>
+          )}
+        </div>
+      </div>
 
       {/* Bảng key test mở từ trợ lý AI (hoặc sinh lại tay trong bảng) */}
       <TestCaseDialog />
