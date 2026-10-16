@@ -121,6 +121,16 @@ export async function generateAiTests(
     };
   }
 
+  const enabledHeaders = (req.headers ?? []).filter((h) => h.enabled && h.key.trim());
+  const headerLines = enabledHeaders.map((h) => `${h.key}: ${h.value}`).join('\n');
+
+  let reqBodySummary = '';
+  if (req.bodyType === 'graphql' && req.graphql) {
+    reqBodySummary = `Query: ${req.graphql.query || ''}\nVariables: ${req.graphql.variables || ''}`;
+  } else if (req.bodyType !== 'none' && req.body) {
+    reqBodySummary = req.body.slice(0, 3000);
+  }
+
   const prompt = `Bạn là chuyên gia QA Automation API cho app ReqX (tương thích Postman Sandbox).
 Dựa vào Request và Response thực tế dưới đây, hãy viết một bộ test script assertions hoàn chỉnh bằng JavaScript:
 
@@ -128,18 +138,27 @@ Dựa vào Request và Response thực tế dưới đây, hãy viết một b�
 Name: ${req.name}
 Method: ${req.method}
 URL: ${req.url}
+Headers:
+${headerLines || '(không có header tùy chỉnh)'}
+Body Type: ${req.bodyType}
+Body:
+${reqBodySummary || '(không có body)'}
 
 [RESPONSE]
 Status: ${res.status} ${res.statusText}
 Response Time: ${res.timeMs}ms
 Headers: ${JSON.stringify(res.headers)}
 Body (mẫu):
-${res.body.slice(0, 3000)}
+${res.body.slice(0, 4000)}
 
 [YÊU CẦU BẮT BUỘC]:
-1. Sử dụng cú pháp pm.test("mô tả", function() { pm.expect(...); }) chuẩn Postman/ReqX.
-2. Kiểm tra status code, response time, header và chi tiết các trường quan trọng trong body JSON.
-3. CHỈ TRẢ VỀ DUY NHẤT MÃ JAVASCRIPT nằm trong cặp ba dấu \`\`\`javascript ... \`\`\`. KHÔNG viết thêm bất kỳ lời chào hay giải thích nào bên ngoài mã.`;
+1. Sử dụng cú pháp pm.test("mô tả", function() { pm.expect(...); }) chuẩn Postman/ReqX Sandbox.
+2. Kiểm tra status code, response time hợp lý, Content-Type header và cấu trúc JSON body.
+3. QUAN TRỌNG VỀ ĐỐI CHIẾU DỮ LIỆU VÀ GIÁ TRỊ ĐỘNG:
+   - Nếu Request có gửi dữ liệu (ví dụ POST/PUT/PATCH với body JSON/Form), hãy assert xem Response có phản ánh chính xác các trường dữ liệu tĩnh đó không (ví dụ: title, email, name, role...).
+   - TUYỆT ĐỐI KHÔNG assert cứng (hardcode) các giá trị động được sinh ra phía server như: ID, UUID, timestamp, createdAt, updatedAt, token, jwt, hash, session_id. Đối với các trường này, chỉ kiểm tra sự tồn tại (to.exist / to.not.be.undefined), kiểu dữ liệu (to.be.a('string') / to.be.a('number')), hoặc regex định dạng (ví dụ regex UUID, regex ISO 8601 date).
+   - Kiểm tra mảng/danh sách: kiểm tra là mảng (to.be.an('array')), độ dài tối thiểu, và kiểm tra schema của phần tử đầu tiên thay vì hardcode giá trị cụ thể của từng phần tử.
+4. CHỈ TRẢ VỀ DUY NHẤT MÃ JAVASCRIPT nằm trong cặp ba dấu \`\`\`javascript ... \`\`\`. KHÔNG viết thêm bất kỳ lời chào hay giải thích nào bên ngoài mã.`;
 
   for (const entry of chain) {
     const def = providerDef(entry.providerId);
@@ -162,7 +181,7 @@ ${res.body.slice(0, 3000)}
       } else {
         const apiKey = entry.key.trim();
         const model = entry.model.trim() || def.defaultModel;
-        const baseURL = buildBaseURL(def, entry.accountId);
+        const baseURL = buildBaseURL(def, entry.accountId, entry.customBaseURL);
         const result = await openaiChat({
           baseURL,
           key: apiKey,

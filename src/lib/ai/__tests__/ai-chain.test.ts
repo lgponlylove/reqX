@@ -8,8 +8,19 @@ const entry = (over: Partial<AiChainEntry> = {}): AiChainEntry => ({
 });
 
 describe('ai-providers', () => {
-  it('đủ 6 provider: gemini/groq/mistral/openrouter/cloudflare/sambanova', () => {
-    expect(AI_PROVIDERS.map((p) => p.id).sort()).toEqual(['cloudflare', 'gemini', 'groq', 'mistral', 'openrouter', 'sambanova']);
+  it('đủ 7 provider: gemini/groq/mistral/openrouter/cloudflare/sambanova/ollama', () => {
+    expect(AI_PROVIDERS.map((p) => p.id).sort()).toEqual(['cloudflare', 'gemini', 'groq', 'mistral', 'ollama', 'openrouter', 'sambanova']);
+  });
+
+  it('ollama không cần key vẫn được orderChain đưa vào nếu enabled', () => {
+    const chain = [entry({ id: 'ol', providerId: 'ollama', model: 'llama3.2', key: '' })];
+    expect(orderChain(chain, 0, 'save-cost').map((e) => e.id)).toEqual(['ol']);
+  });
+
+  it('buildBaseURL ưu tiên customBaseURL nếu có', () => {
+    const ol = providerDef('ollama')!;
+    expect(buildBaseURL(ol)).toBe('http://localhost:11434/v1');
+    expect(buildBaseURL(ol, undefined, 'http://192.168.1.100:11434/v1')).toBe('http://192.168.1.100:11434/v1');
   });
 
   it('cloudflare cần accountId, thiếu thì base rỗng', () => {

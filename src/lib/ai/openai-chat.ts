@@ -108,7 +108,7 @@ export async function openaiChat(o: OpenAIChatOpts): Promise<{ parts: GeminiPart
   try {
     const r = await aiFetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${o.key}`, ...(o.extraHeaders ?? {}) },
+      headers: { 'Content-Type': 'application/json', ...(o.key ? { Authorization: `Bearer ${o.key}` } : {}), ...(o.extraHeaders ?? {}) },
       body: JSON.stringify({
         model: o.model,
         messages: [{ role: 'system', content: o.system }, ...toOpenAIMessages(o.contents)],
@@ -165,7 +165,7 @@ interface OpenAIModelsResp {
   error?: { message?: string } | string;
 }
 
-export async function fetchProviderModels(def: AiProviderDef, key: string, accountId?: string): Promise<string[]> {
+export async function fetchProviderModels(def: AiProviderDef, key: string, accountId?: string, customBaseURL?: string): Promise<string[]> {
   const parse = (text: string) => {
     try {
       return JSON.parse(text) as unknown;
@@ -187,11 +187,42 @@ export async function fetchProviderModels(def: AiProviderDef, key: string, accou
   }
   if (def.id === 'cloudflare')
     throw new Error('Cloudflare Workers AI không có API liệt kê model — dùng danh sách gợi ý sẵn.');
-  const base = buildBaseURL(def, accountId);
-  if (!base) throw new Error(`${def.name}: thiếu Account ID.`);
+  const base = buildBaseURL(def, accountId, customBaseURL);
+  if (!base) throw new Error(`${def.name}: thiếu Account ID hoặc Base URL.`);
+
+  const headers: Record<string, string> = {};
+  if (key && key.trim()) {
+    headers.Authorization = `Bearer ${key.trim()}`;
+  }
+
+  if (def.id === 'ollama') {
+    try {
+      const r = await aiFetch(`${base.replace(/\/$/, '')}/models`, { method: 'GET', headers, timeoutMs: ctrlMs });
+      if (r.ok) {
+        const data = parse(r.text) as OpenAIModelsResp | null;
+        const models = (data?.data ?? []).map((m) => m.id ?? '').filter(Boolean).sort();
+        if (models.length > 0) return models;
+      }
+    } catch {
+      // Fallback sang endpoint native bên dưới
+    }
+    const nativeBase = base.replace(/\/v1\/?$/, '');
+    try {
+      const r = await aiFetch(`${nativeBase}/api/tags`, { method: 'GET', headers, timeoutMs: ctrlMs });
+      if (r.ok) {
+        const data = parse(r.text) as { models?: { name?: string }[] } | null;
+        const models = (data?.models ?? []).map((m) => m.name ?? '').filter(Boolean).sort();
+        if (models.length > 0) return models;
+      }
+    } catch (e) {
+      throw new Error(`Không kết nối được Ollama tại ${base}. Đảm bảo Ollama đang chạy (ollama serve). Lỗi: ${e instanceof Error ? e.message : String(e)}`);
+    }
+    return def.models;
+  }
+
   const r = await aiFetch(`${base.replace(/\/$/, '')}/models`, {
     method: 'GET',
-    headers: { Authorization: `Bearer ${key}` },
+    headers,
     timeoutMs: ctrlMs,
   });
   const data = parse(r.text) as OpenAIModelsResp | null;

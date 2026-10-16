@@ -31,6 +31,8 @@ export interface AiProviderDef {
   baseURL: string;
   needsAccountId?: boolean;
   accountLabel?: string;
+  /** Cho phép chạy không cần API Key (ví dụ: Ollama chạy localhost) */
+  noKeyRequired?: boolean;
   keyLabel: string;
   keyPlaceholder: string;
   models: string[];
@@ -56,6 +58,19 @@ export const AI_PROVIDERS: AiProviderDef[] = [
     defaultModel: 'gemini-flash-lite-latest',
     tier: 'free',
     notes: 'Gói free rộng rãi, hợp làm mặc định.',
+  },
+  {
+    id: 'ollama',
+    name: 'Ollama / Local LLM',
+    style: 'openai-compatible',
+    baseURL: 'http://localhost:11434/v1',
+    noKeyRequired: true,
+    keyLabel: 'API Key (Tùy chọn cho Local)',
+    keyPlaceholder: 'ollama (hoặc bỏ trống)',
+    models: ['llama3.2', 'qwen2.5-coder', 'mistral', 'deepseek-r1', 'codellama'],
+    defaultModel: 'llama3.2',
+    tier: 'paid', // Local không bị rate limit từ cloud, coi như unlimited/paid
+    notes: 'Chạy 100% offline trên máy cá nhân hoặc server nội bộ. Hoàn toàn riêng tư, không gửi dữ liệu ra ngoài.',
   },
   {
     id: 'groq',
@@ -126,8 +141,11 @@ export function providerDef(id: string): AiProviderDef | undefined {
   return AI_PROVIDERS.find((p) => p.id === id);
 }
 
-/** Thay {accountId} trong baseURL (Cloudflare). Thiếu accountId → trả '' để UI báo lỗi rõ. */
-export function buildBaseURL(def: AiProviderDef, accountId?: string): string {
+/** Thay {accountId} trong baseURL hoặc dùng customBaseURL nếu được cung cấp. */
+export function buildBaseURL(def: AiProviderDef, accountId?: string, customBaseURL?: string): string {
+  if (customBaseURL && customBaseURL.trim()) {
+    return customBaseURL.trim();
+  }
   if (!def.baseURL.includes('{accountId}')) return def.baseURL;
   const id = (accountId ?? '').trim();
   if (!id) return '';
@@ -145,6 +163,7 @@ export interface AiChainEntry {
   model: string;
   key: string;
   accountId?: string;
+  customBaseURL?: string;
   enabled: boolean;
   /** Ghi đè bậc của hãng (để trống = theo hãng). Thêm nấc trả phí thì đặt 'paid' ở đây. */
   tier?: AiTier;
@@ -171,12 +190,17 @@ function rotate<T>(arr: T[], start: number): T[] {
 }
 
 /**
- * Thứ tự thử trong 1 lượt chat: chỉ entry enabled + có key/model.
+ * Thứ tự thử trong 1 lượt chat: chỉ entry enabled + có model và key (trừ provider không yêu cầu key như Ollama).
  * - save-cost: free trước (xoay vòng), tràn mới sang paid — rẻ.
  * - stable: paid trước, free dự phòng — ổn định.
  */
 export function orderChain(chain: AiChainEntry[], rrIndex: number, strategy: AiStrategy): AiChainEntry[] {
-  const on = chain.filter((e) => e.enabled && e.key.trim() && e.model.trim());
+  const on = chain.filter((e) => {
+    if (!e.enabled || !e.model.trim()) return false;
+    const def = providerDef(e.providerId);
+    if (def?.noKeyRequired) return true;
+    return Boolean(e.key.trim());
+  });
   if (on.length === 0) return [];
   const defOf = (e: AiChainEntry) => providerDef(e.providerId);
   const free = rotate(on.filter((e) => entryTier(e, defOf(e)) === 'free'), rrIndex);

@@ -24,7 +24,7 @@ import { useTestCaseStore } from '../stores/testcases';
 import { useScheduleStore } from '../stores/schedule';
 import { engineRunning } from '../lib/scheduleEngine';
 import { getDocTopic, listDocTopics, searchDocs } from '../lib/docs/app-guide';
-import type { ApiRequest, HttpMethod } from '../types/api';
+import type { ApiRequest, ApiResponse, HttpMethod } from '../types/api';
 
 /** Mục lục mẫu script — nhét vào prompt để model biết đường gọi get_script_snippet, không phải copy cả code. */
 const SNIPPET_INDEX = SCRIPT_SNIPPETS.map(
@@ -48,6 +48,7 @@ Bạn có tools để xem và điều khiển app. Quy tắc:
 - Trước khi tự viết script lấy token / ký chữ ký / kiểm field: gọi get_script_snippet để lấy nguyên văn MẪU ĐÃ CHẠY THẬT rồi chỉ sửa các chỗ đánh "// SỬA". Chỉ tự viết khi không mẫu nào phù hợp.
 - SAU KHI ghi script, kết quả tool sẽ có field "tu_kiem_chung": với update_request / update_current_request / create_request thì app ĐÃ tự gửi thử 1 lần để kiểm chứng; với set_scope_scripts thì field này chỉ báo "skipped" ⇒ phải tự gọi send_request trên 1 request AN TOÀN (không phải request ghi/xóa) trong phạm vi. Nếu "tu_kiem_chung.scriptError" có nội dung ⇒ BẮT BUỘC sửa script bằng chính tool đó rồi gọi lại, làm tối đa 3 vòng cho tới khi sạch lỗi; vẫn lỗi thì báo rõ nguyên nhân + cách người dùng sửa. CẤM nói "đã xong/đã chèn script" khi "tu_kiem_chung" đang báo lỗi.
 - Muốn đọc body response của step: gọi get_step_body (có phân trang offset/limit, đừng đoán nội dung body).
+- Khi người dùng hỏi "tại sao request fail / lỗi", "giải thích kết quả/response vừa nhận", "tại sao API trả về...", hoặc cần viết test/assertion dựa trên response thực tế: BẮT BUỘC gọi get_last_response để đọc status, headers và body response (đừng đoán). Nếu body quá dài thì đọc tiếp bằng offset/limit.
 - Khi người dùng bảo "lên key test / lập bộ test / test API này tự động": gọi generate_test_cases (request_ref để trống = request đang mở) → bảng duyệt sẽ mở. KHÔNG tự bịa bộ case trong tin nhắn. Muốn đổi mong đợi theo nghiệp vụ (VD "thiếu invoiceno phải 400") thì gọi refine_test_case. Sau đó run_test_cases rồi export_test_cases để ra file Excel; tóm tắt bao nhiêu case ✅/❌ và case nào ❌ đáng chú ý.
 
 ${PM_SANDBOX_DOC}
@@ -64,6 +65,7 @@ const TOOLS: GeminiFunctionDecl[] = [
   { name: 'list_flows', description: 'Liệt kê flows (id, tên, số step).', parameters: { type: 'OBJECT', properties: {} } },
   { name: 'run_flow', description: 'Chạy 1 flow (nối nhiều request), kết quả tự lưu vào lịch sử chạy của flow. Muốn đọc body response từng step thì gọi tiếp get_step_body.', parameters: { type: 'OBJECT', properties: { flow_ref: { type: 'STRING', description: 'id hoặc tên flow' } }, required: ['flow_ref'] } },
   { name: 'get_step_body', description: 'Đọc response body của 1 step trong lần chạy flow gần nhất (kể cả lần chạy từ tab Flow). Body dài thì đọc từng đoạn bằng offset/limit.', parameters: { type: 'OBJECT', properties: { flow_ref: { type: 'STRING', description: 'id hoặc tên flow' }, step: { type: 'STRING', description: 'số thứ tự step (0, 1, 2...) hoặc tên step' }, offset: { type: 'NUMBER', description: 'vị trí bắt đầu (mặc định 0)' }, limit: { type: 'NUMBER', description: 'số ký tự tối đa (mặc định 4000, tối đa 20000)' } }, required: ['flow_ref', 'step'] } },
+  { name: 'get_last_response', description: 'Đọc chi tiết kết quả response (status, headers, body, thời gian) của request đang mở trong Builder hoặc từ lịch sử gửi gần đây. Dùng khi người dùng hỏi "tại sao request này fail?", "giải thích response vừa nhận", "viết test dựa trên response vừa chạy", v.v. Hỗ trợ phân trang offset/limit cho body dài.', parameters: { type: 'OBJECT', properties: { request_ref: { type: 'STRING', description: 'id, tên hoặc url của request cần xem response. Để trống = lấy response của tab hiện tại hoặc lần gửi gần nhất.' }, offset: { type: 'NUMBER', description: 'Vị trí bắt đầu cắt body (mặc định 0).' }, limit: { type: 'NUMBER', description: 'Số ký tự tối đa của body (mặc định 4000, tối đa 20000).' } } } },
   { name: 'list_envs', description: 'Liệt kê environments (id, tên, env đang active, biến thường + TÊN biến secret trong secretVars/globalSecrets — chỉ tên, không có giá trị).', parameters: { type: 'OBJECT', properties: {} } },
   { name: 'set_active_env', description: 'Đổi environment đang dùng.', parameters: { type: 'OBJECT', properties: { env_ref: { type: 'STRING', description: 'id hoặc tên env' } }, required: ['env_ref'] } },
   { name: 'set_variable', description: 'Gán biến (env = env đang active, global = dùng chung).', parameters: { type: 'OBJECT', properties: { scope: { type: 'STRING', enum: ['env', 'global'] }, key: { type: 'STRING' }, value: { type: 'STRING' } }, required: ['scope', 'key', 'value'] } },
@@ -291,7 +293,7 @@ export default function AiAssistant({
     const def = providerDef(e.providerId) ?? AI_PROVIDERS[0];
     setLoadingModels(e.id);
     try {
-      const list = await fetchProviderModels(def, e.key, e.accountId);
+      const list = await fetchProviderModels(def, e.key, e.accountId, e.customBaseURL);
       setFetched((f) => ({ ...f, [e.id]: list }));
       push({ role: 'tool', text: `🔧 ${def.name}: lấy được ${list.length} model — bấm vào ô Model để chọn.` });
     } catch (err) {
@@ -476,6 +478,104 @@ export default function AiAssistant({
         const limit = Math.min(20000, Math.max(1, Math.floor(Number(args.limit) || 4000)));
         const text = stored.body.slice(offset, offset + limit);
         return { ok: true, step: st.name, status: st.status, contentType: stored.contentType, totalChars: total, offset, text, truncated: offset + limit < total };
+      }
+      case 'get_last_response': {
+        const ref = str(args.request_ref).trim();
+        const offset = Math.max(0, Math.floor(Number(args.offset) || 0));
+        const limit = Math.min(20000, Math.max(1, Math.floor(Number(args.limit) || 4000)));
+
+        const { tabs, activeId } = useRequestStore.getState();
+        const currentTab = tabs.find((t) => t.id === activeId);
+
+        let targetReq: ApiRequest | null = null;
+        let targetResp: ApiResponse | null = null;
+        let source = '';
+
+        if (!ref) {
+          if (app.response) {
+            targetReq = currentTab ? currentTab.request : null;
+            targetResp = app.response;
+            source = 'tab hiện tại';
+          } else if (app.history.length > 0) {
+            targetReq = app.history[0].request;
+            targetResp = app.history[0].response ?? null;
+            source = 'lần gửi gần nhất trong lịch sử';
+          }
+        } else {
+          const lower = ref.toLowerCase();
+          if (currentTab && (currentTab.request.id === ref || currentTab.request.name.toLowerCase().includes(lower) || currentTab.request.url.toLowerCase().includes(lower))) {
+            targetReq = currentTab.request;
+            targetResp = app.response;
+            source = 'tab hiện tại';
+          }
+          if (!targetResp && app.history.length > 0) {
+            const histItem = app.history.find((h) =>
+              h.request.id === ref ||
+              h.request.name.toLowerCase().includes(lower) ||
+              h.request.url.toLowerCase().includes(lower)
+            );
+            if (histItem) {
+              targetReq = histItem.request;
+              targetResp = histItem.response ?? null;
+              source = `lịch sử (${new Date(histItem.createdAt).toLocaleString('vi-VN')})`;
+            }
+          }
+          if (!targetReq) {
+            targetReq = matchByRef(Object.values(app.requests), ref, (r) => r);
+          }
+        }
+
+        if (!targetResp) {
+          if (app.sendError) {
+            return {
+              ok: false,
+              request: targetReq ? { id: targetReq.id, name: targetReq.name, method: targetReq.method, url: targetReq.url } : null,
+              error: `Request bị lỗi kết nối hoặc timeout: ${app.sendError}`,
+            };
+          }
+          return {
+            ok: false,
+            error: targetReq
+              ? `Request "${targetReq.name}" chưa có kết quả response nào (chưa gửi hoặc đã bị xóa lịch sử). Bạn có thể gọi tool send_request để gửi ngay.`
+              : `Không tìm thấy response nào phù hợp${ref ? ` với "${ref}"` : ''}.`,
+          };
+        }
+
+        if (targetResp.bodyKind === 'binary') {
+          return {
+            ok: true,
+            source,
+            request: targetReq ? { id: targetReq.id, name: targetReq.name, method: targetReq.method, url: targetReq.url } : null,
+            status: targetResp.status,
+            statusText: targetResp.statusText,
+            timeMs: targetResp.timeMs,
+            sizeBytes: targetResp.sizeBytes,
+            headers: targetResp.headers,
+            binary: true,
+            note: 'Body nhị phân (ảnh/tập tin) — xem trực tiếp trong bảng Response.',
+          };
+        }
+
+        const fullBody = targetResp.body ?? '';
+        const totalChars = fullBody.length;
+        const text = fullBody.slice(offset, offset + limit);
+
+        return {
+          ok: true,
+          source,
+          request: targetReq ? { id: targetReq.id, name: targetReq.name, method: targetReq.method, url: targetReq.url } : null,
+          status: targetResp.status,
+          statusText: targetResp.statusText,
+          timeMs: targetResp.timeMs,
+          sizeBytes: targetResp.sizeBytes,
+          headers: targetResp.headers,
+          isStream: targetResp.isStream,
+          totalChars,
+          offset,
+          limit,
+          bodySnippet: text,
+          truncated: offset + limit < totalChars,
+        };
       }
       case 'list_envs': {
         const active = app.environments.find((e) => e.id === app.activeEnvId);
@@ -1214,7 +1314,7 @@ export default function AiAssistant({
     const live = useAppStore.getState();
     if (orderChain(live.aiChain, live.aiRrIndex, live.aiStrategy).length === 0) {
       setShowKeys(true);
-      push({ role: 'model', text: '⚠ Chưa có provider nào dùng được — thêm key ở khung 🔑 (Gemini / Groq / Mistral / OpenRouter / Cloudflare) rồi chat.' });
+      push({ role: 'model', text: '⚠ Chưa có provider nào dùng được — cấu hình ở khung 🔑 (Gemini / Groq / Mistral / OpenRouter / Cloudflare / Ollama Local) rồi chat.' });
       return;
     }
     setInput('');
@@ -1241,8 +1341,8 @@ export default function AiAssistant({
         const r = await generateContent(entry.key, model, SYSTEM, contentsRef.current, TOOLS);
         return { parts: r.parts, usage: r.usage, rateLimit: undefined as AiRateLimit | undefined, entry };
       }
-      const base = buildBaseURL(def, entry.accountId);
-      if (!base) throw new Error(`${def.name}: thiếu Account ID.`);
+      const base = buildBaseURL(def, entry.accountId, entry.customBaseURL);
+      if (!base) throw new Error(`${def.name}: thiếu Account ID hoặc Base URL.`);
       const r = await openaiChat({
         baseURL: base, key: entry.key, model,
         system: SYSTEM, contents: contentsRef.current, tools: TOOLS,
@@ -1566,8 +1666,8 @@ export default function AiAssistant({
                         )}
                         <button
                           onClick={() => void loadModels(e)}
-                          disabled={loadingModels === e.id || !e.key.trim()}
-                          title={e.key.trim() ? 'Lấy danh sách model mới nhất của key này' : 'Dán API key trước rồi mới lấy được danh sách'}
+                          disabled={loadingModels === e.id || (!e.key.trim() && !def.noKeyRequired)}
+                          title={e.key.trim() || def.noKeyRequired ? 'Lấy danh sách model mới nhất của provider này' : 'Dán API key trước rồi mới lấy được danh sách'}
                           className="shrink-0 p-1.5 bg-slate-800 hover:bg-slate-700 rounded-lg text-xs text-cyan-300 disabled:opacity-40"
                         >
                           {loadingModels === e.id ? '…' : '↻'}
@@ -1614,6 +1714,22 @@ export default function AiAssistant({
                         value={e.accountId ?? ''}
                         onChange={(ev) => updEntry(e.id, { accountId: ev.target.value })}
                         placeholder="Cloudflare Account ID"
+                        className="w-full bg-slate-950 border border-slate-700/80 rounded-lg px-2.5 py-1.5 text-xs font-mono text-slate-200 outline-none focus:border-cyan-500"
+                      />
+                    </div>
+                  )}
+
+                  {/* Ollama / Local LLM custom Base URL */}
+                  {def.id === 'ollama' && (
+                    <div className="flex flex-col gap-1">
+                      <div className="flex items-center justify-between text-[11px] text-slate-400 font-medium">
+                        <span>Base URL máy chủ (OpenAI-compatible)</span>
+                        <span className="text-[10px] text-slate-500">Mặc định: {def.baseURL}</span>
+                      </div>
+                      <input
+                        value={e.customBaseURL ?? ''}
+                        onChange={(ev) => updEntry(e.id, { customBaseURL: ev.target.value })}
+                        placeholder={def.baseURL}
                         className="w-full bg-slate-950 border border-slate-700/80 rounded-lg px-2.5 py-1.5 text-xs font-mono text-slate-200 outline-none focus:border-cyan-500"
                       />
                     </div>
