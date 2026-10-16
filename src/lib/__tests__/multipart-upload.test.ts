@@ -36,4 +36,25 @@ describe('curl-import & multipart form-data file attachment', () => {
     expect(curl).toContain(`--form 'files=@D:/test/sample.png'`);
     expect(curl).toContain(`--form 'title=Báo cáo'`);
   });
+
+  it('parses POST curl without body and reproduces all headers in toCurl', () => {
+    const rawCurl = `curl -X POST 'https://sso.shome.vn/cobra-permit-access-control-service/api/permit/service/load/menu' \\
+  -H 'Authorization: Bearer e5eeacdc-c088-4052-8095-510f29e1ab14' \\
+  -H 'Content-Type: application/json' \\
+  -H 'Accept: application/json'`;
+
+    const { request: req } = parseCurl(rawCurl);
+    expect(req.method).toBe('POST');
+    expect(req.bodyType).toBe('none');
+    expect(req.headers).toHaveLength(3);
+    expect(req.headers[0].key).toBe('Authorization');
+    expect(req.headers[1].key).toBe('Content-Type');
+    expect(req.headers[2].key).toBe('Accept');
+
+    const generated = toCurl(req, {});
+    expect(generated).toContain("Authorization: Bearer e5eeacdc-c088-4052-8095-510f29e1ab14");
+    expect(generated).toContain("Content-Type: application/json");
+    expect(generated).toContain("Accept: application/json");
+    expect(generated).not.toContain("--form");
+  });
 });

@@ -4,6 +4,7 @@ import { useRequestStore } from '../stores/request';
 import { useAppStore } from '../stores/app';
 import { sendRequest } from '../lib/http-client';
 import { toCurl, toFetch, toPython } from '../lib/codegen';
+import { parseCurl } from '../lib/curl-import';
 import { runPreRequestChain, runTestsChain, type MutableRequest } from '../lib/scripts';
 import { generateCases } from '../lib/test-cases';
 import { docsFileName, renderSingleRequestDocs } from '../lib/api-docs';
@@ -74,6 +75,29 @@ export default function RequestBar() {
   const flash = (msg: string) => {
     setSavedFlash(msg);
     window.setTimeout(() => setSavedFlash(''), 4000);
+  };
+
+  const handleUrlPaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
+    const text = e.clipboardData.getData('text');
+    if (text && /^\s*curl(\.exe)?\s+/i.test(text)) {
+      e.preventDefault();
+      try {
+        const { request: imported } = parseCurl(text);
+        set({
+          name: imported.name || current.name,
+          method: imported.method,
+          url: imported.url,
+          params: imported.params.length > 0 ? imported.params : current.params,
+          headers: imported.headers.length > 0 ? imported.headers : current.headers,
+          bodyType: imported.bodyType,
+          body: imported.body,
+          auth: imported.auth.type !== 'none' ? imported.auth : current.auth,
+        });
+        flash(`✓ Đã tự động nạp cURL (${imported.method} • ${imported.headers.length} headers • body: ${imported.bodyType})`);
+      } catch {
+        set({ url: text });
+      }
+    }
   };
 
   async function copyCurl() {
@@ -297,6 +321,7 @@ export default function RequestBar() {
           <VarHighlightInput
             value={current.url}
             onChange={(v) => set({ url: v })}
+            onPaste={handleUrlPaste}
             placeholder={i18n.request.urlPlaceholder}
             hasVar={hasVar}
           />

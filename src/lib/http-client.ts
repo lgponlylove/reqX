@@ -260,10 +260,12 @@ export async function sendRequest(
           fields.push([k, v]);
         }
       }
-      const fd = new FormData();
-      for (const [k, v] of fields) fd.append(k, v);
-      fetchBody = fd;
-      nativeBody = { kind: 'multipart', parts };
+      if (parts.length > 0) {
+        const fd = new FormData();
+        for (const [k, v] of fields) fd.append(k, v);
+        fetchBody = fd;
+        nativeBody = { kind: 'multipart', parts };
+      }
       // multipart có boundary do transport sinh ra lúc gửi -> không ký payload được
     } else {
       fetchBody = resolved;

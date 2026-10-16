@@ -130,11 +130,15 @@ function toApiRequest(name: string, r: unknown, fallbackAuth: AuthConfig, events
     bodyType = 'json';
     body = raw.body.raw ?? '';
   } else if (raw?.body?.mode === 'formdata' && Array.isArray((raw.body as { formdata?: Array<{ key: string; value?: string }> }).formdata)) {
-    bodyType = 'form-data';
-    body = (raw.body as { formdata: Array<{ key: string; value?: string }> }).formdata
-      .filter((e) => e && typeof e.key === 'string' && e.key !== '')
-      .map((e) => `${e.key}=${e.value ?? ''}`)
-      .join('\n');
+    const valid = (raw.body as { formdata: Array<{ key: string; value?: string }> }).formdata
+      .filter((e) => e && typeof e.key === 'string' && e.key !== '');
+    if (valid.length > 0) {
+      bodyType = 'form-data';
+      body = valid.map((e) => `${e.key}=${e.value ?? ''}`).join('\n');
+    } else {
+      bodyType = 'none';
+      body = '';
+    }
   }
   // Auth: request-level override collection-level
   const auth = raw?.auth ? parsePostmanAuth(raw.auth) : fallbackAuth;

@@ -4,6 +4,7 @@ import { useAppStore } from '../stores/app';
 interface Props {
   value: string;
   onChange: (v: string) => void;
+  onPaste?: (e: React.ClipboardEvent<HTMLInputElement>) => void;
   placeholder?: string;
   /** trả về true nếu tên biến đã có giá trị */
   hasVar: (name: string) => boolean;
@@ -13,7 +14,7 @@ interface Props {
 const VAR_RE = /\{\{\s*([\w.-]+)\s*\}\}|\{([a-zA-Z_]\w*)\}/g;
 
 /** Input 1 dòng highlight {{var}}: có → xanh, thiếu → đỏ gạch chân + tự động gợi ý biến. */
-export default function VarHighlightInput({ value, onChange, placeholder, hasVar }: Props) {
+export default function VarHighlightInput({ value, onChange, onPaste, placeholder, hasVar }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
   const backRef = useRef<HTMLDivElement>(null);
 
@@ -155,6 +156,7 @@ export default function VarHighlightInput({ value, onChange, placeholder, hasVar
           }
         }}
         onScroll={syncScroll}
+        onPaste={onPaste}
         onFocus={(e) => {
           // Bật suggest nếu vừa focus vào vị trí có {{
           const val = e.target.value;

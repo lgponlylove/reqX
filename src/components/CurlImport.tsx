@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useAppStore } from '../stores/app';
+import { useRequestStore } from '../stores/request';
 import { parseCurlCommands } from '../lib/curl-import';
 import { uid } from '../lib/variables';
 import type { ApiRequest, Collection } from '../types/api';
@@ -44,6 +45,9 @@ export default function CurlImport({ onClose }: { onClose: () => void }) {
     };
     importData(col, reqs);
     if (dirId) moveCollection(col.id, dirId);
+    if (reqs.length > 0) {
+      useRequestStore.getState().load(reqs[0]);
+    }
     onClose();
   };
 
