@@ -244,7 +244,13 @@ async function saveCollectionRun(refId: string, refName: string, at: number, col
   );
 }
 
-export default function AiAssistant({ onGoBuilder }: { onGoBuilder: () => void }) {
+export default function AiAssistant({
+  onGoBuilder,
+  onClose,
+}: {
+  onGoBuilder?: () => void;
+  onClose?: () => void;
+}) {
   const { aiChain, setAiChain, bumpAiRr, aiStrategy, setAiStrategy, aiAutoVerify, setAiAutoVerify, aiStats, recordAiUsage, clearAiStats, aiChat, pushAiChat, aiContents, setAiContents, clearAiChat } = useAppStore();
   // Khung chain xếp gọn được — có provider dùng được thì mặc định gọn để chat chiếm hết chỗ
   const [showKeys, setShowKeys] = useState(() => orderChain(useAppStore.getState().aiChain, 0, useAppStore.getState().aiStrategy).length === 0);
@@ -361,7 +367,7 @@ export default function AiAssistant({ onGoBuilder }: { onGoBuilder: () => void }
         const req = matchByRef(Object.values(app.requests), str(args.request_ref), (r) => r);
         if (!req) return { ok: false, error: 'Không tìm thấy request.' };
         useRequestStore.getState().load(req);
-        onGoBuilder();
+        onGoBuilder?.();
         return { ok: true, opened: req.name };
       }
       case 'send_request': {
@@ -1338,6 +1344,25 @@ export default function AiAssistant({ onGoBuilder }: { onGoBuilder: () => void }
 
   return (
     <div className="flex flex-col gap-2 h-full min-h-0">
+      {onClose && (
+        <div className="flex items-center justify-between px-3 py-1.5 border-b border-slate-800 bg-slate-900/60 rounded-t shrink-0">
+          <div className="flex items-center gap-2">
+            <span className="text-cyan-400 font-semibold text-xs flex items-center gap-1.5">
+              <span>✨</span> Trợ lý AI (Postbot)
+            </span>
+          </div>
+          <button
+            onClick={onClose}
+            className="p-1 text-slate-400 hover:text-white rounded hover:bg-slate-800 transition-colors"
+            title="Đóng trợ lý AI"
+          >
+            <svg viewBox="0 0 24 24" className="w-3.5 h-3.5 fill-none stroke-current" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          </button>
+        </div>
+      )}
       <div className="border border-slate-700 rounded">
         <button
           onClick={() => setShowKeys((v) => !v)}

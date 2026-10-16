@@ -6,9 +6,12 @@ import { uid, renameVarInRequest } from '../lib/variables';
 import { stripRequestSecrets } from '../lib/secrets';
 
 export type ReqSubTab = 'params' | 'headers' | 'body' | 'auth' | 'pre' | 'tests';
+export type TabKind = 'request' | 'env';
 
 export interface ReqTab {
   id: string;
+  kind?: TabKind;
+  envId?: string | null;
   request: ApiRequest;
   /** true = đã sửa, chưa lưu vào collection */
   dirty: boolean;
@@ -31,6 +34,8 @@ interface RequestState {
   /** Mở request trong tab (đã mở rồi thì focus lại tab đó, tab trắng tinh thì tái dùng, còn lại mở tab mới) */
   load: (req: ApiRequest) => void;
   openTab: (req?: ApiRequest) => void;
+  /** Mở tab quản lý biến môi trường trong Builder (giống Postman) */
+  openEnvTab: (envId?: string | null) => void;
   closeTab: (id: string) => void;
   setActiveTab: (id: string) => void;
   /** Chọn bảng con cho tab đang mở (không ảnh hưởng các tab khác) */
@@ -58,6 +63,7 @@ export function activeSubTab(s: { tabs: ReqTab[]; activeId: string }): ReqSubTab
 
 /** Tab có phải tab trắng chưa đụng gì không (để tái dùng khi load)? */
 function isPristine(t: ReqTab): boolean {
+  if (t.kind && t.kind !== 'request') return false;
   const r = t.request;
   return (
     !t.dirty &&
@@ -152,6 +158,39 @@ export const useRequestStore = create<RequestState>()(
           };
         }),
 
+      openEnvTab: (envId) =>
+        set((s) => {
+          const existing = s.tabs.find((t) => t.kind === 'env');
+          if (existing) {
+            return {
+              activeId: existing.id,
+              current: existing.request,
+              dirty: existing.dirty,
+            };
+          }
+          const envReq: ApiRequest = {
+            ...DEFAULT_REQUEST,
+            id: 'env_tab',
+            name: 'Biến môi trường',
+            method: 'GET',
+            url: '',
+            updatedAt: Date.now(),
+          };
+          const t: ReqTab = {
+            id: uid('tab_env'),
+            kind: 'env',
+            envId: envId ?? null,
+            request: envReq,
+            dirty: false,
+          };
+          return {
+            tabs: [...s.tabs, t],
+            activeId: t.id,
+            current: envReq,
+            dirty: false,
+          };
+        }),
+
       closeTab: (id) =>
         set((s) => {
           if (s.tabs.length <= 1) {
@@ -183,6 +222,7 @@ export const useRequestStore = create<RequestState>()(
       refreshTabs: (requests) =>
         set((s) => {
           const tabs = s.tabs.map((t) => {
+            if (t.kind === 'env') return t;
             const next = requests[t.request.id];
             return next && !t.dirty ? { ...t, request: { ...next } } : t;
           });
@@ -195,6 +235,7 @@ export const useRequestStore = create<RequestState>()(
       renameVarInTabs: (oldKey, newKey) =>
         set((s) => {
           const tabs = s.tabs.map((t) => {
+            if (t.kind === 'env') return t;
             const next = renameVarInRequest(t.request, oldKey, newKey);
             return next === t.request ? t : { ...t, request: next };
           });

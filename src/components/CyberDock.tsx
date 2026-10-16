@@ -90,9 +90,13 @@ import { useTranslation } from '../stores/language';
 
 export default function CyberDock({
   activeView,
+  aiOpen = false,
+  envActive = false,
   onSelectView,
 }: {
   activeView: string;
+  aiOpen?: boolean;
+  envActive?: boolean;
   onSelectView: (v: ToolView) => void;
 }) {
   const isMockRunning = useMockStore((s) => s.isRunning);
@@ -105,7 +109,7 @@ export default function CyberDock({
         {/* Left Vertical Icon Pill Bar */}
         <div className="rounded-full border border-teal-500/50 bg-slate-950/90 dark:bg-[#08121a]/90 py-2 px-1 flex flex-col items-center gap-2.5 shadow-inner">
           {TOOLS.map((t) => {
-            const isActive = activeView === t.id;
+            const isActive = t.id === 'ai' ? aiOpen : t.id === 'env' ? envActive : activeView === t.id;
             const label = i18n.dock[t.id];
             const desc = i18n.dock[`${t.id}Desc` as keyof typeof i18n.dock] || t.desc;
             return (
@@ -129,7 +133,7 @@ export default function CyberDock({
         {/* Right Label Rows */}
         <div className="flex-1 flex flex-col gap-1 pr-1">
           {TOOLS.map((t) => {
-            const isActive = activeView === t.id;
+            const isActive = t.id === 'ai' ? aiOpen : t.id === 'env' ? envActive : activeView === t.id;
             const isMockActive = t.id === 'mock' && isMockRunning;
             const label = i18n.dock[t.id];
 

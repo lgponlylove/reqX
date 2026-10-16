@@ -44,21 +44,33 @@ export default function TabBar() {
       <div className="flex items-center gap-1.5 overflow-x-auto min-w-0 flex-1 py-0.5">
         {tabs.map((t) => {
           const isActive = t.id === activeId;
+          const isEnv = t.kind === 'env';
           return (
             <div
               key={t.id}
               className={`group shrink-0 flex items-center gap-1.5 px-2.5 py-1 rounded-t-lg text-[11px] whitespace-nowrap transition-all border ${
                 isActive
-                  ? 'bg-slate-900 dark:bg-[#111c26] border-emerald-500/50 border-b-slate-900 dark:border-b-[#111c26] text-slate-100 font-medium shadow-[0_0_12px_rgba(16,185,129,0.15)]'
+                  ? isEnv
+                    ? 'bg-slate-900 dark:bg-[#111c26] border-cyan-500/50 border-b-slate-900 dark:border-b-[#111c26] text-cyan-300 font-medium shadow-[0_0_12px_rgba(6,182,212,0.15)]'
+                    : 'bg-slate-900 dark:bg-[#111c26] border-emerald-500/50 border-b-slate-900 dark:border-b-[#111c26] text-slate-100 font-medium shadow-[0_0_12px_rgba(16,185,129,0.15)]'
                   : 'bg-slate-950/60 dark:bg-[#0b131c]/60 border-slate-700/60 dark:border-slate-800 text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 dark:hover:bg-[#0e1722]'
               }`}
             >
               <button onClick={() => setActiveTab(t.id)} className="flex items-center gap-1.5 min-w-0">
-                <span className={`font-mono text-[10px] font-bold ${METHOD_COLOR[t.request.method]}`}>
-                  {t.request.method}
-                </span>
-                <span className="max-w-44 truncate">{t.request.name}</span>
-                {t.dirty && <span className="text-amber-400 font-bold" title={i18n.tabs.unsaved}>•</span>}
+                {isEnv ? (
+                  <span className="flex items-center gap-1 text-cyan-400 font-bold">
+                    <span>🌐</span>
+                    <span className="max-w-44 truncate">{t.request.name || 'Biến môi trường'}</span>
+                  </span>
+                ) : (
+                  <>
+                    <span className={`font-mono text-[10px] font-bold ${METHOD_COLOR[t.request.method]}`}>
+                      {t.request.method}
+                    </span>
+                    <span className="max-w-44 truncate">{t.request.name}</span>
+                    {t.dirty && <span className="text-amber-400 font-bold" title={i18n.tabs.unsaved}>•</span>}
+                  </>
+                )}
               </button>
               <button
                 onClick={() => doClose(t.id)}
