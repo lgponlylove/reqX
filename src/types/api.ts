@@ -14,7 +14,7 @@ export interface KeyValue {
   enabled: boolean;
 }
 
-export type BodyType = 'none' | 'json' | 'raw' | 'form-data' | 'urlencoded' | 'binary';
+export type BodyType = 'none' | 'json' | 'raw' | 'form-data' | 'urlencoded' | 'binary' | 'graphql';
 
 export type RawSubtype = 'json' | 'text' | 'javascript' | 'html' | 'xml';
 
@@ -100,6 +100,7 @@ export interface ApiRequest {
   headers: KeyValue[];
   bodyType: BodyType;
   rawType?: RawSubtype;
+  graphql?: { query: string; variables: string };
   body: string;
   auth: AuthConfig;
   /** Script JS chạy trước khi gửi (được phép sửa biến + request) */

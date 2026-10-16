@@ -120,6 +120,7 @@ function toApiRequest(name: string, r: unknown, fallbackAuth: AuthConfig, events
   // urlencoded Postman → body dòng key=value nội bộ; raw → json
   let bodyType: ApiRequest['bodyType'] = 'none';
   let body = '';
+  let graphql: { query: string; variables: string } | undefined;
   if (raw?.body?.mode === 'urlencoded' && Array.isArray(raw.body.urlencoded)) {
     bodyType = 'urlencoded';
     body = raw.body.urlencoded
@@ -139,6 +140,20 @@ function toApiRequest(name: string, r: unknown, fallbackAuth: AuthConfig, events
       bodyType = 'none';
       body = '';
     }
+  } else if (raw?.body?.mode === 'file') {
+    bodyType = 'binary';
+    body = (raw.body as { file?: { src?: string } })?.file?.src ?? '';
+  } else if (raw?.body?.mode === 'graphql') {
+    bodyType = 'graphql';
+    const g = (raw.body as { graphql?: { query?: string; variables?: string } })?.graphql;
+    const q = g?.query ?? '';
+    const v = g?.variables ?? '';
+    graphql = { query: q, variables: v };
+    let parsedVars = {};
+    try {
+      if (v.trim()) parsedVars = JSON.parse(v);
+    } catch {}
+    body = JSON.stringify({ query: q, variables: parsedVars }, null, 2);
   }
   // Auth: request-level override collection-level
   const auth = raw?.auth ? parsePostmanAuth(raw.auth) : fallbackAuth;
@@ -152,6 +167,7 @@ function toApiRequest(name: string, r: unknown, fallbackAuth: AuthConfig, events
     headers: (raw?.header ?? []).map((h) => ({ id: uid('kv'), key: h.key ?? '', value: h.value ?? '', enabled: !h.disabled })),
     bodyType,
     body,
+    graphql,
     auth,
     preRequest: ev.preRequest,
     tests: ev.tests,
@@ -239,6 +255,35 @@ function fromApiRequest(r?: ApiRequest) {
   // Dữ liệu cũ (persist bản đầu) có thể thiếu field → guard để export không chết im
   const headers = Array.isArray(r.headers) ? r.headers : [];
   const events = toPmEvents(r.preRequest, r.tests);
+  let bodyObj: unknown = undefined;
+  if (r.bodyType === 'graphql') {
+    bodyObj = {
+      mode: 'graphql',
+      graphql: {
+        query: r.graphql?.query ?? '',
+        variables: r.graphql?.variables ?? '',
+      },
+    };
+  } else if (r.bodyType === 'binary') {
+    bodyObj = {
+      mode: 'file',
+      file: {
+        src: r.body ?? '',
+      },
+    };
+  } else if (r.bodyType === 'urlencoded') {
+    bodyObj = {
+      mode: 'urlencoded',
+      urlencoded: (r.body ?? '').split('\n').filter(Boolean).map((line) => {
+        const idx = line.indexOf('=');
+        return idx >= 0
+          ? { key: line.slice(0, idx), value: line.slice(idx + 1) }
+          : { key: line, value: '' };
+      }),
+    };
+  } else if (r.bodyType !== 'none' && r.bodyType) {
+    bodyObj = { mode: 'raw', raw: r.body ?? '' };
+  }
   return {
     name: r.name ?? 'Request',
     ...(events.length ? { event: events } : {}),
@@ -246,7 +291,7 @@ function fromApiRequest(r?: ApiRequest) {
       method: r.method ?? 'GET',
       url: r.url ?? '',
       header: headers.filter((h) => h && h.enabled).map((h) => ({ key: h.key ?? '', value: h.value ?? '' })),
-      body: r.bodyType === 'none' || !r.bodyType ? undefined : { mode: 'raw', raw: r.body ?? '' },
+      body: bodyObj,
       description: r.description ?? '',
     },
   };

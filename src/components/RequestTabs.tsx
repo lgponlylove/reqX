@@ -13,12 +13,14 @@ import AiScriptButton from './AiScriptButton';
 import { inheritedScriptCount } from '../lib/script-chain';
 import { useTranslation } from '../stores/language';
 import FormKeyEditor from './FormKeyEditor';
+import GraphQLEditor from './GraphQLEditor';
+import { parseGraphQLBody, buildGraphQLBody } from '../lib/graphql-utils';
 import { uid } from '../lib/variables';
 import type { BodyType, AuthType, RawSubtype } from '../types/api';
 
 const TABS: ReqSubTab[] = ['params', 'headers', 'body', 'pre', 'tests', 'auth'];
 
-type PostmanBodyMode = 'none' | 'form-data' | 'urlencoded' | 'raw' | 'binary';
+type PostmanBodyMode = 'none' | 'form-data' | 'urlencoded' | 'raw' | 'binary' | 'graphql';
 
 const POSTMAN_BODY_MODES: { id: PostmanBodyMode; label: string }[] = [
   { id: 'none', label: 'none' },
@@ -26,6 +28,7 @@ const POSTMAN_BODY_MODES: { id: PostmanBodyMode; label: string }[] = [
   { id: 'urlencoded', label: 'x-www-form-urlencoded' },
   { id: 'raw', label: 'raw' },
   { id: 'binary', label: 'binary' },
+  { id: 'graphql', label: 'GraphQL' },
 ];
 
 const RAW_SUBTYPES: { id: RawSubtype; label: string; contentType: string }[] = [
@@ -119,6 +122,35 @@ export default function RequestTabs() {
       syncRawContentType(rawSubtype);
     } else if (mode === 'binary') {
       set({ bodyType: 'binary' });
+      const hasCt = (current.headers ?? []).some((h) => h.key.toLowerCase() === 'content-type');
+      if (!hasCt) {
+        set({
+          headers: [
+            ...(current.headers ?? []),
+            { id: uid('kv'), key: 'Content-Type', value: 'application/octet-stream', enabled: true },
+          ],
+        });
+      }
+    } else if (mode === 'graphql') {
+      const q = current.graphql?.query ?? parseGraphQLBody(current.body).query;
+      const v = current.graphql?.variables ?? parseGraphQLBody(current.body).variables;
+      const nextBody = buildGraphQLBody(q, v);
+      const updates: Partial<typeof current> = {
+        bodyType: 'graphql',
+        graphql: { query: q, variables: v },
+        body: nextBody,
+      };
+      if (current.method === 'GET') {
+        updates.method = 'POST';
+      }
+      const hasCt = (current.headers ?? []).some((h) => h.key.toLowerCase() === 'content-type');
+      if (!hasCt) {
+        updates.headers = [
+          ...(current.headers ?? []),
+          { id: uid('kv'), key: 'Content-Type', value: 'application/json', enabled: true },
+        ];
+      }
+      set(updates);
     }
   }
 
@@ -281,7 +313,7 @@ export default function RequestTabs() {
               </div>
               <p className="text-xs font-semibold text-slate-400">Request này không gửi kèm Body</p>
               <p className="text-[11px] text-slate-500 mt-1">
-                Chọn <span className="text-emerald-400">raw</span>, <span className="text-emerald-400">form-data</span> hoặc <span className="text-emerald-400">x-www-form-urlencoded</span> ở trên nếu API yêu cầu truyền dữ liệu
+                Chọn <span className="text-emerald-400">raw</span>, <span className="text-emerald-400">form-data</span>, <span className="text-emerald-400">x-www-form-urlencoded</span>, <span className="text-emerald-400">binary</span> hoặc <span className="text-emerald-400">GraphQL</span> ở trên nếu API yêu cầu truyền dữ liệu
               </p>
             </div>
           ) : activeBodyMode === 'form-data' ? (
@@ -299,6 +331,18 @@ export default function RequestTabs() {
             <BinaryBodyEditor
               value={current.body}
               onChange={(v) => set({ body: v })}
+            />
+          ) : activeBodyMode === 'graphql' ? (
+            <GraphQLEditor
+              query={current.graphql?.query ?? parseGraphQLBody(current.body).query}
+              variables={current.graphql?.variables ?? parseGraphQLBody(current.body).variables}
+              onChange={(query, variables) => {
+                const serialized = buildGraphQLBody(query, variables);
+                set({
+                  graphql: { query, variables },
+                  body: serialized,
+                });
+              }}
             />
           ) : (
             // raw mode
@@ -446,7 +490,7 @@ export default function RequestTabs() {
 }
 
 /** Căn lề JSON (2 spaces). {{biến}} được che lại khi parse rồi trả về đúng chỗ cũ. */
-function formatJsonBody(body: string, defaultError: string): { ok: true; value: string } | { ok: false; error: string } {
+export function formatJsonBody(body: string, defaultError: string): { ok: true; value: string } | { ok: false; error: string } {
   const tokens: string[] = [];
   const mask = (m: string) => {
     tokens.push(m);
@@ -465,7 +509,7 @@ function formatJsonBody(body: string, defaultError: string): { ok: true; value: 
   }
 }
 
-function JsonHint({ body, validMsg, invalidMsg }: { body: string; validMsg: string; invalidMsg: string }) {
+export function JsonHint({ body, validMsg, invalidMsg }: { body: string; validMsg: string; invalidMsg: string }) {
   try {
     JSON.parse(body.replace(/\{\{\s*[\w.-]+\s*\}\}/g, '"__var__"'));
     return <p className="text-xs text-emerald-400">{validMsg}</p>;

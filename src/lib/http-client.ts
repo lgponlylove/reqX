@@ -216,7 +216,7 @@ export async function sendRequest(
     const { resolved } = resolveVariables(req.body, envVars, globalVars);
     const hasContentType = Object.keys(headers).some((h) => h.toLowerCase() === 'content-type');
 
-    if (req.bodyType === 'json') {
+    if (req.bodyType === 'json' || req.bodyType === 'graphql') {
       if (!hasContentType) headers['Content-Type'] = 'application/json';
       fetchBody = resolved;
       nativeBody = { kind: 'text', content_type: null, text: resolved };

@@ -627,7 +627,7 @@ export function buildReqxFlowExport(
 }
 
 const HTTP_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'];
-const BODY_TYPES: BodyType[] = ['none', 'json', 'raw', 'form-data', 'urlencoded'];
+const BODY_TYPES: BodyType[] = ['none', 'json', 'raw', 'form-data', 'urlencoded', 'binary', 'graphql'];
 
 function parseKvList(v: unknown): KeyValue[] {
   if (!Array.isArray(v)) return [];

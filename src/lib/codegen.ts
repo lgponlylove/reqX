@@ -72,11 +72,14 @@ function build(
   let formFields: [string, string][] = [];
   if (hasBody) {
     const resolved = rv(req.body);
-    if (req.bodyType === 'json' || (req.bodyType === 'raw' && (!req.rawType || req.rawType === 'json'))) {
+    if (req.bodyType === 'json' || req.bodyType === 'graphql' || (req.bodyType === 'raw' && (!req.rawType || req.rawType === 'json'))) {
       if (!hasHeader('content-type')) headers.push(['Content-Type', 'application/json']);
       body = resolved || undefined;
     } else if (req.bodyType === 'urlencoded') {
       if (!hasHeader('content-type')) headers.push(['Content-Type', 'application/x-www-form-urlencoded']);
+      body = resolved || undefined;
+    } else if (req.bodyType === 'binary') {
+      if (!hasHeader('content-type')) headers.push(['Content-Type', 'application/octet-stream']);
       body = resolved || undefined;
     } else if (req.bodyType === 'form-data') {
       isFormData = true;
@@ -109,6 +112,12 @@ export function toCurl(
 
   if (isFormData) {
     for (const [k, v] of formFields) lines.push(`--form ${sq(`${k}=${v}`)}`);
+  } else if (req.bodyType === 'binary' && body !== undefined) {
+    if (body.startsWith('@')) {
+      lines.push(`--data-binary ${sq(body)}`);
+    } else {
+      lines.push(`--data-binary ${sq(`@${body}`)}`);
+    }
   } else if (body !== undefined) {
     lines.push(`--data-raw ${sq(body)}`);
   }

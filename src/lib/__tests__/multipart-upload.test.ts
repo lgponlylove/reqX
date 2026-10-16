@@ -95,5 +95,48 @@ describe('curl-import & multipart form-data file attachment', () => {
     expect(textCurl).toContain("Content-Type: text/plain");
     expect(textCurl).toContain("--data-raw 'Hello Plain Text'");
   });
+
+  it('generates curl for GraphQL request with application/json', () => {
+    const gqlReq: ApiRequest = {
+      id: 'r_gql',
+      name: 'GraphQL Query',
+      method: 'POST',
+      url: 'https://api.example.com/graphql',
+      params: [],
+      headers: [],
+      bodyType: 'graphql',
+      graphql: {
+        query: 'query { user { id name } }',
+        variables: '{"id": "1"}',
+      },
+      body: JSON.stringify({ query: 'query { user { id name } }', variables: { id: '1' } }),
+      auth: { type: 'none' },
+      collectionId: '',
+      updatedAt: 1,
+    };
+    const gqlCurl = toCurl(gqlReq, {});
+    expect(gqlCurl).toContain("Content-Type: application/json");
+    expect(gqlCurl).toContain("--data-raw '{\"query\":\"query { user { id name } }\",\"variables\":{\"id\":\"1\"}}'");
+  });
+
+  it('generates curl for binary request with --data-binary', () => {
+    const binReq: ApiRequest = {
+      id: 'r_bin',
+      name: 'Binary Upload',
+      method: 'POST',
+      url: 'https://api.example.com/upload-bin',
+      params: [],
+      headers: [],
+      bodyType: 'binary',
+      body: 'D:/test/data.bin',
+      auth: { type: 'none' },
+      collectionId: '',
+      updatedAt: 1,
+    };
+    const binCurl = toCurl(binReq, {});
+    expect(binCurl).toContain("Content-Type: application/octet-stream");
+    expect(binCurl).toContain("--data-binary '@D:/test/data.bin'");
+  });
 });
+
 
