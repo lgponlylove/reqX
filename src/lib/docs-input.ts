@@ -14,6 +14,7 @@ export interface DocsExtras {
   samples: DocsSample[];
   flows: DocsFlow[];
   testRun?: DocsTestRun;
+  includeProvenance?: boolean;
 }
 
 export function collectDocsExtras(): DocsExtras {
@@ -43,5 +44,6 @@ export function collectDocsExtras(): DocsExtras {
       steps: f.steps.map((s) => ({ requestId: s.requestId, extract: s.extract.map((e) => ({ name: e.name })) })),
     })),
     testRun,
+    includeProvenance: false,
   };
 }

@@ -124,9 +124,19 @@ function parseMarkdown(md: string, lang: DocsLang, used: Set<string>, headings: 
   const lines = (md ?? '').replace(/\r\n/g, '\n').split('\n');
   let i = 0;
   let skipTocList = false;
+  let skipProvenance = false;
 
   while (i < lines.length) {
     const line = lines[i];
+
+    if (skipProvenance) {
+      if (/^#{1,4}\s+/.test(line)) {
+        skipProvenance = false;
+      } else {
+        i++;
+        continue;
+      }
+    }
 
     const fence = /^\s*(`{3,})([a-zA-Z0-9_-]*)\s*$/.exec(line);
     if (fence) {
@@ -154,6 +164,21 @@ function parseMarkdown(md: string, lang: DocsLang, used: Set<string>, headings: 
       const level = h[1].length;
       const raw = h[2].trim();
       const text = raw.replace(/`/g, '');
+
+      // Bỏ hoàn toàn phần "Phần nào ReqX lấy từ đâu" / "Where each section comes from" khỏi tài liệu HTML (thừa thãi)
+      const isProvenance = level === 2 && (
+        text === 'Phần nào ReqX lấy từ đâu' ||
+        text === 'Where each section comes from' ||
+        text.toLowerCase().includes('reqx lấy từ đâu') ||
+        text.toLowerCase().includes('lấy từ đâu') ||
+        text.toLowerCase().includes('where each section comes from')
+      );
+      if (isProvenance) {
+        skipProvenance = true;
+        i++;
+        continue;
+      }
+
       const id = slugId(text, used);
       const method = level === 3 ? METHODS.find((m) => text.toUpperCase().startsWith(m)) : undefined;
       headings.push({ level, text, id, method });

@@ -115,4 +115,14 @@ describe('renderDocsHtml — bố cục', () => {
     expect(html).toContain('Chưa có mục nào.');
     expect(html).toContain('<title>ReqX API Docs</title>');
   });
+
+  it('bỏ hoàn toàn phần "Phần nào ReqX lấy từ đâu" khỏi tài liệu HTML (sidebar lẫn nội dung)', () => {
+    const col: Collection = { id: 'c1', name: 'Demo', folders: [], rootRequestIds: ['r1'] };
+    const md = renderCollectionDocs(col, { r1: req() }, { env, now: NOW });
+    expect(md).toContain('## Phần nào ReqX lấy từ đâu');
+    const html = renderDocsHtml(md, { lang: 'vi' });
+    expect(html).not.toContain('Phần nào ReqX lấy từ đâu');
+    expect(html).not.toContain('suy từ cấu hình xác thực');
+    expect(html).not.toContain('Where each section comes from');
+  });
 });

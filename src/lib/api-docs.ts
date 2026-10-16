@@ -51,6 +51,8 @@ export interface DocsInput {
   flows?: DocsFlow[];
   testRun?: DocsTestRun;
   now?: Date;
+  /** Bật/tắt bảng nguồn "Phần nào ReqX lấy từ đâu" (mặc định true trong lib thuần, false khi xuất từ UI) */
+  includeProvenance?: boolean;
 }
 
 interface LabelSet {
@@ -729,7 +731,9 @@ export function renderCollectionDocs(
     );
   }
 
-  out.push(`## ${l.provenance}`, '', provenance(l), '');
+  if (opts.includeProvenance !== false) {
+    out.push(`## ${l.provenance}`, '', provenance(l), '');
+  }
   return out.join('\n');
 }
 
@@ -744,10 +748,7 @@ export function renderSingleRequestDocs(
   return [
     ...banner(title, opts.env, l, lang, opts.now ?? new Date(), opts.folder),
     renderRequestDocs(req, { folder: undefined, env: opts.env, lang, samples: opts.samples, flows: opts.flows, testRun: opts.testRun }),
-    `## ${l.provenance}`,
-    '',
-    provenance(l),
-    '',
+    ...(opts.includeProvenance !== false ? [`## ${l.provenance}`, '', provenance(l), ''] : []),
   ].join('\n');
 }
 
