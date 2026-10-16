@@ -1,6 +1,6 @@
 [package]
 name = "reqx"
-version = "0.1.1"
+version = "0.1.2"
 description = "ReqX — API client (Tauri + React)"
 authors = ["you"]
 edition = "2021"
@@ -22,3 +22,10 @@ ed25519-dalek = { version = "2", default-features = false, features = ["std"] }
 [features]
 default = ["custom-protocol"]
 custom-protocol = ["tauri/custom-protocol"]
+
+[profile.release]
+opt-level = "z"        # Tối ưu kích thước mã máy và tăng tính năng inline
+lto = true             # Link-Time Optimization: xáo trộn và liên kết mã máy giữa các crate
+codegen-units = 1      # Biên dịch đơn khối để tối đa hóa độ phân mảnh decompile
+panic = "abort"        # Gỡ bỏ hoàn toàn panic stack unwinding & thông tin đường dẫn file nguồn
+strip = true           # Xóa 100% symbol table, tên hàm, tên biến (Ghidra/IDA Pro chỉ thấy sub_xxxx)

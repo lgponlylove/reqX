@@ -3,12 +3,24 @@ use base64::prelude::*;
 use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 use serde::{Deserialize, Serialize};
 
-/// Khóa công khai Ed25519 nhúng trực tiếp trong binary ReqX.
-/// Được dùng để xác thực chữ ký của License Key hoàn toàn offline.
-pub const LICENSE_PUBKEY: &[u8; 32] = &[
-    0x51, 0x07, 0x31, 0x0f, 0x7e, 0xb2, 0x02, 0x34, 0xef, 0x6e, 0x12, 0x1b, 0xfc, 0x48, 0x1f, 0x24,
-    0xeb, 0x11, 0x55, 0x96, 0x5d, 0xcd, 0x81, 0xe2, 0x77, 0x42, 0xf2, 0x4f, 0x38, 0x0d, 0x93, 0x85,
+/// Khóa công khai Ed25519 được xáo trộn bằng mặt nạ XOR nhiều lớp trong binary ReqX.
+/// Giúp ngăn chặn kẻ xấu quét chuỗi byte để hoán đổi Public Key bằng công cụ Hex Editor.
+const MASK_KEY: [u8; 8] = [0x8F, 0x3A, 0xC4, 0x71, 0x9B, 0x52, 0xE6, 0x1D];
+const MASKED_PUBKEY: [u8; 32] = [
+    0xde, 0x3d, 0xf5, 0x7e, 0xe5, 0xe0, 0xe4, 0x29,
+    0x60, 0x54, 0xd6, 0x6a, 0x67, 0x1a, 0xf9, 0x39,
+    0x64, 0x2b, 0x91, 0xe7, 0xc6, 0x9f, 0x67, 0xff,
+    0xf8, 0x78, 0x36, 0x3e, 0xa3, 0x5f, 0x75, 0x98,
 ];
+
+#[inline(never)]
+pub fn get_license_pubkey() -> [u8; 32] {
+    let mut key = [0u8; 32];
+    for (i, b) in MASKED_PUBKEY.iter().enumerate() {
+        key[i] = b ^ MASK_KEY[i % MASK_KEY.len()];
+    }
+    key
+}
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct LicenseInfo {
@@ -91,8 +103,9 @@ pub fn verify_license_string(raw_key: &str) -> LicenseVerificationResult {
         ));
     }
 
-    // Khởi tạo VerifyingKey
-    let verifying_key = match VerifyingKey::from_bytes(LICENSE_PUBKEY) {
+    // Khởi tạo VerifyingKey từ public key đã giải mã runtime
+    let pubkey_bytes = get_license_pubkey();
+    let verifying_key = match VerifyingKey::from_bytes(&pubkey_bytes) {
         Ok(k) => k,
         Err(e) => return LicenseVerificationResult::invalid(format!("Khóa Public không hợp lệ: {e}")),
     };
@@ -239,6 +252,14 @@ mod tests {
         assert!(!verify_license_string("").valid);
         assert!(!verify_license_string("REQX-PRO.abc").valid);
         assert!(!verify_license_string("invalid.key.format").valid);
+    }
+
+    #[test]
+    fn test_pubkey_unmasking() {
+        let key = get_license_pubkey();
+        assert_eq!(key.len(), 32);
+        assert_eq!(key[0], 0x51);
+        assert_eq!(key[31], 0x85);
     }
 }
 

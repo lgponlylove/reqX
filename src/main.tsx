@@ -13,6 +13,30 @@ window.addEventListener('contextmenu', (e) => {
   e.preventDefault();
 });
 
+// Chặn phím tắt mở DevTools / View Source trên bản phát hành (Production)
+if (import.meta.env.PROD) {
+  window.addEventListener('keydown', (e) => {
+    // F12
+    if (e.key === 'F12') {
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
+    // Ctrl+Shift+I / Cmd+Opt+I (Inspect), Ctrl+Shift+J (Console), Ctrl+Shift+C (Element picker)
+    if ((e.ctrlKey || e.metaKey) && e.shiftKey && ['I', 'i', 'J', 'j', 'C', 'c'].includes(e.key)) {
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
+    // Ctrl+U / Cmd+Opt+U (View Source)
+    if ((e.ctrlKey || e.metaKey) && (e.key === 'u' || e.key === 'U')) {
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
+  });
+}
+
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <ErrorBoundary>
