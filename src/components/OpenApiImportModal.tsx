@@ -235,6 +235,7 @@ export default function OpenApiImportModal({ onClose }: OpenApiImportModalProps)
                 Dán nội dung JSON hoặc YAML của OpenAPI:
               </label>
               <textarea
+                spellCheck={false}
                 rows={8}
                 placeholder="openapi: 3.0.0&#10;info:&#10;  title: Sample API..."
                 value={rawText}

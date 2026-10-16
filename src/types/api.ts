@@ -41,6 +41,10 @@ export interface OAuth2Config {
   clientAuth?: 'header' | 'body';
   headerPrefix?: string; // Default: 'Bearer'
   autoSaveVar?: string; // e.g. 'accessToken'
+  /** Ghi autoSaveVar vào đâu: 'env' = môi trường đang chọn (mặc định), 'global' = biến Dùng chung */
+  autoSaveScope?: 'env' | 'global';
+  /** 'access_token' (mặc định) hay 'Bearer xxx' — nhiều API cần nguyên cả prefix trong 1 biến */
+  autoSaveFormat?: 'access_token' | 'with_type';
 }
 
 export interface DigestConfig {

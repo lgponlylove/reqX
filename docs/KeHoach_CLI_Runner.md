@@ -87,19 +87,19 @@ Kết luận: chi phí thật nằm ở 3 điểm vá (`scripts.ts` gate, `http-
 - [x] Test `src/lib/__tests__/cli.test.ts` — 22 case: thứ tự A→B→C, env đặt ở A đọc được ở C, exit 0/1/2, `--bail`, `--collection`, mặc định cắt script import (kể cả script kế thừa), origin local chạy script, `process.env` fallback, file thiếu / JSON hỏng
 - [x] Ngoài unit test: smoke thật `node dist-cli/reqx.mjs run` vào server Node cục bộ (2 pass / mix fail) → đúng exit code, `?token=` in ra đã che, lỗi mạng Node báo `ECONNREFUSED` thay vì chuyện CORS, file thiếu/JSON hỏng báo exit 2
 
-### P1 — báo cáo & CI thật dụng
-- [ ] `--reporter junit` (XML `testsuite/testcase/failure`) — thứ CI parse
-- [ ] `--reporter json` (`RunItemResult[]` + thống kê) + `--out`
-- [ ] Tái dùng `generateRunnerHtmlReport` + `maskSensitiveBody`/`maskUrl` cho HTML/CSV
+### P1 — báo cáo & CI thật dụng ✅ (xong 15/10/2026)
+- [x] `--reporter junit` (XML `testsuite/testcase/failure`) — thứ CI parse được; `<error>` cho lỗi mạng/script, `<failure>` cho HTTP ngoài 2xx và assertion fail, mỗi collection × iteration một `<testsuite>`
+- [x] `--reporter json` (`RunItemResult[]` + thống kê) + `--out` (mặc định `reqx-report/` cạnh file collection)
+- [x] Tái dùng `generateRunnerHtmlReport` + `maskSensitiveBody`/`maskUrl` cho HTML/CSV — CSV có BOM, CRLF; header nghi là credential ghi `***`; body cắt 4000 ký tự
 - [x] Map `--bail` → `stopOnError`, `--delay`, `--timeout` (làm luôn ở P0 vì runner đã có sẵn 3 tham số)
-- [ ] `--iteration-count` + `--data <file.csv>`
-- [ ] Test: fixture collection + data file 2 dòng → so XML/JSON ổn định
+- [x] `--iteration-count` + `--data <file.csv|json>` — tái dùng `runRequestList` với `dataRow` (dòng data thắng env khi resolve, `pm.*.set` vẫn ghi env thật); iteration = max(số dòng, `--iteration-count`, 1), dòng `i % số dòng`
+- [x] Test: fixture collection + data file 2 dòng → so XML/JSON ổn định (`cli-report.test.ts`, 20 case) + smoke thật `--data` × 2 dòng, báo cáo 4 file, `SECRETVALUE123` không xuất hiện ở bất kỳ file nào
 
-### P2 — đủ dùng cho cả team
-- [ ] `reqx ci init` sinh file workflow mẫu (GitHub Action / `.gitlab-ci.yml`) chỉ đúng chỗ inject secret
-- [ ] `reqx env lint` — dùng `extract-vars.ts` báo biến thiếu/trùng **trước** khi chạy
-- [ ] Flow runner nếu Q2 = (b)
-- [ ] `docs/HD-CLI.md` + mục `CHANGELOG.md`
+### P2 — đủ dùng cho cả team ✅ (xong 15/10/2026, trừ Flow)
+- [x] `reqx ci init` sinh file pipeline mẫu (`src/cli/ci.ts`): GitHub `.github/workflows/reqx.yml` · GitLab `.gitlab-ci.yml` · Jenkins `Jenkinsfile`; chỗ inject secret để trống + chú thích trỏ nguồn bí mật của từng hệ thống, chưa `--force` thì không ghi đè (exit 2)
+- [x] `reqx env lint` (`src/cli/lint.ts`): biến thiếu (exit 1) · khai báo thừa · rỗng · global/env đè nhau · credential ghi thẳng trong file collection (auth/header/param). Report không bao giờ in giá trị secret
+- [ ] Flow runner nếu Q2 = (b) — vẫn treo, Q2 chốt (a) nên CLI chỉ chạy collection/folder
+- [x] `docs/HD-CLI.md` + mục `CHANGELOG.md`
 
 ---
 

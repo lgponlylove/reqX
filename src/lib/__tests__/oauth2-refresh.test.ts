@@ -5,6 +5,9 @@ import {
   expiryFromJwt,
   oauth2RemainingSec,
   shouldAutoRefresh,
+  canAutoFetchToken,
+  needsNewToken,
+  autoSaveValue,
   getOAuth2SessionInfo,
   clearOAuth2Sessions,
   REFRESH_LEEWAY_SEC,
@@ -15,6 +18,13 @@ vi.mock('../oauth2', async () => {
   const actual = await vi.importActual<typeof oauth2>('../oauth2');
   return { ...actual, fetchOAuth2Token: vi.fn() };
 });
+
+// writeBackToSession import store động — mock để đo xem token mới ghi vào env hay global
+const setEnvVar = vi.fn();
+const setGlobal = vi.fn();
+vi.mock('../../stores/app', () => ({
+  useAppStore: { getState: () => ({ activeEnvId: 'env-1', setEnvVar, setGlobal }) },
+}));
 
 const fetchMock = oauth2.fetchOAuth2Token as unknown as ReturnType<typeof vi.fn>;
 
@@ -187,5 +197,103 @@ describe('N6 — OAuth2 auto-refresh trong phiên (RAM-only)', () => {
     await ensureFreshOAuth2(baseConfig());
     clearOAuth2Sessions();
     expect(getOAuth2SessionInfo(baseConfig())).toBeNull();
+  });
+});
+
+/** N7 — QA không cần viết pre-request script lấy token nữa. */
+describe('N7 — tự lấy token cho client_credentials / password (không cần refresh token)', () => {
+  const cc = (over: Partial<OAuth2Config> = {}): OAuth2Config => ({
+    grantType: 'client_credentials',
+    tokenUrl: 'https://idp.test/oauth2/token',
+    clientId: 'cid',
+    clientSecret: 'secret',
+    ...over,
+  });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    clearOAuth2Sessions();
+  });
+
+  it('chưa có token → tự gọi token endpoint bằng đúng grant client_credentials', async () => {
+    fetchMock.mockResolvedValue(tokenResult({ accessToken: 'tok-cc', expiresIn: 3600 }));
+    const r = await ensureFreshOAuth2(cc());
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0][0].grantType).toBe('client_credentials');
+    expect(r.refreshed).toBe(true);
+    expect(r.via).toBe('client_credentials');
+    expect(r.config.accessToken).toBe('tok-cc');
+  });
+
+  it('token hết hạn (issuedAt + expiresIn qua đi) → lấy lại cái mới', async () => {
+    fetchMock.mockResolvedValue(tokenResult({ accessToken: 'tok-moi' }));
+    const stale = cc({ accessToken: 'tok-cu', token: 'tok-cu', issuedAt: Date.now() - 10 * 60_000, expiresIn: 300 });
+    expect(needsNewToken(stale)).toBe(true);
+    const r = await ensureFreshOAuth2(stale);
+    expect(r.config.accessToken).toBe('tok-moi');
+  });
+
+  it('token còn hạn → không gọi IdP lần hai (kể cả khi gửi liên tiếp)', async () => {
+    fetchMock.mockResolvedValue(tokenResult({ expiresIn: 3600 }));
+    const first = await ensureFreshOAuth2(cc());
+    expect(first.refreshed).toBe(true);
+    const second = await ensureFreshOAuth2(cc());
+    expect(second.skipped).toBe('still-valid');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('grant password → tự lấy bằng grant_type=password', async () => {
+    fetchMock.mockResolvedValue(tokenResult({ accessToken: 'tok-pw' }));
+    const cfg = cc({ grantType: 'password', clientId: undefined, clientSecret: undefined, username: 'qa', password: 'p@ss' });
+    expect(canAutoFetchToken(cfg)).toBe(true);
+    await ensureFreshOAuth2(cfg);
+    expect(fetchMock.mock.calls[0][0].grantType).toBe('password');
+  });
+
+  it('client_credentials thiếu client id → không tự ý gọi, báo no-token', async () => {
+    const r = await ensureFreshOAuth2(cc({ clientId: '' }));
+    expect(canAutoFetchToken(cc({ clientId: '' }))).toBe(false);
+    expect(r.skipped).toBe('no-token');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('authorization_code hết hạn mà không có refresh token → vẫn bỏ qua như cũ', async () => {
+    const r = await ensureFreshOAuth2(baseConfig({ refreshToken: undefined }));
+    expect(r.skipped).toBe('no-refresh-token');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('lỗi lấy token → vẫn gửi bằng token cũ rồi nghỉ cooldown', async () => {
+    fetchMock.mockRejectedValue(new Error('unauthorized_client'));
+    const stale = cc({ accessToken: 'tok-cu', token: 'tok-cu', issuedAt: Date.now() - 7200_000, expiresIn: 3600 });
+    const first = await ensureFreshOAuth2(stale);
+    expect(first.refreshed).toBe(false);
+    expect(first.error).toBe('unauthorized_client');
+    const second = await ensureFreshOAuth2(stale);
+    expect(second.skipped).toBe('cooldown');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('autoSaveFormat "with_type" → ghi "Bearer <token>", mặc định ghi trần access_token', () => {
+    expect(autoSaveValue({ accessToken: 'abc', tokenType: 'Bearer' })).toBe('abc');
+    expect(autoSaveValue({ accessToken: 'abc', tokenType: 'Bearer', autoSaveFormat: 'with_type' })).toBe('Bearer abc');
+    // IdP trả token đã có sẵn prefix thì không nhân đôi
+    expect(autoSaveValue({ accessToken: 'Bearer abc', autoSaveFormat: 'with_type' })).toBe('Bearer abc');
+    // tokenType hiếm (MAC) vẫn theo đúng loại IdP trả
+    expect(autoSaveValue({ accessToken: 'abc', tokenType: 'MAC', autoSaveFormat: 'with_type' })).toBe('MAC abc');
+  });
+
+  it('autoSaveVar + autoSaveScope: env (mặc định) thì setEnvVar, global thì setGlobal', async () => {
+    fetchMock.mockResolvedValue(tokenResult({ accessToken: 'tok-write', expiresIn: 3600, tokenType: 'Bearer' }));
+    await ensureFreshOAuth2(cc({ autoSaveVar: 'authen-get-permissions', autoSaveFormat: 'with_type' }));
+    expect(setEnvVar).toHaveBeenCalledWith('env-1', 'authen-get-permissions', 'Bearer tok-write');
+    expect(setGlobal).not.toHaveBeenCalled();
+
+    clearOAuth2Sessions();
+    vi.clearAllMocks();
+    fetchMock.mockResolvedValue(tokenResult({ accessToken: 'tok-g', expiresIn: 3600 }));
+    await ensureFreshOAuth2(cc({ autoSaveVar: 'accessToken', autoSaveScope: 'global' }));
+    expect(setGlobal).toHaveBeenCalledWith('accessToken', 'tok-g');
+    expect(setEnvVar).not.toHaveBeenCalled();
   });
 });

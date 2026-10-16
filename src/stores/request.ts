@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { ApiRequest } from '../types/api';
 import { DEFAULT_REQUEST } from '../types/api';
-import { uid } from '../lib/variables';
+import { uid, renameVarInRequest } from '../lib/variables';
 import { stripRequestSecrets } from '../lib/secrets';
 
 export type ReqSubTab = 'params' | 'headers' | 'body' | 'auth' | 'pre' | 'tests';
@@ -37,6 +37,8 @@ interface RequestState {
   setSubTab: (tab: ReqSubTab) => void;
   /** Nạp lại bản mới nhất của request vào các tab đang mở chưa sửa (sau khi đổi hàng loạt) */
   refreshTabs: (requests: Record<string, ApiRequest>) => void;
+  /** Đổi tên biến: thay `{{oldKey}}` → `{{newKey}}` ngay trong mọi tab đang mở (kể cả tab đang sửa dở). */
+  renameVarInTabs: (oldKey: string, newKey: string) => void;
   markClean: () => void;
 }
 
@@ -183,6 +185,18 @@ export const useRequestStore = create<RequestState>()(
           const tabs = s.tabs.map((t) => {
             const next = requests[t.request.id];
             return next && !t.dirty ? { ...t, request: { ...next } } : t;
+          });
+          const active = tabs.find((t) => t.id === s.activeId) ?? tabs[0];
+          return { tabs, current: active.request, dirty: active.dirty };
+        }),
+
+      // Đổi tên biến thì ngay cả tab ĐANG SỬA DỞ cũng phải đổi theo: `refreshTabs`
+      // bỏ qua tab dirty nên bản cũ vẫn còn {{oldKey}} và bấm Save là ghi đè ngược.
+      renameVarInTabs: (oldKey, newKey) =>
+        set((s) => {
+          const tabs = s.tabs.map((t) => {
+            const next = renameVarInRequest(t.request, oldKey, newKey);
+            return next === t.request ? t : { ...t, request: next };
           });
           const active = tabs.find((t) => t.id === s.activeId) ?? tabs[0];
           return { tabs, current: active.request, dirty: active.dirty };

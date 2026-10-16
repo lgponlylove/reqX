@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useTranslation } from '../stores/language';
 
 interface Suggestion {
   label: string;
@@ -205,6 +206,9 @@ export default function ScriptCodeEditor({
   rows = 8,
   minHeight = '180px',
   onSaveShortcut,
+  onExpand,
+  tall,
+  fill,
 }: {
   value: string;
   onChange: (v: string) => void;
@@ -212,9 +216,18 @@ export default function ScriptCodeEditor({
   rows?: number;
   minHeight?: string;
   onSaveShortcut?: () => void;
+  /** Truyền vào ở ô nhỏ để hiện nút ⤢; ô trong popup phóng to không có nút này. */
+  onExpand?: () => void;
+  /** Ô trong popup: cao lấp đầy khung thay vì co theo rows/minHeight. */
+  tall?: boolean;
+  /** Ô nhỏ trong tab: lớn hết chỗ còn lại của pane, nhưng không nhỏ hơn minHeight. */
+  fill?: boolean;
 }) {
   const taRef = useRef<HTMLTextAreaElement>(null);
   const backRef = useRef<HTMLDivElement>(null);
+  /** tall = lấp đầy popup phóng to; fill = lấp đầy chỗ còn lại của pane nhưng vẫn tôn trọng minHeight. */
+  const stretch = tall || fill;
+  const { t: i18n } = useTranslation();
   const [menuOpen, setMenuOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [selIdx, setSelIdx] = useState(0);
@@ -333,10 +346,10 @@ export default function ScriptCodeEditor({
   }
 
   return (
-    <div className="relative flex flex-col bg-slate-950 border border-slate-700 focus-within:border-emerald-600 rounded">
+    <div className={`relative flex flex-col bg-slate-950 border border-slate-700 focus-within:border-emerald-600 rounded ${stretch ? 'flex-1 min-h-0' : ''}`}>
       {/* Vùng editor riêng để lớp highlight ôm khít textarea — inset-0 của container ngoài
           sẽ tràn xuống cả footer phụ trợ và chữ lọt ra sau footer. */}
-      <div className="relative">
+      <div className={`relative ${stretch ? 'flex-1 min-h-0' : ''}`} style={fill ? { minHeight } : undefined}>
         {/* Background Syntax Highlight */}
         <div
           ref={backRef}
@@ -345,7 +358,7 @@ export default function ScriptCodeEditor({
           // Lớp highlight phải rộng đúng bằng phần chữ của textarea: textarea có scrollbar
           // chiếm ~8px, nếu không chừa gutter giống nhau thì 2 lớp xuống dòng lệch nhau
           // và chữ nhân đôi khi cuộn.
-          style={{ minHeight, scrollbarGutter: 'stable' }}
+          style={stretch ? { scrollbarGutter: 'stable' } : { minHeight, scrollbarGutter: 'stable' }}
         >
           {value ? highlightJs(value) : <span className="text-slate-600 italic">{placeholder}</span>}
         </div>
@@ -355,14 +368,16 @@ export default function ScriptCodeEditor({
           ref={taRef}
           rows={rows}
           spellCheck={false}
-          style={{ minHeight, scrollbarGutter: 'stable' }}
+          style={{ scrollbarGutter: 'stable' }}
           value={value}
           onChange={handleInput}
           onKeyDown={handleKeyDown}
           onScroll={syncScroll}
           onBlur={() => setTimeout(() => setMenuOpen(false), 200)}
           placeholder=""
-          className="relative block w-full p-2.5 font-mono text-xs bg-transparent outline-none text-transparent caret-emerald-400 selection:bg-emerald-900/60 whitespace-pre-wrap break-words resize-y"
+          className={`relative block w-full p-2.5 font-mono text-xs bg-transparent outline-none text-transparent caret-emerald-400 selection:bg-emerald-900/60 whitespace-pre-wrap break-words ${
+            stretch ? 'h-full resize-none' : 'resize-y'
+          }`}
         />
       </div>
 
@@ -399,7 +414,18 @@ export default function ScriptCodeEditor({
       {/* Mini Helper Footer */}
       <div className="flex items-center justify-between px-2 py-1 bg-slate-900/80 border-t border-slate-800 text-[10px] text-slate-500 font-mono">
         <span>Gõ <code className="text-emerald-400">pm.</code> hoặc bấm <kbd className="bg-slate-800 px-1 rounded text-slate-300">Ctrl+Space</kbd> để gợi ý code</span>
-        <span>Tab = 2 spaces</span>
+        <span className="flex items-center gap-2">
+          <span>Tab = 2 spaces</span>
+          {onExpand && (
+            <button
+              onClick={onExpand}
+              title={i18n.request.expandHint}
+              className="text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 rounded px-1.5 py-0.5 font-sans"
+            >
+              {i18n.request.expand}
+            </button>
+          )}
+        </span>
       </div>
     </div>
   );

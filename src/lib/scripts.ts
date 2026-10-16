@@ -165,6 +165,9 @@ function buildPmBase(ctx: {
   pending: Set<Promise<unknown>>;
 } {
   const pending = new Set<Promise<unknown>>();
+  // Bản ghi đè trong-script: `pm.variables.set(...)` xong thì `get(...)` phải đọc được giá trị mới,
+  // không phải bản chụp `merged` lấy lúc script bắt đầu (QA/AI hay viết `set` rồi `get` ngay).
+  const overlay: Record<string, string> = {};
 
   const doSend = async (req: string | PmSendRequestInput): Promise<PmSendResponse> => {
     const input: PmSendRequestInput = typeof req === 'string' ? { url: req } : (req ?? {});
@@ -245,16 +248,16 @@ function buildPmBase(ctx: {
 
   return {
     variables: {
-      get: (k: string) => ctx.merged[k],
-      set: (k: string, v: string) => ctx.env.set(k, String(v)),
+      get: (k: string) => (k in overlay ? overlay[k] : ctx.merged[k]),
+      set: (k: string, v: string) => { overlay[k] = String(v); ctx.env.set(k, String(v)); },
     },
     environment: {
       get: (k: string) => ctx.env.get(k),
-      set: (k: string, v: string) => ctx.env.set(k, String(v)),
+      set: (k: string, v: string) => { overlay[k] = String(v); ctx.env.set(k, String(v)); },
     },
     globals: {
       get: (k: string) => ctx.globals.get(k),
-      set: (k: string, v: string) => ctx.globals.set(k, String(v)),
+      set: (k: string, v: string) => { overlay[k] = String(v); ctx.globals.set(k, String(v)); },
     },
     // Dữ liệu dòng hiện tại khi Runner chạy file data (Postman: pm.iterationData).
     iterationData: {
@@ -420,7 +423,8 @@ export async function runTestsChain(
   return out;
 }
 
-export const PRE_REQUEST_SAMPLE = `// Chạy TRƯỚC khi gửi — đọc/ghi biến, sửa request, gọi API phụ.pm.environment.set('ts', Date.now().toString());
+export const PRE_REQUEST_SAMPLE = `// Chạy TRƯỚC khi gửi — đọc/ghi biến, sửa request, gọi API phụ.
+pm.environment.set('ts', Date.now().toString());
 // Login lấy token rồi gắn cho request chính (callback kiểu Postman):
 // pm.sendRequest({ url: pm.variables.get('baseUrl') + '/login', method: 'POST',
 //   header: { 'Content-Type': 'application/json' },

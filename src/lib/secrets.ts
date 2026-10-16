@@ -2,7 +2,7 @@ import type { ApiRequest, AuthConfig } from '../types/api';
 
 const SECRET_WORDS = new Set([
   'token', 'accesstoken', 'refreshtoken', 'idtoken', 'secret', 'secretkey', 'clientsecret',
-  'password', 'passwd', 'pwd', 'apikey', 'key', 'credential', 'credentials', 'bearer',
+  'password', 'passwd', 'pwd', 'apikey', 'credential', 'credentials', 'bearer',
   'authorization', 'cookie', 'jsessionid', 'phpsessid', 'sessionid', 'privatekey', 'accesskey',
   'sessiontoken',
 ]);
@@ -24,8 +24,12 @@ export function looksSecret(name: string, value = ''): boolean {
   const ws = wordsOf(name);
   if (ws.some((w) => w === 'key' && ws.some((x) => ['api', 'access', 'secret', 'private'].includes(x)))) return true;
   if (ws.some((w) => SECRET_WORDS.has(w))) return true;
-  // Giá trị hình JWT / PEM / Bearer thì bất kể tên
-  return /^eyJ[\w-]{8,}\.[\w-]{8,}/.test(value) || /^-----BEGIN /.test(value.trim());
+  const v = value.trim();
+  // Giá trị hình JWT / PEM thì bất kể tên
+  if (/^eyJ[\w-]{8,}\.[\w-]{8,}/.test(v) || /^-----BEGIN /.test(v)) return true;
+  // "Bearer xxx" — nhiều API nhét nguyên cả cụm vào 1 biến (autoSaveFormat "có loại").
+  // Bắt buộc phần sau là 1 chuỗi dài như token, không chặn nhầm ô ghi chú "basic info about ...".
+  return /^(bearer|basic|token|mac|digest)\s+\S{12,}$/i.test(v);
 }
 
 /** Xóa secrets khỏi auth — chỉ giữ lại cấu trúc (type, tên key), không giữ giá trị. */

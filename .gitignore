@@ -19,6 +19,14 @@ SSO-*.json
 reqx-*.json
 *.reqx-flow.json
 reqx-backup.json
+*.lic
+reqx.lic
+
+# License generator tool (chứa Private Key ký bản quyền - chỉ giữ trên máy cá nhân)
+license-generator.html
+scripts/license-generator.html
+scripts/generate-license.cjs
+scripts/build-license-html.cjs
 
 # OS / editor
 .DS_Store

@@ -35,6 +35,8 @@ function VarTable({
 }) {
   const requests = useAppStore((s) => s.requests);
   const collections = useAppStore((s) => s.collections);
+  const environments = useAppStore((s) => s.environments);
+  const globals = useAppStore((s) => s.globals);
   const { t } = useTranslation();
   const [filter, setFilter] = useState('');
   const [newKey, setNewKey] = useState('');
@@ -51,10 +53,16 @@ function VarTable({
   const q = filter.trim().toLowerCase();
   const keys = q ? allKeys.filter((k) => k.toLowerCase().includes(q)) : allKeys;
   const refs = useMemo(() => {
+    // Giá trị của biến khác cũng được đổi theo khi rename (vd baseUrl = http://{{domain}}/api)
+    // nên tính vào "N nơi" — nếu không thì hộp thoại báo thiếu so với việc thực sự xảy ra.
+    const otherVarValues = [
+      ...environments.flatMap((e) => Object.values(e.variables)),
+      ...Object.values(globals),
+    ];
     const out: Record<string, number> = {};
-    for (const k of allKeys) out[k] = countVarRefs(k, requests, collections);
+    for (const k of allKeys) out[k] = countVarRefs(k, requests, collections, otherVarValues);
     return out;
-  }, [allKeys, requests, collections]);
+  }, [allKeys, requests, collections, environments, globals]);
 
   function commitRename(oldKey: string) {
     const nk = editingName.trim();

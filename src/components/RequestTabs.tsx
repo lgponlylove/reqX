@@ -1,12 +1,15 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useRequestStore, activeSubTab, type ReqSubTab } from '../stores/request';
 import { useAppStore } from '../stores/app';
 import KeyValueEditor from './KeyValueEditor';
+import { COMMON_HEADER_KEYS } from '../lib/header-suggestions';
 import JsonBodyEditor from './JsonBodyEditor';
 import ScriptCodeEditor from './ScriptCodeEditor';
 import BinaryBodyEditor from './BinaryBodyEditor';
 import OAuth2Editor from './OAuth2Editor';
-import { PRE_REQUEST_SAMPLE, TESTS_SAMPLE } from '../lib/scripts';
+import ExpandOverlay from './ExpandOverlay';
+import ScriptSnippetMenu, { insertSnippet } from './ScriptSnippetMenu';
+import AiScriptButton from './AiScriptButton';
 import { inheritedScriptCount } from '../lib/script-chain';
 import { useTranslation } from '../stores/language';
 import type { BodyType, AuthType } from '../types/api';
@@ -26,11 +29,26 @@ export default function RequestTabs() {
   const { t: i18n } = useTranslation();
   const { current, set } = useRequestStore();
   const collections = useAppStore((s) => s.collections);
+  const requests = useAppStore((s) => s.requests);
+  const environments = useAppStore((s) => s.environments);
+  const activeEnvId = useAppStore((s) => s.activeEnvId);
   const inherited = inheritedScriptCount(collections, current);
+  // Gợi ý key header: tên header chuẩn + mọi key đã dùng trong các request đang lưu
+  // (header custom của collection import cũng hiện ra như Postman)
+  const headerKeys = useMemo(() => {
+    const set = new Set<string>(COMMON_HEADER_KEYS);
+    for (const r of Object.values(requests)) {
+      for (const h of r.headers ?? []) if (h.key.trim()) set.add(h.key.trim());
+    }
+    return [...set];
+  }, [requests]);
   // Bảng con đang mở là của RIÊNG tab này — đổi request khác không bị nhảy theo
   const tab = useRequestStore(activeSubTab);
   const setTab = useRequestStore((s) => s.setSubTab);
   const [fmtMsg, setFmtMsg] = useState('');
+  // Ô đang phóng to — rỗng = không mở. Nội dung sửa thẳng qua set() nên không có bản copy lệch nhau.
+  const [expanded, setExpanded] = useState<'' | 'pre' | 'tests' | 'body'>('');
+  useEffect(() => setExpanded(''), [current.id]);
 
   const tabLabels: Record<ReqSubTab, string> = {
     params: i18n.request.params,
@@ -42,18 +60,28 @@ export default function RequestTabs() {
   };
 
   const showBody = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(current.method);
+  // binary chỉ có ô chọn file, none thì chẳng có gì để soạn → không cần phóng to
+  const canExpandBody = current.bodyType !== 'none' && current.bodyType !== 'binary';
+  // Một chỗ duy nhất: ô nhỏ và popup phóng to phải cùng gợi ý mẫu
+  const bodyPlaceholder =
+    current.bodyType === 'json' ? '{\n  "name": "test",\n  "userId": "{{userId}}"\n}'
+      : current.bodyType === 'form-data' ? 'files=@"D:/test/image.png"\nuserId={{userId}}\ntitle=Báo cáo'
+      : current.bodyType === 'urlencoded' ? 'name=test&userId={{userId}}'
+      : i18n.request.bodyContentPlaceholder;
 
   return (
-    <div>
-      <div className="flex gap-4 border-b border-slate-800 mb-3 px-1">
+    // flex-1 để tab script chiếm hết chiều cao còn lại của pane (ScriptCodeEditor fill),
+    // các tab khác vẫn giữ cao theo nội dung nhờ min-height:auto của flex item.
+    <div className="flex flex-col flex-1 min-h-0">
+      <div className="flex gap-3 border-b border-slate-800 mb-2 px-1 shrink-0">
         {TABS.map((id) => (
           <button
             key={id}
             onClick={() => setTab(id)}
-            className={`text-xs transition-all ${
+            className={`text-[11px] transition-all ${
               tab === id
-                ? 'border-b-2 border-emerald-400 text-emerald-300 font-semibold pb-2 shadow-[0_2px_8px_rgba(16,185,129,0.25)]'
-                : 'border-b-2 border-transparent text-slate-400 hover:text-slate-200 pb-2'
+                ? 'border-b-2 border-emerald-400 text-emerald-300 font-semibold pb-1.5 shadow-[0_2px_8px_rgba(16,185,129,0.25)]'
+                : 'border-b-2 border-transparent text-slate-400 hover:text-slate-200 pb-1.5'
             }`}
           >
             {tabLabels[id]}
@@ -82,6 +110,11 @@ export default function RequestTabs() {
           <p className="text-xs text-slate-500 mt-2">
             {i18n.request.paramsHelp}
           </p>
+          {/* Dải env + mẹo rút từ hàng Tên/Mô tả xuống cuối bảng Params cho hàng đó bớt chật */}
+          <p className="text-[11px] text-slate-400 mt-1">
+            {i18n.request.envTip}{' '}
+            <b>{environments.find((e) => e.id === activeEnvId)?.name ?? '—'}</b> • {i18n.request.urlTip}
+          </p>
         </div>
       )}
 
@@ -91,17 +124,18 @@ export default function RequestTabs() {
           onChange={(headers) => set({ headers })}
           keyPlaceholder={i18n.request.headerKeyPlaceholder}
           valuePlaceholder={i18n.request.headerValuePlaceholder}
+          suggestKeys={headerKeys}
         />
       )}
 
       {tab === 'body' && (
-        <div className="flex flex-col gap-2">
+        <div className="flex flex-col gap-2 flex-1 min-h-0">
           {!showBody && (
-            <p className="text-xs text-amber-300">
+            <p className="text-xs text-amber-300 shrink-0">
               {i18n.request.noBodyWarning.replace('{method}', current.method)}
             </p>
           )}
-          <div className="flex gap-1.5 flex-wrap">
+          <div className="flex gap-1.5 flex-wrap shrink-0">
             {BODY_TYPES.map((b) => (
               <button
                 key={b.id}
@@ -132,16 +166,26 @@ export default function RequestTabs() {
                 {i18n.request.formatJsonBtn}
               </button>
             )}
+            {canExpandBody && (
+              <button
+                onClick={() => setExpanded('body')}
+                title={i18n.request.expandHint}
+                className={`${current.bodyType === 'json' ? '' : 'ml-auto'} px-2.5 py-1 rounded text-xs bg-slate-800 text-slate-300 hover:bg-slate-700`}
+              >
+                {i18n.request.expand}
+              </button>
+            )}
           </div>
           {current.bodyType === 'json' ? (
             <JsonBodyEditor
+              fill
               value={current.body}
               onChange={(v) => set({ body: v })}
-              placeholder={'{\n  "name": "test",\n  "userId": "{{userId}}"\n}'}
+              placeholder={bodyPlaceholder}
             />
           ) : current.bodyType === 'form-data' ? (
-            <div className="flex flex-col gap-1.5">
-              <div className="flex items-center justify-between text-xs text-slate-400">
+            <div className="flex flex-col gap-1.5 flex-1 min-h-0">
+              <div className="flex items-center justify-between gap-2 text-xs text-slate-400 shrink-0">
                 <span>
                   {i18n.request.formDataHelp}{' '}
                   <code className="text-emerald-400">key=value</code> /{' '}
@@ -159,9 +203,10 @@ export default function RequestTabs() {
                 </button>
               </div>
               <textarea
-                className="bg-slate-900 border border-slate-700 rounded p-2.5 font-mono text-sm min-h-32"
+                spellCheck={false}
+                className="bg-slate-900 border border-slate-700 rounded p-2.5 font-mono text-sm min-h-32 flex-1 resize-none"
                 rows={7}
-                placeholder={'files=@"D:/test/image.png"\nuserId={{userId}}\ntitle=Báo cáo'}
+                placeholder={bodyPlaceholder}
                 value={current.body}
                 onChange={(e) => set({ body: e.target.value })}
               />
@@ -173,13 +218,10 @@ export default function RequestTabs() {
             />
           ) : current.bodyType !== 'none' && (
             <textarea
-              className="bg-slate-900 border border-slate-700 rounded p-2.5 font-mono text-sm min-h-32"
+              spellCheck={false}
+              className="bg-slate-900 border border-slate-700 rounded p-2.5 font-mono text-sm min-h-32 flex-1 resize-none"
               rows={7}
-              placeholder={
-                current.bodyType === 'urlencoded'
-                  ? 'name=test&userId={{userId}}'
-                  : i18n.request.bodyContentPlaceholder
-              }
+              placeholder={bodyPlaceholder}
               value={current.body}
               onChange={(e) => set({ body: e.target.value })}
             />
@@ -194,7 +236,7 @@ export default function RequestTabs() {
       {tab === 'auth' && <AuthEditor />}
 
       {tab === 'pre' && (
-        <div className="flex flex-col gap-1.5">
+        <div className="flex flex-col gap-1.5 flex-1 min-h-0">
           {current.origin === 'imported' && (
             <p className="text-[11px] text-amber-300/90">
               {i18n.request.importedScriptWarn}
@@ -205,28 +247,28 @@ export default function RequestTabs() {
               {i18n.request.inheritedScriptPre.replace('{count}', String(inherited.pre))}
             </p>
           )}
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 shrink-0">
             <p className="text-xs text-slate-500">
               {i18n.request.preScriptHelp}
             </p>
-            <button
-              onClick={() => set({ preRequest: PRE_REQUEST_SAMPLE })}
-              className="ml-auto shrink-0 text-xs bg-slate-800 hover:bg-slate-700 rounded px-2 py-1"
-            >
-              {i18n.request.insertSample}
-            </button>
+            <AiScriptButton className="ml-auto" />
+            <ScriptSnippetMenu
+              kind="pre"
+              onPick={(code) => set({ preRequest: insertSnippet(current.preRequest ?? '', code) })}
+            />
           </div>
           <ScriptCodeEditor
-            rows={8}
+            fill
             value={current.preRequest ?? ''}
             onChange={(v) => set({ preRequest: v })}
             placeholder="// pm.environment.set('ts', Date.now().toString());"
+            onExpand={() => setExpanded('pre')}
           />
         </div>
       )}
 
       {tab === 'tests' && (
-        <div className="flex flex-col gap-1.5">
+        <div className="flex flex-col gap-1.5 flex-1 min-h-0">
           {current.origin === 'imported' && (
             <p className="text-[11px] text-amber-300/90">
               {i18n.request.importedScriptWarn}
@@ -237,24 +279,73 @@ export default function RequestTabs() {
               {i18n.request.inheritedScriptTests.replace('{count}', String(inherited.tests))}
             </p>
           )}
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 shrink-0">
             <p className="text-xs text-slate-500">
               {i18n.request.testsScriptHelp}
             </p>
-            <button
-              onClick={() => set({ tests: TESTS_SAMPLE })}
-              className="ml-auto shrink-0 text-xs bg-slate-800 hover:bg-slate-700 rounded px-2 py-1"
-            >
-              {i18n.request.insertSample}
-            </button>
+            <ScriptSnippetMenu
+              kind="tests"
+              className="ml-auto"
+              onPick={(code) => set({ tests: insertSnippet(current.tests ?? '', code) })}
+            />
           </div>
           <ScriptCodeEditor
-            rows={8}
+            fill
             value={current.tests ?? ''}
             onChange={(v) => set({ tests: v })}
             placeholder="// pm.test('Status 200', () => { pm.expect(pm.response.status).to.equal(200); });"
+            onExpand={() => setExpanded('tests')}
           />
         </div>
+      )}
+
+      {expanded && (
+        <ExpandOverlay
+          title={
+            expanded === 'pre' ? i18n.request.expandPreTitle
+              : expanded === 'tests' ? i18n.request.expandTestsTitle
+              : i18n.request.expandBodyTitle
+          }
+          onClose={() => setExpanded('')}
+        >
+          {expanded === 'body' ? (
+            current.bodyType === 'json' ? (
+              <JsonBodyEditor tall value={current.body} onChange={(v) => set({ body: v })} placeholder={bodyPlaceholder} />
+            ) : (
+              <textarea
+                autoFocus
+                spellCheck={false}
+                className="flex-1 min-h-0 bg-slate-900 border border-slate-700 rounded p-2.5 font-mono text-sm resize-none"
+                style={{ scrollbarGutter: 'stable' }}
+                placeholder={bodyPlaceholder}
+                value={current.body}
+                onChange={(e) => set({ body: e.target.value })}
+              />
+            )
+          ) : (
+            <div className="flex flex-col gap-2 min-h-0 flex-1">
+              {/* Popup phóng to dùng cùng bộ mẫu — sửa thẳng vào state gốc nên không lệch bản nào */}
+              <ScriptSnippetMenu
+                kind={expanded === 'pre' ? 'pre' : 'tests'}
+                align="left"
+                onPick={(picked) =>
+                  set(expanded === 'pre' ? { preRequest: insertSnippet(current.preRequest ?? '', picked) }
+                    : { tests: insertSnippet(current.tests ?? '', picked) })
+                }
+              />
+              <ScriptCodeEditor
+                tall
+                value={expanded === 'pre' ? current.preRequest ?? '' : current.tests ?? ''}
+                onChange={(v) => set(expanded === 'pre' ? { preRequest: v } : { tests: v })}
+                placeholder={
+                  expanded === 'pre'
+                    ? "// pm.environment.set('ts', Date.now().toString());"
+                    : "// pm.test('Status 200', () => { pm.expect(pm.response.status).to.equal(200); });"
+                }
+              />
+            </div>
+          )}
+        </ExpandOverlay>
       )}
     </div>
   );

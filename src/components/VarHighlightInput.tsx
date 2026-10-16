@@ -90,7 +90,7 @@ export default function VarHighlightInput({ value, onChange, placeholder, hasVar
       <div
         ref={backRef}
         aria-hidden
-        className="absolute inset-0 px-3 py-2 font-mono text-sm whitespace-pre overflow-hidden pointer-events-none text-slate-100"
+        className="absolute inset-0 px-2.5 py-1.5 font-mono text-xs whitespace-pre overflow-hidden pointer-events-none text-slate-100"
       >
         {parts.length === 0 ? (
           <span className="text-slate-500">{placeholder}</span>
@@ -170,7 +170,7 @@ export default function VarHighlightInput({ value, onChange, placeholder, hasVar
         placeholder=""
         spellCheck={false}
         autoComplete="off"
-        className="relative w-full px-3 py-2 font-mono text-sm bg-transparent outline-none text-transparent caret-emerald-300 selection:bg-emerald-900"
+        className="relative w-full px-2.5 py-1.5 font-mono text-xs bg-transparent outline-none text-transparent caret-emerald-300 selection:bg-emerald-900"
       />
       {showSuggest && filteredVars.length > 0 && (
         <ul className="absolute left-0 top-[calc(100%+4px)] mt-0 w-max min-w-[250px] bg-slate-800 border border-slate-600 rounded-md shadow-2xl z-[100] max-h-48 overflow-auto flex flex-col py-1 text-sm font-mono text-slate-200">

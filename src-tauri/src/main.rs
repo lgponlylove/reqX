@@ -1,5 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod license;
+
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize)]
@@ -165,12 +167,28 @@ async fn http_send(req: NativeHttpRequest) -> Result<NativeHttpResponse, String>
 #[tauri::command]
 fn open_downloads() -> Result<(), String> {
     let home = std::env::var("USERPROFILE")
+        .or_else(|_| std::env::var("HOME"))
         .map_err(|_| "Không tìm được thư mục người dùng".to_string())?;
     let dir = std::path::Path::new(&home).join("Downloads");
+
+    #[cfg(target_os = "windows")]
     std::process::Command::new("explorer")
         .arg(&dir)
         .spawn()
         .map_err(|e| format!("Không mở được thư mục: {e}"))?;
+
+    #[cfg(target_os = "macos")]
+    std::process::Command::new("open")
+        .arg(&dir)
+        .spawn()
+        .map_err(|e| format!("Không mở được thư mục: {e}"))?;
+
+    #[cfg(target_os = "linux")]
+    std::process::Command::new("xdg-open")
+        .arg(&dir)
+        .spawn()
+        .map_err(|e| format!("Không mở được thư mục: {e}"))?;
+
     Ok(())
 }
 
@@ -265,10 +283,28 @@ fn reveal_in_explorer(path: String) -> Result<(), String> {
     if !p.is_file() && !p.is_dir() {
         return Err("Đường dẫn không phải file hay thư mục".to_string());
     }
+    #[cfg(target_os = "windows")]
     std::process::Command::new("explorer")
         .arg(format!("/select,{trimmed}"))
         .spawn()
         .map_err(|e| format!("Không mở được thư mục: {e}"))?;
+
+    #[cfg(target_os = "macos")]
+    std::process::Command::new("open")
+        .arg("-R")
+        .arg(trimmed)
+        .spawn()
+        .map_err(|e| format!("Không mở được thư mục: {e}"))?;
+
+    #[cfg(target_os = "linux")]
+    {
+        let parent = p.parent().unwrap_or(p);
+        std::process::Command::new("xdg-open")
+            .arg(parent)
+            .spawn()
+            .map_err(|e| format!("Không mở được thư mục: {e}"))?;
+    }
+
     Ok(())
 }
 
@@ -280,7 +316,10 @@ fn main() {
             save_export_file,
             save_workspace_file,
             read_workspace_files,
-            reveal_in_explorer
+            reveal_in_explorer,
+            license::activate_license,
+            license::check_license,
+            license::deactivate_license
         ])
         .run(tauri::generate_context!())
         .expect("loi khi chay ReqX");

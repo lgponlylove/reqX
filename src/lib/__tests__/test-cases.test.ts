@@ -261,6 +261,14 @@ describe('maskCurl', () => {
     expect(m).not.toContain('1E37111194ACE2C1');
     expect(m).toContain('Authorization: ***');
   });
+  it('che cả credential nằm trong URL query và body --data-raw', () => {
+    const curl = `curl -X POST 'https://x/y?token=abc123456&lang=vi' --data-raw '{"username":"minh","password":"MatKhauThat"}'`;
+    const m = maskCurl(curl);
+    expect(m).not.toContain('abc123456');
+    expect(m).not.toContain('MatKhauThat');
+    expect(m).toContain('?token=***&lang=vi');
+    expect(m).toContain('minh'); // field không nhạy cảm vẫn giữ nguyên
+  });
 });
 
 describe('casesToCsv', () => {

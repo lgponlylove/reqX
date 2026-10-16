@@ -24,7 +24,10 @@ export default function TabBar() {
     const a = useAppStore.getState();
     const snap = a.respByTab[activeId];
     const r = snap && snap.reqId === reqId ? snap.res : null;
+    // setResponse luôn xóa lỗi, nên khôi phục err SAU khi setResponse
+    const e = snap && snap.reqId === reqId ? snap.err ?? null : null;
     if (a.response !== r) a.setResponse(r);
+    if (a.sendError !== e) a.setSendError(e);
     const snapt = a.testsByTab[activeId];
     const t = snapt && snapt.reqId === reqId ? snapt.res : null;
     if (a.testRun !== t) a.setTestRun(t);
@@ -37,24 +40,24 @@ export default function TabBar() {
   };
 
   return (
-    <div className="flex items-center justify-between gap-2 pb-1 mb-2 border-b border-slate-800/80 shrink-0">
+    <div className="flex items-center pb-0.5 border-b border-slate-800/80 shrink-0">
       <div className="flex items-center gap-1.5 overflow-x-auto min-w-0 flex-1 py-0.5">
         {tabs.map((t) => {
           const isActive = t.id === activeId;
           return (
             <div
               key={t.id}
-              className={`group shrink-0 flex items-center gap-2 px-3 py-1.5 rounded-t-lg text-xs whitespace-nowrap transition-all border ${
+              className={`group shrink-0 flex items-center gap-1.5 px-2.5 py-1 rounded-t-lg text-[11px] whitespace-nowrap transition-all border ${
                 isActive
                   ? 'bg-slate-900 dark:bg-[#111c26] border-emerald-500/50 border-b-slate-900 dark:border-b-[#111c26] text-slate-100 font-medium shadow-[0_0_12px_rgba(16,185,129,0.15)]'
                   : 'bg-slate-950/60 dark:bg-[#0b131c]/60 border-slate-700/60 dark:border-slate-800 text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 dark:hover:bg-[#0e1722]'
               }`}
             >
               <button onClick={() => setActiveTab(t.id)} className="flex items-center gap-1.5 min-w-0">
-                <span className={`font-mono text-[11px] font-bold ${METHOD_COLOR[t.request.method]}`}>
+                <span className={`font-mono text-[10px] font-bold ${METHOD_COLOR[t.request.method]}`}>
                   {t.request.method}
                 </span>
-                <span className="max-w-40 truncate">{t.request.name}</span>
+                <span className="max-w-44 truncate">{t.request.name}</span>
                 {t.dirty && <span className="text-amber-400 font-bold" title={i18n.tabs.unsaved}>•</span>}
               </button>
               <button
@@ -70,19 +73,9 @@ export default function TabBar() {
         <button
           onClick={() => openTab()}
           title={i18n.tabs.newTab}
-          className="w-6 h-6 shrink-0 rounded-md hover:bg-slate-800 text-slate-400 hover:text-white flex items-center justify-center text-sm transition-colors"
+          className="w-5 h-5 shrink-0 rounded-md hover:bg-slate-800 text-slate-400 hover:text-white flex items-center justify-center text-xs transition-colors"
         >
           ＋
-        </button>
-      </div>
-
-      {/* Right Tab Utilities (Split view & Options) */}
-      <div className="flex items-center gap-2 text-slate-400 shrink-0 pr-1">
-        <button title={i18n.tabs.splitView} className="hover:text-white text-xs p-1 rounded hover:bg-slate-800">
-          ❐
-        </button>
-        <button title={i18n.tabs.tabOptions} className="hover:text-white text-xs p-1 rounded hover:bg-slate-800 font-bold">
-          •••
         </button>
       </div>
     </div>

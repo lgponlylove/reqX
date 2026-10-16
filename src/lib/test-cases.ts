@@ -482,7 +482,11 @@ export function maskCurl(curl: string): string {
     .replace(/(-H\s+["']?)(authorization|cookie|x-api-key|api-key)\s*:\s*[^"'\n]+/gi, (_m, p1, p2) => `${p1}${p2}: ***`)
     .replace(/(--?[bu]\s+["'])([^"'\s]+:\/\/[^"'\s@]+):[^"'\s@]+@/gi, '$1$2:***@')
     .replace(/(Bearer\s+)[A-Za-z0-9._\-]{6,}/gi, '$1***')
-    .replace(/(JSESSIONID=)[A-Za-z0-9]{6,}/gi, '$1***');
+    .replace(/(JSESSIONID=)[A-Za-z0-9]{6,}/gi, '$1***')
+    // URL trong curl cũng mang credential: ?token=abc&api_key=xyz
+    .replace(/(["'])(https?:\/\/[^"'\s]+)\1/gi, (_m, q, u) => `${q}${maskUrl(u)}${q}`)
+    // body trong --data*/--form vẫn là text thường — che theo key như mọi output khác
+    .replace(/(--(?:data|data-raw|data-binary|data-urlencode|form|json)\s+)(["'])([\s\S]*?)\2/gi, (_m, p1, q, body) => `${p1}${q}${maskSensitiveBody(body)}${q}`);
 }
 
 /* ------------------------------------------------------------------ chạy bộ case */

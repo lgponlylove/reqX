@@ -185,3 +185,25 @@ export async function revealExportedFile(path: string): Promise<void> {
     /* mở không được thì thôi — file vẫn nằm cạnh app */
   }
 }
+
+/**
+ * Ghi file tài liệu: cạnh app khi chạy Tauri, không ghi được (bản web) thì tải về Downloads.
+ * Trả về **nơi đã lưu** để đúng chỗ báo lỗi báo thành công — dùng chung cho nút Send và menu Sidebar.
+ * `kind` chỉ quyết MIME khi tải về (md mở bằng editor, html mở thẳng ra trình duyệt).
+ */
+export async function saveDocExport(filename: string, text: string, kind: 'md' | 'html' = 'md'): Promise<string> {
+  const saved = await saveExportBesideApp(filename, text);
+  if (saved) {
+    await revealExportedFile(saved.path);
+    return saved.path;
+  }
+  const blob = new Blob([text], { type: kind === 'html' ? 'text/html;charset=utf-8' : 'text/markdown;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  window.setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  return 'thư mục Downloads';
+}

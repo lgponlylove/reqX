@@ -293,9 +293,9 @@ describe('cli/run — main() với file thật', () => {
     rmSync(TMP, { force: true });
   });
 
-  it('cờ chưa hỗ trợ (reporter là P1) → exit 2; --help → 0', async () => {
+  it('cờ không tồn tại → exit 2; --help → 0', async () => {
     const bad = collectingIo();
-    expect(await main(['run', 'a.json', '--reporter', 'junit'], bad.io)).toBe(2);
+    expect(await main(['run', 'a.json', '--parallel', '4'], bad.io)).toBe(2);
     expect(bad.err()).toMatch(/Lựa chọn không biết/);
 
     const help = collectingIo();

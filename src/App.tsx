@@ -4,7 +4,7 @@ import TabBar from './components/TabBar';
 import CommandPalette from './components/CommandPalette';
 import RequestBar from './components/RequestBar';
 import RequestTabs from './components/RequestTabs';
-import ResponseViewer from './components/ResponseViewer';
+import ResponseViewer, { formatSize } from './components/ResponseViewer';
 import Runner from './components/Runner';
 import WsTester from './components/WsTester';
 import GrpcTester from './components/GrpcTester';
@@ -22,6 +22,7 @@ import CookieManager from './components/CookieManager';
 import { useMockStore } from './stores/mock';
 import LanguageSwitcher from './components/LanguageSwitcher';
 import ThemeToggle from './components/ThemeToggle';
+import LicenseModal from './components/LicenseModal';
 import { useTranslation } from './stores/language';
 
 function EnvSelector() {
@@ -53,6 +54,9 @@ const MAIN_VIEWS: { id: View; key: 'builder' | 'runner' | 'flow' }[] = [
 ];
 
 const LS_SIDE_W = 'postman-clone-sidebar-w';
+const LS_RESP_H = 'postman-clone-resp-h';
+const RESP_MIN = 120;   // response không nhỏ hơn thế này khi kéo lên
+const REQ_MIN = 160;    // request không bị chèn chết khi kéo xuống
 
 export default function App() {
   const { t } = useTranslation();
@@ -64,10 +68,45 @@ export default function App() {
     return v >= 200 && v <= 600 ? v : 300;
   });
   const [sideOpen, setSideOpen] = useState(true);
+  // Bảng response thu được để request (Headers, Pre-request) có đủ chiều cao
+  const [respOpen, setRespOpen] = useState(true);
+  // null = chia đôi auto (flex-1); số = cao đúng bấy nhiêu px, nhớ lại sau khi reload
+  const [respH, setRespH] = useState<number | null>(() => {
+    const v = Number(localStorage.getItem(LS_RESP_H));
+    return v >= RESP_MIN ? v : null;
+  });
+  const splitRef = useRef<HTMLDivElement>(null);
+  const respPaneRef = useRef<HTMLDivElement>(null);
+  const vResize = useRef<{ y: number; h: number } | null>(null);
+  const [vResizeActive, setVResizeActive] = useState(false);
+  const response = useAppStore((s) => s.response);
+  const sending = useAppStore((s) => s.sending);
+  const lastResponse = useRef(response);
   const isMockRunning = useMockStore((s) => s.isRunning);
   const resizing = useRef(false);
   const sideWRef = useRef(sideW);
   sideWRef.current = sideW;
+  const respHRef = useRef(respH);
+  respHRef.current = respH;
+
+  const aiSeedPrompt = useAppStore((s) => s.aiSeedPrompt);
+  useEffect(() => { if (aiSeedPrompt) setView('ai'); }, [aiSeedPrompt]);
+
+  // Có kết quả mới thì tự mở lại — thu gọn là để soạn request, không phải để bỏ xem response
+  useEffect(() => {
+    if (response && response !== lastResponse.current) {
+      lastResponse.current = response;
+      setRespOpen(true);
+    }
+  }, [response]);
+
+  // Lỗi gửi request cũng hiện trong bảng response → gửi xong mà có lỗi thì tự mở bảng
+  const sendError = useAppStore((s) => s.sendError);
+  const wasSending = useRef(false);
+  useEffect(() => {
+    if (wasSending.current && !sending && useAppStore.getState().sendError) setRespOpen(true);
+    wasSending.current = sending;
+  }, [sending]);
 
   // Kéo giãn sidebar: nhấn vào thanh giữa rồi rê chuột
   useEffect(() => {
@@ -81,6 +120,35 @@ export default function App() {
       document.body.style.cursor = '';
       try {
         localStorage.setItem(LS_SIDE_W, String(sideWRef.current));
+      } catch { /* ignore */ }
+    };
+    window.addEventListener('mousemove', move);
+    window.addEventListener('mouseup', up);
+    return () => {
+      window.removeEventListener('mousemove', move);
+      window.removeEventListener('mouseup', up);
+    };
+  }, []);
+
+  // Kéo phân chia request/response theo chiều dọc (như Postman): rê thanh giữa 2 bảng.
+  // Response nằm dưới nên kéo LÊN (clientY giảm) làm bảng response DÀI ra.
+  useEffect(() => {
+    const move = (e: MouseEvent) => {
+      const start = vResize.current;
+      if (!start) return;
+      const avail = splitRef.current?.getBoundingClientRect().height ?? 0;
+      const max = Math.max(RESP_MIN, avail - REQ_MIN - 24);
+      setRespH(Math.min(max, Math.max(RESP_MIN, start.h + (start.y - e.clientY))));
+    };
+    const up = () => {
+      if (!vResize.current) return;
+      vResize.current = null;
+      setVResizeActive(false);
+      document.body.style.cursor = '';
+      const h = respHRef.current;
+      try {
+        if (h === null) localStorage.removeItem(LS_RESP_H);
+        else localStorage.setItem(LS_RESP_H, String(h));
       } catch { /* ignore */ }
     };
     window.addEventListener('mousemove', move);
@@ -184,9 +252,10 @@ export default function App() {
             })}
           </div>
 
-          {/* Right: Environment Selector, Language Switcher, Theme Toggle & Command Palette */}
+          {/* Right: Environment Selector, Pro/License, Language Switcher, Theme Toggle & Command Palette */}
           <div className="flex items-center gap-2 shrink-0">
             <EnvSelector />
+            <LicenseModal />
             <LanguageSwitcher />
             <ThemeToggle />
             <CommandPalette onOpenView={(v) => setView(v as View)} />
@@ -195,18 +264,70 @@ export default function App() {
 
         {/* Main Workspace View */}
         <section className="flex-1 min-w-0 flex flex-col bg-slate-900/50 backdrop-blur-md border border-slate-800/80 rounded-2xl p-4 shadow-2xl shadow-black/40 overflow-hidden">
-          <div className={view === 'builder' ? 'flex flex-col gap-3.5 flex-1 min-h-0 overflow-hidden' : 'hidden'}>
+          <div ref={splitRef} className={`${vResizeActive ? 'select-none' : ''} ${view === 'builder' ? 'flex flex-col gap-1.5 flex-1 min-h-0 overflow-hidden' : 'hidden'}`}>
             <TabBar />
             {/* Pane request: tự cuộn, không ép TabBar/Response biến mất khi body dài */}
-            <div className="flex flex-col gap-3.5 flex-1 min-h-0 overflow-y-auto pr-0.5">
+            <div className="flex flex-col gap-3 flex-1 min-h-[140px] overflow-y-auto pr-0.5">
               <RequestBar />
               <RequestTabs />
             </div>
-            <hr className="border-slate-800/80 shrink-0" />
-            {/* Pane response */}
-            <div className="flex-1 min-h-0 overflow-y-auto pr-0.5">
-              <ResponseViewer />
-            </div>
+            {/* Pane response — thu gọn thành 1 thanh để request chiếm hết chiều cao */}
+            {respOpen ? (
+              <>
+                {/* Thanh chia kéo được (giống Postman): nhấn đúp = trả về chia đôi auto */}
+                <div
+                  role="separator"
+                  aria-orientation="horizontal"
+                  title={t.response.dragHint}
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    const pane = respPaneRef.current;
+                    vResize.current = { y: e.clientY, h: pane ? pane.getBoundingClientRect().height : 0 };
+                    setVResizeActive(true);
+                    document.body.style.cursor = 'row-resize';
+                  }}
+                  onDoubleClick={() => setRespH(null)}
+                  className="group shrink-0 h-2 -my-0.5 flex items-center justify-center cursor-row-resize touch-none"
+                >
+                  <div
+                    className={`h-[3px] rounded-full transition-all ${
+                      respH === null ? 'w-10' : 'w-16'
+                    } ${vResizeActive ? 'bg-emerald-400' : 'bg-slate-700 group-hover:bg-emerald-500/70'}`}
+                  />
+                </div>
+                <div
+                  ref={respPaneRef}
+                  style={respH === null ? undefined : { height: respH }}
+                  className={`${respH === null ? 'flex-1' : 'shrink-0'} min-h-0 overflow-y-auto pr-0.5`}
+                >
+                  <ResponseViewer onCollapse={() => setRespOpen(false)} />
+                </div>
+              </>
+            ) : (
+              <button
+                onClick={() => setRespOpen(true)}
+                title={t.response.expandPanel}
+                className="shrink-0 flex items-center gap-2 px-2 py-1.5 rounded border border-slate-800/80 hover:bg-slate-800/40 text-xs text-left"
+              >
+                <span className="text-slate-400">▸</span>
+                <span className="font-bold text-white shrink-0">{t.response.responseTitle}</span>
+                {sending ? (
+                  <span className="text-slate-400 animate-pulse truncate">{t.response.sendingState}</span>
+                ) : sendError ? (
+                  <span className="text-rose-400 truncate">⚠ {sendError}</span>
+                ) : response ? (
+                  <span className="font-mono text-emerald-400 truncate">
+                    {response.status} {response.statusText}
+                    <span className="text-slate-500"> · </span>
+                    {response.timeMs} ms
+                    <span className="text-slate-500"> · </span>
+                    {formatSize(response.sizeBytes)}
+                  </span>
+                ) : (
+                  <span className="text-slate-500">{t.response.noResponseShort}</span>
+                )}
+              </button>
+            )}
           </div>
           <div className={view === 'runner' ? 'flex-1 min-h-0 overflow-y-auto' : 'hidden'}>
             <Runner />

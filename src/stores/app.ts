@@ -1,17 +1,13 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { useRequestStore } from './request';
-import type { ApiRequest, ApiResponse, Collection, Dir, Environment, Folder, HistoryItem, KeyValue } from '../types/api';
-import { uid } from '../lib/variables';
+import type { ApiRequest, ApiResponse, Collection, Dir, Environment, Folder, HistoryItem } from '../types/api';
+import { uid, renameVarInRequest, renameVarRef } from '../lib/variables';
 import { GEMINI_DEFAULT_MODEL, sanitizeContents, type GeminiContent } from '../lib/ai/gemini';
 import type { AiChainEntry, AiStrategy, AiUsage } from '../lib/ai/ai-providers';
 import { stripRequestSecrets, looksSecret } from '../lib/secrets';
 import { maskSensitiveBody } from '../lib/mask';
 import type { ScriptOutcome } from '../lib/scripts';
-
-function escapeRegex(str: string): string {
-  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
 
 /** Trạng thái cần chụp lại trước khi trích biến hàng loạt để hoàn tác 1 bước */
 export interface VarsSnapshot {
@@ -23,44 +19,16 @@ export interface VarsSnapshot {
 }
 
 /**
- * Thay mọi tham chiếu `{{oldKey}}` → `{{newKey}}` trong request (URL, params, headers,
- * body, auth, script) và script cấp collection/folder. Dùng khi đổi tên biến env/global
- * để không sót tham chiếu.
+ * Thay mọi tham chiếu `{{oldKey}}` → `{{newKey}}` trong request đã lưu (URL, params,
+ * headers, body, auth + OAuth2, script), script cấp collection/folder, và **giá trị
+ * của các biến khác** (vd `baseUrl = http://{{domain}}/api`). Tab đang mở do
+ * `renameVarInTabs()` lo — xem `useRequestStore`.
  */
 function renameVarRefs(oldKey: string, newKey: string, state: AppState) {
-  const pattern = new RegExp(`\\{\\{${escapeRegex(oldKey)}\\}\\}`, 'g');
-  const replacement = `{{${newKey}}}`;
-  const has = (txt?: string) => !!txt && txt.includes(`{{${oldKey}}}`);
-  const swap = (txt?: string) => (has(txt) ? txt!.replace(pattern, replacement) : txt);
-  const swapList = (list: KeyValue[]) =>
-    list.some((kv) => has(kv.key) || has(kv.value))
-      ? list.map((kv) => ({ ...kv, key: swap(kv.key)!, value: swap(kv.value)! }))
-      : list;
+  const swap = (txt?: string) => renameVarRef(txt, oldKey, newKey);
 
   const requests: Record<string, ApiRequest> = {};
-  for (const [id, req] of Object.entries(state.requests)) {
-    const updated: ApiRequest = {
-      ...req,
-      url: swap(req.url)!,
-      params: swapList(req.params ?? []),
-      headers: swapList(req.headers ?? []),
-      body: swap(req.body) ?? req.body,
-      preRequest: swap(req.preRequest),
-      tests: swap(req.tests),
-    };
-    const a = req.auth;
-    if (a && (has(a.token) || has(a.username) || has(a.password) || has(a.apiKey) || has(a.apiKeyName))) {
-      updated.auth = {
-        ...a,
-        token: swap(a.token),
-        username: swap(a.username),
-        password: swap(a.password),
-        apiKey: swap(a.apiKey),
-        apiKeyName: swap(a.apiKeyName),
-      };
-    }
-    requests[id] = updated;
-  }
+  for (const [id, req] of Object.entries(state.requests)) requests[id] = renameVarInRequest(req, oldKey, newKey);
 
   const collections = state.collections.map((c) => ({
     ...c,
@@ -69,7 +37,15 @@ function renameVarRefs(oldKey: string, newKey: string, state: AppState) {
     folders: (c.folders ?? []).map((f) => ({ ...f, preRequest: swap(f.preRequest), tests: swap(f.tests) })),
   }));
 
-  return { requests, collections };
+  const environments = state.environments.map((e) => {
+    const variables: Record<string, string> = {};
+    for (const [k, v] of Object.entries(e.variables)) variables[k] = swap(v) ?? v;
+    return { ...e, variables };
+  });
+  const globals: Record<string, string> = {};
+  for (const [k, v] of Object.entries(state.globals)) globals[k] = swap(v) ?? v;
+
+  return { requests, collections, environments, globals };
 }
 
 interface AppState {
@@ -86,6 +62,8 @@ interface AppState {
   globalSecrets: string[];
   history: HistoryItem[];
   response: ApiResponse | null;
+  /** Lỗi lúc gửi request (mất kết nối / timeout) — hiển thị trong bảng Response, không persist */
+  sendError: string | null;
   /** Kết quả tests của lần gửi gần nhất (không persist) */
   testRun: ScriptOutcome | null;
   sending: boolean;
@@ -144,9 +122,11 @@ interface AppState {
   removeHistoryItem: (id: string) => void;
   clearHistory: () => void;
   setResponse: (r: ApiResponse | null) => void;
+  /** Ghi lỗi gửi request vào bảng response (null = xóa) — giữ riêng theo tab như response */
+  setSendError: (e: string | null) => void;
   setTestRun: (t: ScriptOutcome | null) => void;
   /** Response/tests của lần gửi gần nhất, giữ riêng theo từng request-tab (RAM, không persist) */
-  respByTab: Record<string, { reqId: string; res: ApiResponse | null }>;
+  respByTab: Record<string, { reqId: string; res: ApiResponse | null; err?: string | null }>;
   testsByTab: Record<string, { reqId: string; res: ScriptOutcome | null }>;
   /** Xóa dữ liệu các tab đã đóng */
   pruneTabs: (ids: string[]) => void;
@@ -170,6 +150,9 @@ interface AppState {
   /** Chiến lược gọi chain: save-cost (free trước) hay stable (paid trước) */
   aiStrategy: AiStrategy;
   setAiStrategy: (s: AiStrategy) => void;
+  /** AI vừa ghi script thì app tự gửi 1 request để chứng minh script chạy được (mặc định BẬT) */
+  aiAutoVerify: boolean;
+  setAiAutoVerify: (v: boolean) => void;
   /** Thống kê tokens theo entry chain (để ước tính chi phí nấc paid) */
   aiStats: Record<string, AiEntryStats>;
   recordAiUsage: (id: string, u: AiUsage, ok: boolean) => void;
@@ -181,6 +164,9 @@ interface AppState {
   pushAiChat: (m: AiChatMsg) => void;
   setAiContents: (c: GeminiContent[]) => void;
   clearAiChat: () => void;
+  /** Prompt tạm thời gửi từ nút "✨ AI viết script" → AiAssistant nhận rồi xóa. */
+  aiSeedPrompt: string | null;
+  setAiSeedPrompt: (p: string | null) => void;
 }
 
 /** Thống kê 1 nấc chain: số lần gọi/lỗi + tokens (cộng dồn, có nút reset) */
@@ -220,11 +206,14 @@ export const useAppStore = create<AppState>()(
   aiChain: [],
   aiRrIndex: 0,
   aiStrategy: 'save-cost',
+  aiAutoVerify: true,
   aiStats: {},
   aiChat: [],
   aiContents: [],
+  aiSeedPrompt: null,
   history: [],
   response: null,
+  sendError: null,
   testRun: null,
   respByTab: {},
   testsByTab: {},
@@ -600,10 +589,9 @@ export const useAppStore = create<AppState>()(
       },
     })),
 
-  renameEnvVar: (envId, oldKey, newKey) =>
+  renameEnvVar: (envId, oldKey, newKey) => {
+    if (!newKey || newKey === oldKey) return;
     set((s) => {
-      if (!newKey || newKey === oldKey) return s;
-
       // 1. Copy giá trị và secret status sang key mới, xóa key cũ trong environment
       const environments = s.environments.map((e) => {
         if (e.id !== envId) return e;
@@ -621,9 +609,12 @@ export const useAppStore = create<AppState>()(
         envSecrets[envId] = [...envSecrets[envId], newKey];
       }
 
-      // 2. Auto-sync toàn bộ tham chiếu {{oldKey}} trong request + script collection/folder
-      return { environments, envSecrets, ...renameVarRefs(oldKey, newKey, s) };
-    }),
+      // 2. Auto-sync {{oldKey}} trong request đã lưu + script collection/folder + giá trị biến khác
+      return { envSecrets, ...renameVarRefs(oldKey, newKey, { ...s, environments }) };
+    });
+    // 3. Tab đang mở là thứ người dùng nhìn thấy — đổi theo ngay, kể cả tab đang sửa dở
+    useRequestStore.getState().renameVarInTabs(oldKey, newKey);
+  },
 
   setEnvSecret: (envId, key, secret) =>
     set((s) => {
@@ -669,9 +660,9 @@ export const useAppStore = create<AppState>()(
           : s.globalSecrets,
     })),
 
-  renameGlobal: (oldKey, newKey) =>
+  renameGlobal: (oldKey, newKey) => {
+    if (!newKey || newKey === oldKey) return;
     set((s) => {
-      if (!newKey || newKey === oldKey) return s;
       const globals = { ...s.globals };
       const oldValue = globals[oldKey] ?? '';
       delete globals[oldKey];
@@ -679,8 +670,10 @@ export const useAppStore = create<AppState>()(
       const globalSecrets = s.globalSecrets.includes(oldKey)
         ? [...new Set([...s.globalSecrets.filter((k) => k !== oldKey), newKey])]
         : s.globalSecrets;
-      return { globals, globalSecrets, ...renameVarRefs(oldKey, newKey, s) };
-    }),
+      return { globalSecrets, ...renameVarRefs(oldKey, newKey, { ...s, globals }) };
+    });
+    useRequestStore.getState().renameVarInTabs(oldKey, newKey);
+  },
 
   deleteGlobal: (key) =>
     set((s) => {
@@ -719,7 +712,23 @@ export const useAppStore = create<AppState>()(
   setResponse: (r) =>
     set((s) => {
       const t = useRequestStore.getState();
-      return { response: r, respByTab: { ...s.respByTab, [t.activeId]: { reqId: t.current.id, res: r } } };
+      return {
+        response: r,
+        sendError: null,
+        respByTab: { ...s.respByTab, [t.activeId]: { reqId: t.current.id, res: r, err: null } },
+      };
+    }),
+  setSendError: (e) =>
+    set((s) => {
+      const t = useRequestStore.getState();
+      const prev = s.respByTab[t.activeId];
+      return {
+        sendError: e,
+        respByTab: {
+          ...s.respByTab,
+          [t.activeId]: { reqId: t.current.id, res: prev?.res ?? null, err: e },
+        },
+      };
     }),
   setTestRun: (t) =>
     set((s) => {
@@ -742,6 +751,7 @@ export const useAppStore = create<AppState>()(
   setAiChain: (c) => set({ aiChain: c }),
   bumpAiRr: () => set((s) => ({ aiRrIndex: s.aiRrIndex + 1 })),
   setAiStrategy: (s) => set({ aiStrategy: s }),
+  setAiAutoVerify: (v) => set({ aiAutoVerify: v }),
   recordAiUsage: (id, u, ok) =>
     set((s) => {
       const prev = s.aiStats[id] ?? { calls: 0, fails: 0, prompt: 0, completion: 0 };
@@ -761,6 +771,7 @@ export const useAppStore = create<AppState>()(
   pushAiChat: (m) => set((s) => ({ aiChat: [...s.aiChat, m].slice(-100) })),
   setAiContents: (c) => set({ aiContents: sanitizeContents(c.slice(-30)) }),
   clearAiChat: () => set({ aiChat: [], aiContents: [] }),
+  setAiSeedPrompt: (p) => set({ aiSeedPrompt: p }),
 
   importDirs: (dirs) =>
     set((s) => ({ dirs: [...s.dirs, ...dirs] })),
@@ -847,6 +858,7 @@ export const useAppStore = create<AppState>()(
           aiChain: s.aiChain,
           aiRrIndex: s.aiRrIndex,
           aiStrategy: s.aiStrategy,
+          aiAutoVerify: s.aiAutoVerify,
           aiStats: s.aiStats,
           aiChat: s.aiChat.slice(-100),
           aiContents: s.aiContents.slice(-30),

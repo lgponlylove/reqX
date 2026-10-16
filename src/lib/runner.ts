@@ -179,6 +179,8 @@ export interface RunAllOpts {
   onItem?: (r: RunItemResult, index: number) => void;
   /** Toàn bộ collection trong store — cần để chạy script mức collection/folder. */
   collections?: Collection[];
+  /** Dòng data của iteration hiện tại (data thắng env khi đọc) — CLI dùng khi chạy --data. */
+  dataRow?: Record<string, string>;
   /** Kiểm thử Contract Testing với OpenAPI schema */
   contractTesting?: { enabled: boolean; spec?: any };
 }
@@ -252,7 +254,7 @@ export async function runRequestList(
   const out: RunItemResult[] = [];
   for (let i = 0; i < list.length; i++) {
     if (opts.signal?.aborted) break;
-    const r = await runOneRequest(list[i], hooks, opts.timeoutMs, opts.signal, undefined, opts.collections, opts.contractTesting);
+    const r = await runOneRequest(list[i], hooks, opts.timeoutMs, opts.signal, opts.dataRow, opts.collections, opts.contractTesting);
     out.push(r);
     opts.onItem?.(r, i);
     if (!r.ok && opts.stopOnError) break;

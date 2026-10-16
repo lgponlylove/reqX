@@ -4,6 +4,7 @@ import { useRequestStore } from '../stores/request';
 import { contentTypeOf, downloadResponse, guessFileName, openDownloadsFolder, responseDataUrl } from '../lib/response-file';
 import { isTauri } from '../lib/http-client';
 import { generateJsonSchema } from '../lib/json-schema';
+import ExpandOverlay from './ExpandOverlay';
 import { useTranslation } from '../stores/language';
 
 type View = 'pretty' | 'schema' | 'raw' | 'headers' | 'preview' | 'tests' | 'file';
@@ -16,7 +17,7 @@ function statusColor(status: number): string {
   return 'bg-slate-600';
 }
 
-function formatSize(bytes: number): string {
+export function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / 1024 / 1024).toFixed(2)} MB`;
@@ -48,15 +49,17 @@ function highlightJson(pretty: string): string {
   );
 }
 
-export default function ResponseViewer() {
+export default function ResponseViewer({ onCollapse }: { onCollapse?: () => void }) {
   const { t: i18n } = useTranslation();
-  const { response, sending, testRun, setResponse } = useAppStore();
+  const { response, sendError, sending, testRun, setResponse } = useAppStore();
   const [view, setView] = useState<View>('pretty');
   const [copied, setCopied] = useState(false);
   const [saved, setSaved] = useState(false);
   const [folderMsg, setFolderMsg] = useState('');
   const [schemaLocked, setSchemaLocked] = useState(false);
   const [copiedSchema, setCopiedSchema] = useState(false);
+  // Response dài bị chặn ở max-h-96 → ô ⤢ mở toàn bộ nội dung trong popup
+  const [expanded, setExpanded] = useState(false);
 
   const pretty = useMemo(
     () => (response && response.bodyKind !== 'binary' ? tryPretty(response.body) : { ok: false, text: '' }),
@@ -95,9 +98,54 @@ export default function ResponseViewer() {
   }
 
   if (!response) {
+    if (sendError) {
+      return (
+        <div className="border border-rose-800 bg-rose-950/60 rounded-lg p-3">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-rose-400 text-xs font-bold shrink-0">⚠ {i18n.response.errorTitle}</span>
+            <button
+              onClick={async () => {
+                try {
+                  await navigator.clipboard.writeText(sendError);
+                  setCopied(true);
+                  window.setTimeout(() => setCopied(false), 1500);
+                } catch {
+                  /* clipboard bị chặn — bỏ qua, người dùng vẫn bôi đen được */
+                }
+              }}
+              className="text-[11px] px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300"
+            >
+              {copied ? '✓' : i18n.response.copyError}
+            </button>
+            {onCollapse && (
+              <button
+                onClick={onCollapse}
+                title={i18n.response.collapsePanel}
+                className="ml-auto text-xs text-slate-500 hover:text-slate-200"
+              >
+                ▾ {i18n.response.collapsePanel}
+              </button>
+            )}
+          </div>
+          <p className="mt-1.5 font-mono text-xs text-rose-300 whitespace-pre-wrap break-all">{sendError}</p>
+          <p className="mt-2 text-[11px] text-slate-400">{i18n.response.errorHint}</p>
+        </div>
+      );
+    }
     return (
       <div className="border border-dashed border-slate-700 rounded p-6 text-center text-slate-400">
         {i18n.response.noResponse}
+        {onCollapse && (
+          <div className="mt-2">
+            <button
+              onClick={onCollapse}
+              title={i18n.response.collapsePanel}
+              className="text-xs text-slate-500 hover:text-slate-200"
+            >
+              ▾ {i18n.response.collapsePanel}
+            </button>
+          </div>
+        )}
       </div>
     );
   }
@@ -114,6 +162,62 @@ export default function ResponseViewer() {
     !isBinary && (ct.includes('html') || /^\s*</.test(response.body));
   const passed = testRun?.results.filter((r) => r.passed).length ?? 0;
   const failed = (testRun?.results.length ?? 0) - passed;
+
+  /**
+   * Ba khung nội dung (pretty / raw / preview). `tall=true` là bản trong popup phóng to:
+   * lấp đầy khung thay vì bị chặn `max-h-96` như ô nhỏ.
+   */
+  const bodyPane = (tall: boolean) => {
+    const H = tall ? 'flex-1 min-h-0' : 'max-h-96';
+    return (
+      <>
+        {effectiveView === 'pretty' && (
+          pretty.ok ? (
+            <div className={`bg-slate-950 dark:bg-[#0b1219] border border-slate-750 dark:border-slate-800 rounded-lg overflow-hidden flex font-mono text-xs shadow-inner ${H}`}>
+              <div className="bg-slate-900 dark:bg-[#080e14] py-3 px-3 text-right select-none text-slate-400 dark:text-slate-600 border-r border-slate-750 dark:border-slate-800/80 text-[11px] leading-relaxed">
+                {Array.from({ length: lineCount }).map((_, i) => (
+                  <div key={i}>{i + 1}</div>
+                ))}
+              </div>
+              <pre
+                className="flex-1 p-3 overflow-auto whitespace-pre leading-relaxed font-mono"
+                dangerouslySetInnerHTML={{ __html: highlighted }}
+              />
+            </div>
+          ) : (
+            <div className={tall ? 'flex-1 min-h-0 flex flex-col' : ''}>
+              <p className="text-xs text-slate-500 mb-1">Không phải JSON — hiển thị dạng text:</p>
+              <pre className={`bg-slate-950 dark:bg-[#0b1219] border border-slate-750 dark:border-slate-800 rounded p-3 text-xs overflow-auto whitespace-pre-wrap font-mono ${H}`}>
+                {response.body || '(body trống)'}
+              </pre>
+            </div>
+          )
+        )}
+
+        {effectiveView === 'raw' && (
+          <pre className={`bg-slate-950 border border-slate-700 rounded p-3 text-xs overflow-auto whitespace-pre-wrap font-mono ${H}`}>
+            {response.body || '(body trống)'}
+          </pre>
+        )}
+
+        {effectiveView === 'preview' && (
+          isHtml ? (
+            <iframe
+              title="preview"
+              sandbox=""
+              srcDoc={response.body}
+              className={`w-full bg-white rounded border border-slate-700 ${tall ? 'flex-1 min-h-0' : 'h-96'}`}
+            />
+          ) : (
+            <pre className={`bg-slate-950 border border-slate-700 rounded p-3 text-xs overflow-auto whitespace-pre-wrap font-mono ${H}`}>
+              {response.body || '(body trống)'}
+            </pre>
+          )
+        )}
+      </>
+    );
+  };
+  const isTextPane = !isBinary && (effectiveView === 'pretty' || effectiveView === 'raw' || effectiveView === 'preview');
 
   async function copyBody() {
     try {
@@ -166,16 +270,26 @@ export default function ResponseViewer() {
 
   return (
     <div>
-      {/* Response Header with Metrics (⇄ Status, Time, Size, Clear) */}
-      <div className="flex flex-wrap items-center justify-between gap-3 mb-2 pb-1.5 border-b border-slate-800">
-        <div className="flex items-center gap-3">
+      {/* Response Header with Metrics — MỘT dòng, dính đỉnh khi cuộn (pane cha là overflow-y-auto).
+          mb đổi thành pb để phần nền dính header lấp kín, không hở 1 dải cho nội dung lọt qua. */}
+      <div className="sticky top-0 z-20 flex flex-nowrap items-center gap-2 pb-2.5 border-b border-slate-800 bg-slate-900/95 dark:bg-[#0a121c]/95 backdrop-blur-md overflow-x-auto">
+        <div className="flex items-center gap-2 shrink-0">
           <div className="flex items-center gap-1 pb-0.5 border-b-2 border-emerald-400">
-            <h2 className="font-bold text-xs text-white">Response</h2>
+            <h2 className="font-bold text-xs text-white whitespace-nowrap">Response</h2>
           </div>
-          <span className="text-xs text-slate-500 font-medium">Viewer</span>
+
+          {onCollapse && (
+            <button
+              onClick={onCollapse}
+              title={i18n.response.collapsePanel}
+              className="text-slate-500 hover:text-white transition-colors px-1 text-xs shrink-0"
+            >
+              ▾
+            </button>
+          )}
 
           {/* Sub-tabs */}
-          <div className="flex items-center gap-1 ml-2">
+          <div className="flex items-center gap-0.5 ml-1 shrink-0">
             {(
               (isBinary
                 ? [
@@ -195,7 +309,7 @@ export default function ResponseViewer() {
               <button
                 key={id}
                 onClick={() => setView(id)}
-                className={`px-2 py-0.5 text-xs rounded transition-colors ${
+                className={`px-1.5 py-0.5 text-xs rounded whitespace-nowrap transition-colors ${
                   effectiveView === id
                     ? 'bg-slate-800 font-semibold text-emerald-300'
                     : 'text-slate-400 hover:text-slate-200'
@@ -208,26 +322,44 @@ export default function ResponseViewer() {
         </div>
 
         {/* Right side metrics matching mockup */}
-        <div className="flex items-center gap-3 text-xs">
-          <span className="text-emerald-400 font-bold flex items-center gap-1 font-mono">
+        <div className="flex items-center gap-1.5 text-xs shrink-0 ml-auto pl-2">
+          <span className="text-emerald-400 font-bold flex items-center gap-1 font-mono whitespace-nowrap">
             <span>⇄</span> {response.status} {response.statusText}
           </span>
-          <span className="text-emerald-400 font-mono font-medium">
+          <span className="text-emerald-400 font-mono font-medium whitespace-nowrap">
             {response.timeMs} ms
           </span>
-          <span className="text-emerald-400 font-mono font-medium">
+          <span className="text-emerald-400 font-mono font-medium whitespace-nowrap">
             {formatSize(response.sizeBytes)}
           </span>
           <button
             onClick={() => setResponse(null)}
             title={i18n.response.clear}
-            className="text-slate-500 hover:text-rose-400 transition-colors p-0.5 text-xs"
+            className="text-slate-500 hover:text-rose-400 transition-colors p-0.5 text-xs shrink-0"
           >
             🗑
           </button>
+          {!isBinary && (
+            <button
+              onClick={copyBody}
+              className="text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 rounded px-1.5 py-0.5 whitespace-nowrap"
+              title={i18n.common.copy}
+            >
+              {copied ? i18n.common.copied : `📋 ${i18n.common.copy}`}
+            </button>
+          )}
+          {isTextPane && (
+            <button
+              onClick={() => setExpanded(true)}
+              title={i18n.request.expandHint}
+              className="text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 rounded px-1.5 py-0.5 whitespace-nowrap"
+            >
+              {i18n.request.expand}
+            </button>
+          )}
           <button
             onClick={saveFile}
-            className="text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 rounded px-2 py-0.5"
+            className="text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 rounded px-1.5 py-0.5 whitespace-nowrap"
             title={isBinary ? undefined : i18n.response.saveFile}
           >
             {saved ? '✓' : `💾 ${i18n.response.saveFile}`}
@@ -235,7 +367,7 @@ export default function ResponseViewer() {
           {!isBinary && pretty.ok && generatedSchema && (
             <button
               onClick={lockSchema}
-              className={`text-xs rounded px-2 py-0.5 font-semibold transition-all border ${
+              className={`text-xs rounded px-1.5 py-0.5 font-semibold transition-all border whitespace-nowrap ${
                 schemaLocked
                   ? 'bg-cyan-900 text-cyan-200 border-cyan-400 shadow-[0_0_10px_rgba(6,182,212,0.6)]'
                   : 'bg-cyan-950/80 hover:bg-cyan-900 text-cyan-300 border-cyan-700/80 hover:border-cyan-400'
@@ -303,34 +435,7 @@ export default function ResponseViewer() {
         </div>
       )}
 
-      {effectiveView === 'pretty' && (
-        pretty.ok ? (
-          <div className="bg-slate-950 dark:bg-[#0b1219] border border-slate-750 dark:border-slate-800 rounded-lg overflow-hidden flex font-mono text-xs max-h-96 shadow-inner">
-            <div className="bg-slate-900 dark:bg-[#080e14] py-3 px-3 text-right select-none text-slate-400 dark:text-slate-600 border-r border-slate-750 dark:border-slate-800/80 text-[11px] leading-relaxed">
-              {Array.from({ length: lineCount }).map((_, i) => (
-                <div key={i}>{i + 1}</div>
-              ))}
-            </div>
-            <pre
-              className="flex-1 p-3 overflow-auto whitespace-pre leading-relaxed font-mono"
-              dangerouslySetInnerHTML={{ __html: highlighted }}
-            />
-          </div>
-        ) : (
-          <div>
-            <p className="text-xs text-slate-500 mb-1">Không phải JSON — hiển thị dạng text:</p>
-            <pre className="bg-slate-950 dark:bg-[#0b1219] border border-slate-750 dark:border-slate-800 rounded p-3 text-xs overflow-auto max-h-96 whitespace-pre-wrap font-mono">
-              {response.body || '(body trống)'}
-            </pre>
-          </div>
-        )
-      )}
-
-      {effectiveView === 'raw' && (
-        <pre className="bg-slate-950 border border-slate-700 rounded p-3 text-xs overflow-auto max-h-96 whitespace-pre-wrap font-mono">
-          {response.body || '(body trống)'}
-        </pre>
-      )}
+      {bodyPane(false)}
 
       {effectiveView === 'headers' && (
         <div className="bg-slate-950 border border-slate-700 rounded overflow-hidden">
@@ -344,21 +449,6 @@ export default function ResponseViewer() {
             </div>
           ))}
         </div>
-      )}
-
-      {effectiveView === 'preview' && (
-        isHtml ? (
-          <iframe
-            title="preview"
-            sandbox=""
-            srcDoc={response.body}
-            className="w-full h-96 bg-white rounded border border-slate-700"
-          />
-        ) : (
-          <pre className="bg-slate-950 border border-slate-700 rounded p-3 text-xs overflow-auto max-h-96 whitespace-pre-wrap font-mono">
-            {response.body || '(body trống)'}
-          </pre>
-        )
       )}
 
       {effectiveView === 'tests' && testRun && (
@@ -388,6 +478,12 @@ export default function ResponseViewer() {
             </pre>
           )}
         </div>
+      )}
+
+      {expanded && (
+        <ExpandOverlay title={i18n.response.expandTitle} onClose={() => setExpanded(false)}>
+          {bodyPane(true)}
+        </ExpandOverlay>
       )}
     </div>
   );

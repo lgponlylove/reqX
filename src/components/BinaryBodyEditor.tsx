@@ -154,6 +154,7 @@ export default function BinaryBodyEditor({ value, onChange }: BinaryBodyEditorPr
             <span>Có thể chỉnh sửa hoặc dán chuỗi Base64</span>
           </div>
           <textarea
+            spellCheck={false}
             value={value}
             onChange={(e) => onChange(e.target.value)}
             placeholder="Dán chuỗi Base64 vào đây (vd: iVBORw0KGgoAAAANSUhEUgAA...)"

@@ -3,6 +3,8 @@ import { resolve } from 'node:path';
 import type { ApiRequest, Collection } from '../types/api';
 import { importPostmanCollection } from '../lib/postman-io';
 import { parseBackup } from '../lib/backup';
+import { parseDataFile } from '../lib/datafile';
+import { parseReporterList, type ReporterName } from './report';
 
 export const USAGE = `ReqX CLI — chạy Collection API từ dòng lệnh
 
@@ -20,9 +22,21 @@ Lựa chọn:
   --timeout <ms>        Timeout mỗi request (mặc định 30000)
   --delay <ms>          Nghỉ giữa hai request (mặc định 0)
   --bail                Dừng ngay khi có request/test thất bại
+  --reporter <danh_sách> Ghi file báo cáo, ngăn nhau bằng dấu phẩy:
+                          junit | json | html | csv   (hoặc "none" = không ghi)
+  --out <dir>           Thư mục chứa report. Mặc định: reqx-report/ cạnh file collection
+  --data <file>         File data CSV/JSON — mỗi dòng là một iteration
+  --iteration-count <n> Chạy n lần; dùng kèm --data thì vòng qua các dòng data
   -h, --help            Xem hướng dẫn
 
-Mã thoát: 0 = tất cả pass, 1 = có request/test fail, 2 = lỗi hệ thống (file/CĐTL).
+Mã thoát run: 0 = tất cả pass, 1 = có request/test fail, 2 = lỗi hệ thống (file/CĐTL).
+
+Lệnh phụ:
+  reqx env lint <file.json> [--env f] [--global f] [--var K=V]
+                        Soát biến trước khi chạy: biến thiếu / khai báo thừa / secret ghi
+                        thẳng trong file. Exit 1 khi có biến thiếu.
+  reqx ci init [--provider github|gitlab|jenkins] [--out <dir>] [--force]
+                        Sinh file pipeline mẫu, chỗ inject secret để trống cho bạn điền.
 
 BIẾN BÍ MẬT: giá trị lấy từ process.env khi file biến để trống — xuất pipeline bằng
   TOKEN=... reqx run col.json, không lưu token vào file nào cả.`;
@@ -42,6 +56,11 @@ export interface CliFlags {
   bail: boolean;
   help: boolean;
   version: boolean;
+  /** Báo cáo cần ghi ra file; rỗng = chỉ in stdout. */
+  reporters: ReporterName[];
+  outDir?: string;
+  dataFile?: string;
+  iterationCount: number;
 }
 
 export function defaultFlags(): CliFlags {
@@ -55,6 +74,8 @@ export function defaultFlags(): CliFlags {
     bail: false,
     help: false,
     version: false,
+    reporters: [],
+    iterationCount: 1,
   };
 }
 
@@ -87,7 +108,11 @@ export function parseArgs(argv: string[]): { flags: CliFlags; errors: string[] }
       case '--collection':
       case '--var':
       case '--timeout':
-      case '--delay': {
+      case '--delay':
+      case '--reporter':
+      case '--out':
+      case '--data':
+      case '--iteration-count': {
         let value: string | undefined;
         if (inline !== null) {
           value = a.slice(eq + 1);
@@ -102,10 +127,20 @@ export function parseArgs(argv: string[]): { flags: CliFlags; errors: string[] }
         else if (name === '--global') flags.globalFile = value;
         else if (name === '--base-url') flags.baseUrl = value;
         else if (name === '--collection') flags.onlyCollections.push(value);
-        else if (name === '--var') {
+        else if (name === '--out') flags.outDir = value;
+        else if (name === '--data') flags.dataFile = value;
+        else if (name === '--reporter') {
+          const parsed = parseReporterList(value);
+          if (parsed.error) errors.push(parsed.error);
+          else flags.reporters = parsed.names;
+        } else if (name === '--var') {
           const sep = value.indexOf('=');
           if (sep <= 0) errors.push(`--var cần dạng K=V (được: "${value}")`);
           else flags.vars[value.slice(0, sep)] = value.slice(sep + 1);
+        } else if (name === '--iteration-count') {
+          const n = Number(value);
+          if (!Number.isInteger(n) || n < 1) errors.push(`--iteration-count phải là số nguyên >= 1 (được: "${value}")`);
+          else flags.iterationCount = n;
         } else {
           const n = Number(value);
           if (!Number.isFinite(n) || n < 0) errors.push(`${name} phải là số ms (được: "${value}")`);
@@ -261,6 +296,21 @@ export function buildVars(flags: { envFiles: string[]; globalFile?: string; vars
   for (const f of flags.envFiles) Object.assign(envVars, readVarFile(f));
   Object.assign(envVars, flags.vars);
   return { envVars, globals };
+}
+
+/** Nạp file data cho --data (CSV/JSON, cùng định dạng Runner UI dùng). */
+export function loadDataFile(path: string): { rows: Record<string, string>[]; columns: string[] } {
+  const abs = resolve(path);
+  let text: string;
+  try {
+    text = readFileSync(abs, 'utf8');
+  } catch {
+    throw new Error(`Không đọc được file data "${abs}"`);
+  }
+  const parsed = parseDataFile(text, abs);
+  if (parsed.error) throw new Error(`File data "${abs}": ${parsed.error}`);
+  if (parsed.rows.length === 0) throw new Error(`File data "${abs}" không có dòng nào`);
+  return { rows: parsed.rows, columns: parsed.columns };
 }
 
 /** Tên mọi biến `{{...}}` được nhắc tới trong collection (url/body/header/auth/script). */

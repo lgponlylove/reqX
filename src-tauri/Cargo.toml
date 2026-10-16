@@ -16,6 +16,8 @@ serde_json = "1"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls-webpki-roots", "json", "multipart"] }
 # base64 để trả body nhị phân (ảnh/PDF/zip...) về frontend
 base64 = "0.22"
+# Xác thực chữ ký số License Key Ed25519 hoàn toàn offline
+ed25519-dalek = { version = "2", default-features = false, features = ["std"] }
 
 [features]
 default = ["custom-protocol"]

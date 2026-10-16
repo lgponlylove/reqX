@@ -4,8 +4,11 @@ interface Props {
   value: string;
   onChange: (v: string) => void;
   placeholder?: string;
+  /** Ô trong popup phóng to: cao lấp đầy khung thay vì cao mặc định 7 dòng. */
+  tall?: boolean;
+  /** Ô nhỏ trong tab Body: lớn hết chỗ còn lại của pane, tối thiểu 128px. */
+  fill?: boolean;
 }
-
 /** Token JSON: chuỗi (+dấu : của key), true/false/null, số, {{biến}}, dấu ngoặc. */
 const TOKEN_RE = /("(?:[^"\\]|\\.)*")(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?|\{\{\s*[\w.-]+\s*\}\}|[{}\[\],:]/g;
 
@@ -42,9 +45,11 @@ function highlightJson(text: string): ReactNode[] {
 }
 
 /** Textarea nhiều dòng highlight JSON: key xanh, chuỗi vàng, số tím, true/false/null hồng, {{biến}} xanh lá. */
-export default function JsonBodyEditor({ value, onChange, placeholder }: Props) {
+export default function JsonBodyEditor({ value, onChange, placeholder, tall, fill }: Props) {
   const backRef = useRef<HTMLDivElement>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
+  /** tall = lấp đầy popup; fill = lấp đầy pane với sàn 128px. */
+  const stretch = tall || fill;
 
   function syncFromTa() {
     if (backRef.current && taRef.current) {
@@ -54,7 +59,7 @@ export default function JsonBodyEditor({ value, onChange, placeholder }: Props) 
   }
 
   return (
-    <div className="relative bg-slate-900 border border-slate-700 rounded">
+    <div className={`relative bg-slate-900 border border-slate-700 rounded ${tall ? 'flex-1 min-h-0' : ''} ${fill ? 'flex-1 min-h-32' : ''}`}>
       <div
         ref={backRef}
         aria-hidden
@@ -66,9 +71,9 @@ export default function JsonBodyEditor({ value, onChange, placeholder }: Props) 
       </div>
       <textarea
         ref={taRef}
-        className="relative block w-full p-2.5 font-mono text-sm bg-transparent outline-none text-transparent caret-emerald-300 selection:bg-emerald-900 whitespace-pre-wrap break-words min-h-32"
+        className={`relative block w-full p-2.5 font-mono text-sm bg-transparent outline-none text-transparent caret-emerald-300 selection:bg-emerald-900 whitespace-pre-wrap break-words ${stretch ? 'h-full resize-none' : 'min-h-32'}`}
         style={{ scrollbarGutter: 'stable' }}
-        rows={7}
+        rows={tall ? 20 : 7}
         placeholder=""
         spellCheck={false}
         value={value}

@@ -11,6 +11,7 @@ import {
 } from '../lib/oauth2';
 import {
   getOAuth2SessionInfo,
+  autoSaveValue,
   ERROR_COOLDOWN_MS,
   type OAuth2SessionInfo,
 } from '../lib/oauth2-refresh';
@@ -38,7 +39,17 @@ function formatLeft(sec: number, isVi: boolean): string {
 
 export default function OAuth2Editor({ oauth2, onChange }: OAuth2EditorProps) {
   const { lang, t } = useTranslation();
-  const { environments, activeEnvId, globals, setEnvVar } = useAppStore();
+  const { environments, activeEnvId, globals, setEnvVar, setGlobal } = useAppStore();
+
+  /** Ghi token ra biến autoSave theo đúng nơi + đúng định dạng người dùng chọn. */
+  const saveAutoVar = (cfg: OAuth2Config) => {
+    const varName = cfg.autoSaveVar?.trim();
+    if (!varName) return;
+    const value = autoSaveValue(cfg);
+    if (!value) return;
+    if ((cfg.autoSaveScope ?? 'env') === 'global') setGlobal(varName, value);
+    else if (activeEnvId) setEnvVar(activeEnvId, varName, value);
+  };
 
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -95,10 +106,7 @@ export default function OAuth2Editor({ oauth2, onChange }: OAuth2EditorProps) {
       onChange(patch);
 
       // Tự động lưu vào biến môi trường nếu user cấu hình
-      const varName = oauth2.autoSaveVar?.trim();
-      if (varName && activeEnvId) {
-        setEnvVar(activeEnvId, varName, result.accessToken);
-      }
+      saveAutoVar({ ...oauth2, ...patch });
 
       setSuccessMsg(
         lang === 'vi'
@@ -137,10 +145,7 @@ export default function OAuth2Editor({ oauth2, onChange }: OAuth2EditorProps) {
 
       onChange(patch);
 
-      const varName = oauth2.autoSaveVar?.trim();
-      if (varName && activeEnvId) {
-        setEnvVar(activeEnvId, varName, result.accessToken);
-      }
+      saveAutoVar({ ...oauth2, ...patch });
 
       setSuccessMsg(lang === 'vi' ? 'Đã làm mới Token thành công!' : 'Token refreshed successfully!');
     } catch (err: any) {
@@ -501,6 +506,43 @@ export default function OAuth2Editor({ oauth2, onChange }: OAuth2EditorProps) {
               value={oauth2.autoSaveVar}
               onChange={(e) => onChange({ autoSaveVar: e.target.value })}
             />
+          )}
+          {!!oauth2.autoSaveVar && (
+            <>
+              {/* N8 — chọn Nơi ghi (env đang dùng hay biến Dùng chung) và Định dạng giá trị */}
+              <label className="flex items-center gap-1 text-xs text-slate-400">
+                {lang === 'vi' ? 'Ghi vào' : 'Save to'}
+                <select
+                  className="bg-slate-900 border border-slate-700 rounded px-1.5 py-0.5 text-xs text-slate-200"
+                  value={oauth2.autoSaveScope ?? 'env'}
+                  onChange={(e) => onChange({ autoSaveScope: e.target.value as 'env' | 'global' })}
+                >
+                  <option value="env">{lang === 'vi' ? 'Môi trường đang chọn' : 'Current environment'}</option>
+                  <option value="global">{lang === 'vi' ? 'Biến Dùng chung (Globals)' : 'Globals'}</option>
+                </select>
+              </label>
+              <label className="flex items-center gap-1 text-xs text-slate-400"
+                title={lang === 'vi'
+                  ? 'Trần: chỉ access_token. Có loại: "Bearer access_token" — API nào bắt gửi nguyên cả cụm thì chọn cái này'
+                  : 'Raw: access_token only. With type: "Bearer access_token"'}>
+                {lang === 'vi' ? 'Giá trị' : 'Value'}
+                <select
+                  className="bg-slate-900 border border-slate-700 rounded px-1.5 py-0.5 text-xs text-slate-200"
+                  value={oauth2.autoSaveFormat ?? 'access_token'}
+                  onChange={(e) => onChange({ autoSaveFormat: e.target.value as 'access_token' | 'with_type' })}
+                >
+                  <option value="access_token">{lang === 'vi' ? 'trần (xxx)' : 'raw (xxx)'}</option>
+                  <option value="with_type">{lang === 'vi' ? 'có loại (Bearer xxx)' : 'with type (Bearer xxx)'}</option>
+                </select>
+              </label>
+            </>
+          )}
+          {!!oauth2.autoSaveVar && oauth2.autoSaveScope === 'global' && (
+            <span className="text-[11px] text-slate-500">
+              {lang === 'vi'
+                ? '⚠ Ghi vào Globals — vẫn là secret (RAM-only, không xuất ra file)'
+                : '⚠ Saves into Globals — still secret (RAM-only, never exported)'}
+            </span>
           )}
         </div>
       </div>

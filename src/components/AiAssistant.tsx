@@ -10,6 +10,7 @@ import { runOneRequest, runRequestList, runCollectionWithData, collectRequests, 
 import { toCurl } from '../lib/codegen';
 import { runFlow, collectRequestVars } from '../lib/flow';
 import { confirmUntrustedScripts } from '../lib/scripts';
+import { PM_SANDBOX_DOC, SCRIPT_SNIPPETS, snippetById, snippetsFor } from '../lib/script-snippets';
 import { scriptChainFor } from '../lib/script-chain';
 import { importAnyJson, summarizeImport } from '../lib/import-any';
 import { getBody, saveBodies, pruneBodies } from '../lib/bodyStore';
@@ -24,6 +25,11 @@ import { useScheduleStore } from '../stores/schedule';
 import { engineRunning } from '../lib/scheduleEngine';
 import type { ApiRequest, HttpMethod } from '../types/api';
 
+/** Mục lục mẫu script — nhét vào prompt để model biết đường gọi get_script_snippet, không phải copy cả code. */
+const SNIPPET_INDEX = SCRIPT_SNIPPETS.map(
+  (s) => `- ${s.id} (${s.kind === 'pre' ? 'Pre-request' : 'Tests'}): ${s.label.vi} — ${s.hint.vi}`,
+).join('\n');
+
 const SYSTEM = `Bạn là trợ lý trong app ReqX (test API kiểu Postman). Trả lời NGẮN GỌN bằng Tiếng Việt.
 Bạn có tools để xem và điều khiển app. Quy tắc:
 - Khi người dùng nhắc tên (collection/request/flow/env): gọi tool list tương ứng trước để kiểm tra. Nếu KHÔNG có tên khớp chính xác 100% (hoặc có nhiều tên gần giống, VD người dùng bảo 'order/get' nhưng chỉ có 'order/print by id' hoặc 'order/get by id'): BẮT BUỘC liệt kê các request tìm được và HỎI LẠI người dùng để xác nhận, TUYỆT ĐỐI KHÔNG tự ý chọn bừa request khác để sửa hay chèn script.
@@ -36,8 +42,16 @@ Bạn có tools để xem và điều khiển app. Quy tắc:
 - Muốn CHẠY BULK nhiều data: hỏi data (người dùng dán CSV/JSON, dòng đầu là tên cột = tên biến) HOẶC tự sinh N dòng test từ cấu trúc body (xem {{bien}} bằng get_request, sinh đủ case: khác nhau/giống nhau/dấu tiếng Việt/bỏ trống) → gọi run_collection_data → gọi export_last_run xuất file CSV (giờ chạy, curl, response).
 - Sau khi gọi tool xong (NHẤT LÀ khi có tool lỗi): LUÔN nhắn tóm tắt tiếng Việt — đã làm gì, tool nào lỗi + nguyên nhân + cách sửa cụ thể (VD data thiếu dòng tiêu đề thì viết lại data đúng cho người dùng copy), rồi hỏi tiếp. Không bao giờ chỉ gọi tool rồi im.
 - Muốn SỬA request có sẵn hoặc CHÈN SCRIPT (Pre-request/Tests): gọi update_request. TRỰC TIẾP truyền code JS vào biến pre_request hoặc tests để chèn thẳng vào DB. KHÔNG bảo người dùng copy thủ công.
+- VIẾT SCRIPT: CHỈ dùng đúng những hàm liệt kê ở mục "SANDBOX ReqX" cuối prompt. KHÔNG bịa API của Postman — mấy thứ sau KHÔNG tồn tại ở ReqX: 'pm.request' trong script Tests, chuỗi '.to.not.*' (Chai), 'formdata' trong pm.sendRequest, 'pm.expect(...).to.throw()', hàm async truyền vào pm.test, require/import, gọi fetch trực tiếp.
+- Trước khi tự viết script lấy token / ký chữ ký / kiểm field: gọi get_script_snippet để lấy nguyên văn MẪU ĐÃ CHẠY THẬT rồi chỉ sửa các chỗ đánh "// SỬA". Chỉ tự viết khi không mẫu nào phù hợp.
+- SAU KHI ghi script, kết quả tool sẽ có field "tu_kiem_chung": với update_request / update_current_request / create_request thì app ĐÃ tự gửi thử 1 lần để kiểm chứng; với set_scope_scripts thì field này chỉ báo "skipped" ⇒ phải tự gọi send_request trên 1 request AN TOÀN (không phải request ghi/xóa) trong phạm vi. Nếu "tu_kiem_chung.scriptError" có nội dung ⇒ BẮT BUỘC sửa script bằng chính tool đó rồi gọi lại, làm tối đa 3 vòng cho tới khi sạch lỗi; vẫn lỗi thì báo rõ nguyên nhân + cách người dùng sửa. CẤM nói "đã xong/đã chèn script" khi "tu_kiem_chung" đang báo lỗi.
 - Muốn đọc body response của step: gọi get_step_body (có phân trang offset/limit, đừng đoán nội dung body).
-- Khi người dùng bảo "lên key test / lập bộ test / test API này tự động": gọi generate_test_cases (request_ref để trống = request đang mở) → bảng duyệt sẽ mở. KHÔNG tự bịa bộ case trong tin nhắn. Muốn đổi mong đợi theo nghiệp vụ (VD "thiếu invoiceno phải 400") thì gọi refine_test_case. Sau đó run_test_cases rồi export_test_cases để ra file Excel; tóm tắt bao nhiêu case ✅/❌ và case nào ❌ đáng chú ý.`;
+- Khi người dùng bảo "lên key test / lập bộ test / test API này tự động": gọi generate_test_cases (request_ref để trống = request đang mở) → bảng duyệt sẽ mở. KHÔNG tự bịa bộ case trong tin nhắn. Muốn đổi mong đợi theo nghiệp vụ (VD "thiếu invoiceno phải 400") thì gọi refine_test_case. Sau đó run_test_cases rồi export_test_cases để ra file Excel; tóm tắt bao nhiêu case ✅/❌ và case nào ❌ đáng chú ý.
+
+${PM_SANDBOX_DOC}
+
+MẪU SCRIPT ĐÃ CHẠY THẬT (vitest chứng minh từng mẫu — gọi get_script_snippet(id) để lấy nguyên văn code):
+${SNIPPET_INDEX}`;
 
 const TOOLS: GeminiFunctionDecl[] = [
   { name: 'list_collections', description: 'Liệt kê collections (id, tên, số request).', parameters: { type: 'OBJECT', properties: {} } },
@@ -48,7 +62,7 @@ const TOOLS: GeminiFunctionDecl[] = [
   { name: 'list_flows', description: 'Liệt kê flows (id, tên, số step).', parameters: { type: 'OBJECT', properties: {} } },
   { name: 'run_flow', description: 'Chạy 1 flow (nối nhiều request), kết quả tự lưu vào lịch sử chạy của flow. Muốn đọc body response từng step thì gọi tiếp get_step_body.', parameters: { type: 'OBJECT', properties: { flow_ref: { type: 'STRING', description: 'id hoặc tên flow' } }, required: ['flow_ref'] } },
   { name: 'get_step_body', description: 'Đọc response body của 1 step trong lần chạy flow gần nhất (kể cả lần chạy từ tab Flow). Body dài thì đọc từng đoạn bằng offset/limit.', parameters: { type: 'OBJECT', properties: { flow_ref: { type: 'STRING', description: 'id hoặc tên flow' }, step: { type: 'STRING', description: 'số thứ tự step (0, 1, 2...) hoặc tên step' }, offset: { type: 'NUMBER', description: 'vị trí bắt đầu (mặc định 0)' }, limit: { type: 'NUMBER', description: 'số ký tự tối đa (mặc định 4000, tối đa 20000)' } }, required: ['flow_ref', 'step'] } },
-  { name: 'list_envs', description: 'Liệt kê environments (id, tên, env nào đang active, biến thường — không lộ secret).', parameters: { type: 'OBJECT', properties: {} } },
+  { name: 'list_envs', description: 'Liệt kê environments (id, tên, env đang active, biến thường + TÊN biến secret trong secretVars/globalSecrets — chỉ tên, không có giá trị).', parameters: { type: 'OBJECT', properties: {} } },
   { name: 'set_active_env', description: 'Đổi environment đang dùng.', parameters: { type: 'OBJECT', properties: { env_ref: { type: 'STRING', description: 'id hoặc tên env' } }, required: ['env_ref'] } },
   { name: 'set_variable', description: 'Gán biến (env = env đang active, global = dùng chung).', parameters: { type: 'OBJECT', properties: { scope: { type: 'STRING', enum: ['env', 'global'] }, key: { type: 'STRING' }, value: { type: 'STRING' } }, required: ['scope', 'key', 'value'] } },
   { name: 'create_request', description: 'Tạo request mới trong collection.', parameters: { type: 'OBJECT', properties: { collection_ref: { type: 'STRING', description: 'id/tên collection (trống = đầu tiên)' }, name: { type: 'STRING' }, method: { type: 'STRING', description: 'GET POST PUT PATCH DELETE HEAD OPTIONS' }, url: { type: 'STRING' }, body: { type: 'STRING', description: 'body raw (nếu có)' }, headers: { type: 'STRING', description: 'JSON mảng ["Key: value", ...] (nếu có)' }, auth: { type: 'STRING', description: '"none" | "bearer TOKEN" (TOKEN chứa {{bien}} được) | "header Tên-Header: giá-trị" — VD "bearer {{access_token}}"' }, pre_request: { type: 'STRING', description: 'Mã JS chạy trước khi gửi (gán biến, tạo token)' }, tests: { type: 'STRING', description: 'Mã JS chạy sau khi gửi (kiểm tra response)' } }, required: ['name', 'method', 'url'] } },
@@ -69,6 +83,7 @@ const TOOLS: GeminiFunctionDecl[] = [
   { name: 'update_current_request', description: 'Sửa request đang mở trong tab Builder (không cần tìm theo id/name). headers là JSON mảng ["Key: value"] — gộp vào headers cũ. auth như create_request. Chỉ truyền field cần đổi.', parameters: { type: 'OBJECT', properties: { name: { type: 'STRING' }, method: { type: 'STRING', description: 'GET POST PUT PATCH DELETE HEAD OPTIONS' }, url: { type: 'STRING' }, headers: { type: 'STRING', description: 'JSON mảng ["Key: value", ...] — gộp vào headers cũ' }, body: { type: 'STRING' }, auth: { type: 'STRING', description: '"none" | "bearer TOKEN" | "header Tên: giá-trị"' }, pre_request: { type: 'STRING', description: 'Mã JS chạy trước khi gửi (gán biến, tạo token)' }, tests: { type: 'STRING', description: 'Mã JS chạy sau khi gửi (kiểm tra response)' } } } },
   { name: 'import_postman_files', description: 'Import hàng loạt file/collection từ Postman export. Nhận JSON array chứa nội dung các file .postman_collection.json (user paste hoặc AI đọc từ folder). Tối đa 50 file/lần.', parameters: { type: 'OBJECT', properties: { files: { type: 'STRING', description: 'JSON array chứa nội dung các file Postman collection (mỗi phần tử là object JSON của 1 file)' } }, required: ['files'] } },
   { name: 'set_scope_scripts', description: 'Đọc hoặc sửa script ở mức collection/folder (pre-request + tests). Script này chạy cho MỌI request trong phạm vi, kế thừa xuống folder con lẫn request con.', parameters: { type: 'OBJECT', properties: { collection_ref: { type: 'STRING', description: 'id hoặc tên collection' }, folder_ref: { type: 'STRING', description: 'id/tên folder — trống = mức collection' }, pre_request: { type: 'STRING', description: 'Nội dung pre-request mới; không truyền = chỉ đọc' }, tests: { type: 'STRING', description: 'Nội dung tests mới; không truyền = chỉ đọc' } }, required: ['collection_ref'] } },
+  { name: 'get_script_snippet', description: 'Lấy nguyên văn 1 MẪU SCRIPT ĐÃ CHẠY THẬT trong sandbox ReqX (đã kiểm chứng bằng vitest): lấy token client_credentials, đăng nhập JSON lấy token, ký HMAC, gắn header từ biến, test status/time, test field bắt buộc, test JSON Schema, test có token. Ưu tiên dùng mẫu này thay vì tự viết, rồi chỉ sửa chỗ đánh "// SỬA". Để trống id = trả danh sách mẫu kèm hint.', parameters: { type: 'OBJECT', properties: { id: { type: 'STRING', description: 'id mẫu (VD token-client-credentials) — trống = liệt kê hết' }, kind: { type: 'STRING', enum: ['pre', 'tests'], description: 'chỉ lấy mẫu loại này (khi không truyền id)' } } } },
   { name: 'generate_test_cases', description: 'LÊN KEY TEST tự động cho 1 request: đọc field trong body JSON (kể cả mảng/object lồng nhau), query, header rồi sinh bộ case cực đoan. Nhóm null/rỗng luôn sinh đầu tiên cho MỌI field: thiếu key, null, chuỗi "", chỉ khoảng trắng, mảng rỗng [], object rỗng {}, body = {}, bỏ hẳn body. Field nghi bắt buộc (id/no/code/amount/date/action/type/name) mong đợi 4xx; field optional mong đợi "any". Ngoài ra: sai kiểu, số âm/0/rất lớn, ngày sai định dạng, chuỗi dài, ký tự Việt & đặc biệt, token sai, quét giá trị action. Mở bảng duyệt để người dùng sửa tên/data/mong đợi từng case, rồi chạy.', parameters: { type: 'OBJECT', properties: { request_ref: { type: 'STRING', description: 'id hoặc tên request — trống = request đang mở trong Builder' }, max_cases: { type: 'NUMBER', description: 'Số case tối đa (mặc định 40)' }, expect_hint: { type: 'STRING', description: 'Gợi ý kết quả đúng, VD "400 khi thiếu invoiceno" — sẽ ghi vào note' } }, required: [] } },
   { name: 'refine_test_case', description: 'Sửa 1 case trong bảng key test đang mở (đổi tên/nhóm/data/mong đợi status/mong đợi body chứa) theo nghiệp vụ, VD đổi case "null cho totalamount" từ any sang 400. Dùng số thứ tự hoặc case_id.', parameters: { type: 'OBJECT', properties: { case: { type: 'STRING', description: 'case_id hoặc số thứ tự case (1 = đầu tiên)' }, name: { type: 'STRING' }, data: { type: 'STRING', description: 'JSON object {"ten field":"gia tri"}; "<<xóa field>>" = bỏ hẳn key, "<<null>>" = gửi null, "" = chuỗi rỗng; key "body" (không có dấu :) thay cả body, VD {"body":"{}"}' }, expect_status: { type: 'STRING', description: '2xx | 4xx | 401 | 200 | !=200 | >=400 | any' }, expect_contains: { type: 'STRING', description: 'Chuỗi phải có trong response body (rỗng = không kiểm)' } }, required: ['case'] } },
   { name: 'run_test_cases', description: 'Chạy bộ key test đang mở (từng case = 1 lần gửi request với dữ liệu case, kèm pre-request + tests). Kết quả ✅/❌ so với mong đợi từng case hiện ngay ở bảng. Sau đó gọi export_test_cases để xuất file Excel.', parameters: { type: 'OBJECT', properties: { limit: { type: 'NUMBER', description: 'Số case tối đa để chạy (mặc định 25, tối đa 60)' } }, required: [] } },
@@ -132,6 +147,45 @@ function aiHooks(): RunnerHooks {
   return storeHooks();
 }
 
+/**
+ * AI vừa ghi script (pre_request/tests) thì app **tự gửi thử 1 lần** và nhét kết quả vào
+ * chính tool response — model nhìn thấy lỗi là phải sửa, không cần tin nó "tự giác".
+ * Tắt được bằng công tắc "Tự chạy thử script" (store: aiAutoVerify).
+ */
+async function selfVerifyScript(req: ApiRequest): Promise<Record<string, unknown>> {
+  const app = useAppStore.getState();
+  if (!app.aiAutoVerify) return { skipped: 'người dùng tắt công tắc "Tự chạy thử script" trong panel AI' };
+  if (!confirmUntrustedScripts([req], `AI tự chạy thử “${req.name}” để kiểm chứng script vừa ghi`, app.collections)) {
+    return { skipped: 'người dùng từ chối chạy thử script lạ' };
+  }
+  const r = await runOneRequest(req, aiHooks(), 30000, undefined, undefined, app.collections);
+  return {
+    da_gui_thu: true,
+    ok: r.ok,
+    status: r.status,
+    timeMs: r.timeMs,
+    tests: `${r.testsPassed}/${r.testsTotal}`,
+    scriptError: r.error,
+    logs: r.logs.slice(-8),
+    huong_dan: r.error
+      ? 'Script vừa ghi chạy lỗi — đối chiếu mục "SANDBOX ReqX", gọi get_script_snippet lấy mẫu đúng, sửa rồi gọi lại update_request (tối đa 3 vòng), sau đó mới báo cáo.'
+      : 'Script chạy sạch, không cần làm gì thêm.',
+  };
+}
+
+/** Tool trả về: có ghi script thì gắn thêm phần tự kiểm chứng. */
+async function withSelfCheck(
+  base: Record<string, unknown>,
+  args: Record<string, unknown>,
+  req: ApiRequest | null,
+): Promise<Record<string, unknown>> {
+  const wroteScript =
+    (typeof args.pre_request === 'string' && args.pre_request.trim() !== '') ||
+    (typeof args.tests === 'string' && args.tests.trim() !== '');
+  if (!wroteScript || !req) return base;
+  return { ...base, tu_kiem_chung: await selfVerifyScript(req) };
+}
+
 /** Kết quả bulk gần nhất do AI chạy (để export_last_run xuất file). */
 interface BulkRow {
   rowIndex: number;
@@ -191,7 +245,7 @@ async function saveCollectionRun(refId: string, refName: string, at: number, col
 }
 
 export default function AiAssistant({ onGoBuilder }: { onGoBuilder: () => void }) {
-  const { aiChain, setAiChain, bumpAiRr, aiStrategy, setAiStrategy, aiStats, recordAiUsage, clearAiStats, aiChat, pushAiChat, aiContents, setAiContents, clearAiChat } = useAppStore();
+  const { aiChain, setAiChain, bumpAiRr, aiStrategy, setAiStrategy, aiAutoVerify, setAiAutoVerify, aiStats, recordAiUsage, clearAiStats, aiChat, pushAiChat, aiContents, setAiContents, clearAiChat } = useAppStore();
   // Khung chain xếp gọn được — có provider dùng được thì mặc định gọn để chat chiếm hết chỗ
   const [showKeys, setShowKeys] = useState(() => orderChain(useAppStore.getState().aiChain, 0, useAppStore.getState().aiStrategy).length === 0);
   // Seed 1 lần từ key Gemini cũ (aiKey/aiKeyBackup) sang chain mới để không mất cấu hình
@@ -240,6 +294,13 @@ export default function AiAssistant({ onGoBuilder }: { onGoBuilder: () => void }
   // Lịch sử chat nằm ở store (persist) — đổi tab hay tắt app mở lại vẫn còn, chat tiếp được.
   const msgs = aiChat;
   const [input, setInput] = useState('');
+  // Nút "✨ AI viết script" ở RequestTabs ghi prompt tạm → nhận rồi xóa
+  const aiSeedPrompt = useAppStore((s) => s.aiSeedPrompt);
+  useEffect(() => {
+    if (!aiSeedPrompt) return;
+    setInput(aiSeedPrompt);
+    useAppStore.getState().setAiSeedPrompt(null);
+  }, [aiSeedPrompt]);
   const [busy, setBusy] = useState(false);
   const contentsRef = useRef<GeminiContent[]>(sanitizeContents(aiContents));
   /** Bucket đếm RPM + trạng thái học trần (AIMD) + breaker khóa tạm — giữ suốt session */
@@ -370,17 +431,22 @@ export default function AiAssistant({ onGoBuilder }: { onGoBuilder: () => void }
         return { ok: true, step: st.name, status: st.status, contentType: stored.contentType, totalChars: total, offset, text, truncated: offset + limit < total };
       }
       case 'list_envs': {
-        const secrets = new Set(app.envSecrets[app.activeEnvId ?? ''] ?? []);
         const active = app.environments.find((e) => e.id === app.activeEnvId);
         return {
           ok: true,
           active: active?.name ?? null,
-          envs: app.environments.map((e) => ({
-            id: e.id, name: e.name,
-            vars: Object.keys(e.variables).filter((k) => !(app.envSecrets[e.id] ?? []).includes(k)),
-          })),
+          envs: app.environments.map((e) => {
+            const sec = app.envSecrets[e.id] ?? [];
+            return {
+              id: e.id, name: e.name,
+              vars: Object.keys(e.variables).filter((k) => !sec.includes(k)),
+              // Chỉ TÊN biến secret — để AI viết đúng {{ten}}; giá trị không rời khỏi RAM.
+              secretVars: sec,
+            };
+          }),
           globals: Object.keys(app.globals).filter((k) => !app.globalSecrets.includes(k)),
-          note: `Biến secret của env active (${[...secrets].join(', ') || 'không có'}) bị ẩn.`,
+          globalSecrets: app.globalSecrets,
+          note: 'secretVars/globalSecrets là TÊN thường (đưa vào script bằng {{ten}} được); giá trị secret không bao giờ gửi cho AI.',
         };
       }
       case 'set_active_env': {
@@ -421,7 +487,7 @@ export default function AiAssistant({ onGoBuilder }: { onGoBuilder: () => void }
         };
         const saved = app.saveRequest(req, col.id);
         if (!saved) return { ok: false, error: 'Không lưu được request.' };
-        return { ok: true, id: saved.id, name: saved.name, collection: col.name };
+        return withSelfCheck({ ok: true, id: saved.id, name: saved.name, collection: col.name }, args, saved);
       }
       case 'update_request': {
         const req = matchByRef(Object.values(app.requests), str(args.request_ref), (r) => r);
@@ -458,7 +524,7 @@ export default function AiAssistant({ onGoBuilder }: { onGoBuilder: () => void }
         }
         const saved = app.saveRequest(patch);
         if (!saved) return { ok: false, error: 'Không lưu được request.' };
-        return { ok: true, id: saved.id, name: saved.name, note: 'Đã cập nhật (mở Builder để xem).' };
+        return withSelfCheck({ ok: true, id: saved.id, name: saved.name, note: 'Đã cập nhật (mở Builder để xem).' }, args, saved);
       }
       case 'import_json': {
         const content = str(args.content);
@@ -1000,8 +1066,13 @@ export default function AiAssistant({ onGoBuilder }: { onGoBuilder: () => void }
         }
         if (args.pre_request !== undefined) patch.preRequest = str(args.pre_request);
         if (args.tests !== undefined) patch.tests = str(args.tests);
+        const merged: ApiRequest = { ...tab.request, ...patch };
         set(patch);
-        return { ok: true, message: `Đã cập nhật request "${tab.request.name}" trong tab hiện tại.` };
+        return withSelfCheck(
+          { ok: true, message: `Đã cập nhật request "${merged.name}" trong tab hiện tại.` },
+          args,
+          merged,
+        );
       }
       case 'import_postman_files': {
         const filesRaw = str(args.files);
@@ -1034,6 +1105,26 @@ export default function AiAssistant({ onGoBuilder }: { onGoBuilder: () => void }
           (errors.length > 0 ? `\n⚠ Lỗi ${errors.length} file: ${errors.slice(0, 3).join('; ')}` : '');
         return { ok: totalCols > 0 || errors.length === 0, message: msg, collectionsImported: totalCols, requestsImported: totalReqs, errors };
       }
+      case 'get_script_snippet': {
+        const id = str(args.id).trim();
+        const kind = str(args.kind).trim();
+        if (id) {
+          const s = snippetById(id);
+          if (!s) {
+            return { ok: false, error: `Không có mẫu “${id}”. Có: ${SCRIPT_SNIPPETS.map((x) => x.id).join(', ')}` };
+          }
+          return {
+            ok: true, id: s.id, kind: s.kind, label: s.label.vi, hint: s.hint.vi, code: s.code,
+            note: 'Mẫu này đã chạy thật trong sandbox (vitest). Chỉ sửa các chỗ đánh "// SỬA", rồi chèn bằng update_request (pre_request/tests) hoặc set_scope_scripts.',
+          };
+        }
+        const list = kind === 'pre' || kind === 'tests' ? snippetsFor(kind) : SCRIPT_SNIPPETS;
+        return {
+          ok: true,
+          snippets: list.map((s) => ({ id: s.id, kind: s.kind, label: s.label.vi, hint: s.hint.vi })),
+          note: 'Truyền id để lấy nguyên văn code của mẫu.',
+        };
+      }
       case 'set_scope_scripts': {
         const scope = resolveScope(app, str(args.collection_ref), str(args.folder_ref));
         if ('error' in scope) return { ok: false, error: scope.error };
@@ -1059,6 +1150,10 @@ export default function AiAssistant({ onGoBuilder }: { onGoBuilder: () => void }
         return {
           ok: true,
           message: `Đã cập nhật script ${where}. Pre-request: ${patch.preRequest.trim() ? 'có' : 'trống'}, Tests: ${patch.tests.trim() ? 'có' : 'trống'}.`,
+          // Script mức collection/folder chạy cho MỌI request trong phạm vi — không tự chọn bừa 1 request để gửi.
+          tu_kiem_chung: (patch.preRequest.trim() || patch.tests.trim()) && useAppStore.getState().aiAutoVerify
+            ? { skipped: `script mức ${where} — tự gọi send_request trên 1 request trong phạm vi để kiểm chứng (đừng chọn request ghi/destructive)` }
+            : undefined,
         };
       }
       default:
@@ -1211,7 +1306,16 @@ export default function AiAssistant({ onGoBuilder }: { onGoBuilder: () => void }
             out = { ok: false, error: e instanceof Error ? e.message : String(e) };
           }
           const brief = out.ok === false ? `❌ ${String(out.error ?? 'lỗi')}` : '✓ xong';
-          push({ role: 'tool', text: `🔧 ${fn.name} → ${brief}` });
+          // cho người dùng thấy luôn bước app tự gửi thử kiểm chứng script (không chỉ model biết)
+          const sc = out.tu_kiem_chung as Record<string, unknown> | undefined;
+          const scTxt = !sc
+            ? ''
+            : typeof sc.skipped === 'string'
+              ? ` · 🔁 bỏ tự chạy thử (${sc.skipped})`
+              : sc.scriptError
+                ? ` · 🔁 tự chạy thử: script lỗi — ${String(sc.scriptError).slice(0, 90)}`
+                : ` · 🔁 tự chạy thử: HTTP ${sc.status ?? '—'} · tests ${sc.tests ?? '0/0'}`;
+          push({ role: 'tool', text: `🔧 ${fn.name} → ${brief}${scTxt}` });
           respParts.push({ functionResponse: { name: fn.name, response: out } });
         }
         contentsRef.current.push({ role: 'user', parts: respParts });
@@ -1258,6 +1362,13 @@ export default function AiAssistant({ onGoBuilder }: { onGoBuilder: () => void }
               <label className="flex items-center gap-1 cursor-pointer" title="Gọi paid trước, free chỉ dự phòng — ổn định nhất">
                 <input type="radio" checked={aiStrategy === 'stable'} onChange={() => setAiStrategy('stable')} />
                 Ổn định (paid → free)
+              </label>
+              <label
+                className="flex items-center gap-1 cursor-pointer ml-2 text-slate-300"
+                title="AI chèn/sửa script xong là app tự gửi thử 1 request để bắt lỗi script (model phải sửa tới khi sạch lỗi). TẮT nếu env đang trỏ hệ thống thật và bạn không muốn AI tự gửi."
+              >
+                <input type="checkbox" checked={aiAutoVerify} onChange={(ev) => setAiAutoVerify(ev.target.checked)} />
+                🔁 Tự chạy thử script AI vừa viết
               </label>
             </div>
             {aiChain.map((e, i) => {

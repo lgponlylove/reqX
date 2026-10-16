@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import ScriptCodeEditor from './ScriptCodeEditor';
-import { PRE_REQUEST_SAMPLE, TESTS_SAMPLE } from '../lib/scripts';
+import ScriptSnippetMenu, { insertSnippet } from './ScriptSnippetMenu';
 
 export interface ScriptsValue {
   preRequest: string;
@@ -75,12 +75,12 @@ export default function ScriptEditorModal({
         </div>
 
         <div className="flex items-center gap-2 px-4 pb-3">
-          <button
-            onClick={() => setCode(tab === 'pre' ? PRE_REQUEST_SAMPLE : TESTS_SAMPLE)}
-            className="text-xs px-3 py-1.5 rounded border border-slate-700 text-slate-300 hover:bg-slate-800"
-          >
-            Chèn mẫu
-          </button>
+          <ScriptSnippetMenu
+            kind={tab}
+            align="left"
+            placement="above"
+            onPick={(picked) => setCode(insertSnippet(code, picked))}
+          />
           <button
             onClick={() => setCode('')}
             disabled={!code.trim()}

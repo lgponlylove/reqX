@@ -5,7 +5,10 @@ import { useFlowStore } from '../stores/flow';
 import { importPostmanCollection, exportCollection, exportAllCollections, isFlowContainer } from '../lib/postman-io';
 import { importAnyJson, summarizeImport, type AnyImportResult } from '../lib/import-any';
 import { buildBackup } from '../lib/backup';
-import { saveExportBesideApp, revealExportedFile } from '../lib/response-file';
+import { saveExportBesideApp, revealExportedFile, saveDocExport } from '../lib/response-file';
+import { docsFileName, renderCollectionDocs } from '../lib/api-docs';
+import { renderDocsHtml } from '../lib/docs-html';
+import { collectDocsExtras } from '../lib/docs-input';
 import { uid } from '../lib/variables';
 import ContextMenu, { type MenuItem } from './ContextMenu';
 import CurlImport from './CurlImport';
@@ -272,6 +275,7 @@ function ReqRow({
 export default function Sidebar({ onCollapse, onGoFlow }: { onCollapse: () => void; onGoFlow?: () => void }) {
   const {
     collections, dirs, requests, history,
+    environments, activeEnvId, globals,
     addCollection, renameCollection, deleteCollection, removeRequestFromCollection,
     duplicateRequest,
     addDir, renameDir, deleteDir, moveCollection, moveDir,
@@ -817,8 +821,42 @@ export default function Sidebar({ onCollapse, onGoFlow }: { onCollapse: () => vo
   }
 
   /** Items cho menu chuột phải đang mở (thư mục / collection / folder / request). */
+  /**
+   * Xuất tài liệu (Markdown hoặc HTML) cho đúng phạm vi vừa chuột phải: cả collection, hoặc 1 thư mục
+   * (kèm folder con bên trong, không lấy request nằm ngoài folder).
+   */
+  async function exportDocs(col: Collection, format: 'md' | 'html', folderId?: string) {
+    const env = environments.find((e) => e.id === activeEnvId);
+    const scope = folderId ? col.folders.find((f) => f.id === folderId) : undefined;
+    const extras = collectDocsExtras();
+    const md = renderCollectionDocs(col, requests, {
+      env: { name: env?.name, variables: env?.variables ?? {}, globals },
+      folderId,
+      ...extras,
+    });
+    const label = scope ? `${col.name}-${scope.name}` : col.name;
+    const text = format === 'html' ? renderDocsHtml(md, { lang: extras.lang }) : md;
+    try {
+      const where = await saveDocExport(docsFileName(label, format), text, format);
+      alert(`📄 ${t.request.docsSaved}: ${where}`);
+    } catch (e) {
+      alert(`${t.request.docsFailed}: ` + (e instanceof Error ? e.message : String(e)));
+    }
+  }
+
   function menuItems(): MenuItem[] {
     if (!menu) return [];
+    // Folder và collection cùng dùng một cặp mục tài liệu (md để commit, html để mở trình duyệt).
+    const docsItems = (col: Collection, folderId?: string): MenuItem[] => [
+      {
+        label: folderId ? '📄 Tài liệu Markdown của folder' : '📄 Tài liệu Markdown của collection',
+        onClick: () => exportDocs(col, 'md', folderId),
+      },
+      {
+        label: folderId ? '🌐 Tài liệu HTML của folder' : '🌐 Tài liệu HTML của collection',
+        onClick: () => exportDocs(col, 'html', folderId),
+      },
+    ];
     if (menu.kind === 'dir' && menu.dirId) {
       const d = dirs.find((x) => x.id === menu.dirId);
       if (!d) return [];
@@ -945,6 +983,7 @@ export default function Sidebar({ onCollapse, onGoFlow }: { onCollapse: () => vo
           label: '⚡ Tạo biến từ request trong folder…',
           onClick: () => setExtract({ colId: c.id, folderId: f.id }),
         },
+        ...docsItems(c, f.id),
         {
           label: '＋ Tạo folder con trong đây',
           onClick: () => addFolder(c.id, 'New Folder', f.id),
@@ -986,6 +1025,7 @@ export default function Sidebar({ onCollapse, onGoFlow }: { onCollapse: () => vo
         label: '⚡ Tạo biến từ request trong collection…',
         onClick: () => setExtract({ colId: c.id }),
       },
+      ...docsItems(c),
       {
         label: (c.preRequest ?? '').trim() || (c.tests ?? '').trim() ? '📜 Script collection (có)' : '📜 Script collection…',
         onClick: () => setScriptEdit({ colId: c.id }),
