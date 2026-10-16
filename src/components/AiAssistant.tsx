@@ -46,7 +46,8 @@ Bạn có tools để xem và điều khiển app. Quy tắc:
 - Muốn SỬA request có sẵn hoặc CHÈN SCRIPT (Pre-request/Tests): gọi update_request. TRỰC TIẾP truyền code JS vào biến pre_request hoặc tests để chèn thẳng vào DB. KHÔNG bảo người dùng copy thủ công.
 - VIẾT SCRIPT: CHỈ dùng đúng những hàm liệt kê ở mục "SANDBOX ReqX" cuối prompt. KHÔNG bịa API của Postman — mấy thứ sau KHÔNG tồn tại ở ReqX: 'pm.request' trong script Tests, chuỗi '.to.not.*' (Chai), 'formdata' trong pm.sendRequest, 'pm.expect(...).to.throw()', hàm async truyền vào pm.test, require/import, gọi fetch trực tiếp.
 - Trước khi tự viết script lấy token / ký chữ ký / kiểm field: gọi get_script_snippet để lấy nguyên văn MẪU ĐÃ CHẠY THẬT rồi chỉ sửa các chỗ đánh "// SỬA". Chỉ tự viết khi không mẫu nào phù hợp.
-- SAU KHI ghi script, kết quả tool sẽ có field "tu_kiem_chung": với update_request / update_current_request / create_request thì app ĐÃ tự gửi thử 1 lần để kiểm chứng; với set_scope_scripts thì field này chỉ báo "skipped" ⇒ phải tự gọi send_request trên 1 request AN TOÀN (không phải request ghi/xóa) trong phạm vi. Nếu "tu_kiem_chung.scriptError" có nội dung ⇒ BẮT BUỘC sửa script bằng chính tool đó rồi gọi lại, làm tối đa 3 vòng cho tới khi sạch lỗi; vẫn lỗi thì báo rõ nguyên nhân + cách người dùng sửa. CẤM nói "đã xong/đã chèn script" khi "tu_kiem_chung" đang báo lỗi.
+- KHI CẦN TOKEN / THIẾU AUTH (HTTP 401): Tra cứu xem trong collection có request đăng nhập hoặc biến môi trường chưa (gọi list_requests, list_envs). TUYỆT ĐỐI KHÔNG tự bịa URL/endpoint giả lập (như auth.example.com, /api/login, localhost/auth...) để chèn script lấy token khi chưa biết endpoint thật. Nếu không thấy request đăng nhập nào trong collection, BẮT BUỘC DỪNG VÀ HỎI NGƯỜI DÙNG: endpoint API lấy token là gì, hoặc nhờ người dùng cung cấp token / biến môi trường.
+- SAU KHI ghi script, kết quả tool sẽ có field "tu_kiem_chung": với update_request / update_current_request / create_request thì app ĐÃ tự gửi thử 1 lần để kiểm chứng; với set_scope_scripts thì field này chỉ báo "skipped" ⇒ phải tự gọi send_request trên 1 request AN TOÀN (không phải request ghi/xóa) trong phạm vi. Nếu "tu_kiem_chung.scriptError" có nội dung ⇒ được phép sửa script tối đa 2 lần. NẾU LỖI LÀ HTTP 404 (endpoint không tồn tại) HOẶC 401/403 (sai credential): DỪNG NGAY LẬP TỨC, KHÔNG retry đoán mò URL khác; báo rõ cho người dùng để họ cung cấp URL hoặc token đúng. CẤM nói "đã xong/đã chèn script" khi "tu_kiem_chung" đang báo lỗi.
 - Muốn đọc body response của step: gọi get_step_body (có phân trang offset/limit, đừng đoán nội dung body).
 - Khi người dùng hỏi "tại sao request fail / lỗi", "giải thích kết quả/response vừa nhận", "tại sao API trả về...", hoặc cần viết test/assertion dựa trên response thực tế: BẮT BUỘC gọi get_last_response để đọc status, headers và body response (đừng đoán). Nếu body quá dài thì đọc tiếp bằng offset/limit.
 - Khi người dùng bảo "lên key test / lập bộ test / test API này tự động": gọi generate_test_cases (request_ref để trống = request đang mở) → bảng duyệt sẽ mở. KHÔNG tự bịa bộ case trong tin nhắn. Muốn đổi mong đợi theo nghiệp vụ (VD "thiếu invoiceno phải 400") thì gọi refine_test_case. Sau đó run_test_cases rồi export_test_cases để ra file Excel; tóm tắt bao nhiêu case ✅/❌ và case nào ❌ đáng chú ý.
@@ -1333,25 +1334,26 @@ export default function AiAssistant({
       if (!b || b.rpm !== rpm) bucketsRef.current[entry.id] = { b: new TierBucket(rpm), rpm };
       return bucketsRef.current[entry.id].b;
     };
-    const callEntry = async (entry: AiChainEntry) => {
+    const callEntry = async (entry: AiChainEntry, overrideTools?: GeminiFunctionDecl[]) => {
       const def = providerDef(entry.providerId);
       if (!def) throw new Error(`Provider lạ: ${entry.providerId}`);
       const model = entry.model.trim() || def.defaultModel;
+      const activeTools = overrideTools !== undefined ? overrideTools : TOOLS;
       if (def.style === 'gemini') {
-        const r = await generateContent(entry.key, model, SYSTEM, contentsRef.current, TOOLS);
+        const r = await generateContent(entry.key, model, SYSTEM, contentsRef.current, activeTools);
         return { parts: r.parts, usage: r.usage, rateLimit: undefined as AiRateLimit | undefined, entry };
       }
       const base = buildBaseURL(def, entry.accountId, entry.customBaseURL);
       if (!base) throw new Error(`${def.name}: thiếu Account ID hoặc Base URL.`);
       const r = await openaiChat({
         baseURL: base, key: entry.key, model,
-        system: SYSTEM, contents: contentsRef.current, tools: TOOLS,
+        system: SYSTEM, contents: contentsRef.current, tools: activeTools,
         maxTokens: Math.min(4096, def.maxTokensCap ?? 4096),
         extraHeaders: def.id === 'openrouter' ? { 'HTTP-Referer': 'https://reqx.app', 'X-Title': 'ReqX' } : undefined,
       });
       return { parts: r.parts, usage: r.usage, rateLimit: r.rateLimit, entry };
     };
-    const gen = async () => {
+    const gen = async (overrideTools?: GeminiFunctionDecl[]) => {
       const st = useAppStore.getState();
       const order = orderChain(st.aiChain, st.aiRrIndex, st.aiStrategy);
       let lastErr: unknown = new Error('Chain trống.');
@@ -1385,7 +1387,7 @@ export default function AiAssistant({
         }
         bucket.take(now);
         try {
-          const r = await callEntry(entry);
+          const r = await callEntry(entry, overrideTools);
           delete breakersRef.current[entry.id]; // thành công → mở lại breaker
           // Học trần: header hãng cho số thật thì theo, không thì AIMD tăng dần
           const hl = r.rateLimit?.limit;
@@ -1414,7 +1416,7 @@ export default function AiAssistant({
             push({ role: 'tool', text: `⏳ ${label} giới hạn tốc độ — đợi ${sec}s thử lại 1 lần…` });
             await new Promise((r) => setTimeout(r, sec));
             try {
-              const r2 = await callEntry(entry);
+              const r2 = await callEntry(entry, overrideTools);
               st.recordAiUsage(entry.id, r2.usage, true);
               return r2.parts;
             } catch (e2) {
@@ -1437,7 +1439,8 @@ export default function AiAssistant({
       for (let i = 0; i < 6; i++) {
         const parts = await gen();
         const calls = parts.filter((p) => p.functionCall);
-        reply += parts.map((p) => p.text ?? '').join('');
+        const text = parts.map((p) => p.text ?? '').join('');
+        if (text) reply += (reply ? '\n\n' : '') + text;
         if (calls.length === 0) {
           contentsRef.current.push({ role: 'model', parts });
           break;
@@ -1467,7 +1470,27 @@ export default function AiAssistant({
         }
         contentsRef.current.push({ role: 'user', parts: respParts });
       }
-      push({ role: 'model', text: reply.trim() || '(AI chỉ gọi tool, không nhắn gì thêm.)' });
+
+      // NẾU sau các vòng gọi tool mà model chưa trả lời văn bản cho user (hoặc bị ngắt ở vòng 6):
+      // BẮT BUỘC gọi 1 lượt Final Summary với tools = [] để AI giải thích rõ cho người dùng.
+      if (!reply.trim()) {
+        try {
+          contentsRef.current.push({
+            role: 'user',
+            parts: [{ text: 'Đã hoàn tất các thao tác công cụ trên. Hãy tóm tắt rõ ràng bằng tiếng Việt cho người dùng: bạn vừa làm những gì, kết quả hoặc lỗi gặp phải là gì, và cần người dùng cung cấp hay làm gì tiếp theo.' }],
+          });
+          const summaryParts = await gen([]);
+          const summaryText = summaryParts.map((p) => p.text ?? '').join('');
+          if (summaryText.trim()) {
+            reply = summaryText.trim();
+            contentsRef.current.push({ role: 'model', parts: summaryParts });
+          }
+        } catch {
+          // Fallback nếu lượt tóm tắt cũng lỗi
+        }
+      }
+
+      push({ role: 'model', text: reply.trim() || 'Đã hoàn tất các thao tác trên. Vui lòng kiểm tra kết quả trong app hoặc gửi tiếp yêu cầu.' });
     } catch (e) {
       push({ role: 'model', text: `❌ ${e instanceof Error ? e.message : String(e)}` });
       // Mọi nấc trong chain đều đã thử và lỗi
