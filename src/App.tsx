@@ -23,6 +23,7 @@ import { useMockStore } from './stores/mock';
 import LanguageSwitcher from './components/LanguageSwitcher';
 import ThemeToggle from './components/ThemeToggle';
 import LicenseModal from './components/LicenseModal';
+import DiagnosticsModal from './components/DiagnosticsModal';
 import { useTranslation } from './stores/language';
 
 function EnvSelector() {
@@ -252,12 +253,13 @@ export default function App() {
             })}
           </div>
 
-          {/* Right: Environment Selector, Pro/License, Language Switcher, Theme Toggle & Command Palette */}
+          {/* Right: Environment Selector, Pro/License, Language Switcher, Theme Toggle, Diagnostics & Command Palette */}
           <div className="flex items-center gap-2 shrink-0">
             <EnvSelector />
             <LicenseModal />
             <LanguageSwitcher />
             <ThemeToggle />
+            <DiagnosticsModal />
             <CommandPalette onOpenView={(v) => setView(v as View)} />
           </div>
         </header>

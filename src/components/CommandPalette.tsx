@@ -79,6 +79,7 @@ export default function CommandPalette({ onOpenView }: { onOpenView?: (view: str
           }) as Item,
       ),
       { kind: 'command', label: t.commandPalette.cmdToggleLang, sub: t.commandPalette.cmdGroup, run: () => toggleLanguage() },
+      { kind: 'command', label: t.diagnostics.title, sub: t.diagnostics.button, run: () => window.dispatchEvent(new CustomEvent('reqx:open-diagnostics')) },
     ];
     return list;
   }, [t, onOpenView, openTab, toggleLanguage]);
