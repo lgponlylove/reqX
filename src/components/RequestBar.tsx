@@ -206,6 +206,7 @@ export default function RequestBar() {
     abortRef.current = ctrl;
     cancelledRef.current = false;
     setSending(true);
+    useAppStore.getState().setAbortCurrentRequest(() => onCancel());
     setError('');
     setResponse(null);
     setTestRun(null);
@@ -270,7 +271,18 @@ export default function RequestBar() {
       const freshGlobals = fresh.globals;
 
       // 2. Gửi
-      const res = await sendRequest(effective, freshEnv, freshGlobals, timeoutS * 1000, ctrl.signal);
+      const res = await sendRequest(
+        effective,
+        freshEnv,
+        freshGlobals,
+        {
+          timeoutMs: timeoutS * 1000,
+          onStreamChunk: (partial) => {
+            setResponse(partial);
+          },
+        },
+        ctrl.signal,
+      );
       setResponse(res);
 
       // 3. Tests script (request → folder → collection)
@@ -290,12 +302,18 @@ export default function RequestBar() {
     } catch (e) {
       // Lỗi gửi/timeout → đẩy xuống bảng Response (thẻ đỏ) thay vì dải chữ dưới thanh URL
       if (e instanceof DOMException && e.name === 'AbortError') {
-        setSendError(cancelledRef.current ? 'Đã hủy request.' : `Timeout sau ${timeoutS}s (hoặc đã hủy).`);
+        const curResp = useAppStore.getState().response;
+        if (curResp && curResp.isStream) {
+          setResponse({ ...curResp, streamCompleted: true });
+        } else {
+          setSendError(cancelledRef.current ? 'Đã hủy request.' : `Timeout sau ${timeoutS}s (hoặc đã hủy).`);
+        }
       } else {
         setSendError(e instanceof Error ? e.message : String(e));
       }
     } finally {
       setSending(false);
+      useAppStore.getState().setAbortCurrentRequest(null);
       abortRef.current = null;
     }
   }

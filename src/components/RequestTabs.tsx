@@ -14,6 +14,7 @@ import { inheritedScriptCount } from '../lib/script-chain';
 import { useTranslation } from '../stores/language';
 import FormKeyEditor from './FormKeyEditor';
 import GraphQLEditor from './GraphQLEditor';
+import AiTestModal from './AiTestModal';
 import { parseGraphQLBody, buildGraphQLBody } from '../lib/graphql-utils';
 import { uid } from '../lib/variables';
 import type { BodyType, AuthType, RawSubtype } from '../types/api';
@@ -62,6 +63,7 @@ export default function RequestTabs() {
   const [fmtMsg, setFmtMsg] = useState('');
   // Ô đang phóng to — rỗng = không mở. Nội dung sửa thẳng qua set() nên không có bản copy lệch nhau.
   const [expanded, setExpanded] = useState<'' | 'pre' | 'tests' | 'body'>('');
+  const [showAiTestModal, setShowAiTestModal] = useState(false);
   useEffect(() => setExpanded(''), [current.id]);
 
   const tabLabels: Record<ReqSubTab, string> = {
@@ -421,9 +423,17 @@ export default function RequestTabs() {
             <p className="text-xs text-slate-500">
               {i18n.request.testsScriptHelp}
             </p>
+            <button
+              type="button"
+              onClick={() => setShowAiTestModal(true)}
+              className="ml-auto text-xs bg-fuchsia-950/60 hover:bg-fuchsia-900/80 text-fuchsia-200 border border-fuchsia-600/40 rounded px-2.5 py-1 flex items-center gap-1.5 transition-colors"
+              title="Nhờ AI tự động sinh kịch bản assertions từ response vừa gửi"
+            >
+              <span>✨</span>
+              <span>AI Sinh Test</span>
+            </button>
             <ScriptSnippetMenu
               kind="tests"
-              className="ml-auto"
               onPick={(code) => set({ tests: insertSnippet(current.tests ?? '', code) })}
             />
           </div>
@@ -485,6 +495,8 @@ export default function RequestTabs() {
           )}
         </ExpandOverlay>
       )}
+
+      {showAiTestModal && <AiTestModal onClose={() => setShowAiTestModal(false)} />}
     </div>
   );
 }

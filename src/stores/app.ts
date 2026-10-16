@@ -67,6 +67,8 @@ interface AppState {
   /** Kết quả tests của lần gửi gần nhất (không persist) */
   testRun: ScriptOutcome | null;
   sending: boolean;
+  abortCurrentRequest: (() => void) | null;
+  setAbortCurrentRequest: (fn: (() => void) | null) => void;
 
   addCollection: (name: string) => void;
   renameCollection: (id: string, name: string) => void;
@@ -218,6 +220,7 @@ export const useAppStore = create<AppState>()(
   respByTab: {},
   testsByTab: {},
   sending: false,
+  abortCurrentRequest: null,
 
   addCollection: (name) =>
     set((s) => ({
@@ -745,6 +748,7 @@ export const useAppStore = create<AppState>()(
       return { respByTab, testsByTab };
     }),
   setSending: (v) => set({ sending: v }),
+  setAbortCurrentRequest: (fn) => set({ abortCurrentRequest: fn }),
   setAiKey: (k) => set({ aiKey: k }),
   setAiKeyBackup: (k) => set({ aiKeyBackup: k }),
   setAiModel: (m) => set({ aiModel: m || GEMINI_DEFAULT_MODEL }),

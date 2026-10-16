@@ -5,9 +5,11 @@ import { contentTypeOf, downloadResponse, guessFileName, openDownloadsFolder, re
 import { isTauri } from '../lib/http-client';
 import { generateJsonSchema } from '../lib/json-schema';
 import ExpandOverlay from './ExpandOverlay';
+import AiTestModal from './AiTestModal';
+import SseStreamViewer from './SseStreamViewer';
 import { useTranslation } from '../stores/language';
 
-type View = 'pretty' | 'schema' | 'raw' | 'headers' | 'preview' | 'tests' | 'file';
+type View = 'pretty' | 'sse' | 'schema' | 'raw' | 'headers' | 'preview' | 'tests' | 'file';
 
 function statusColor(status: number): string {
   if (status >= 200 && status < 300) return 'bg-emerald-600';
@@ -60,6 +62,7 @@ export default function ResponseViewer({ onCollapse }: { onCollapse?: () => void
   const [copiedSchema, setCopiedSchema] = useState(false);
   // Response dài bị chặn ở max-h-96 → ô ⤢ mở toàn bộ nội dung trong popup
   const [expanded, setExpanded] = useState(false);
+  const [showAiTestModal, setShowAiTestModal] = useState(false);
 
   const pretty = useMemo(
     () => (response && response.bodyKind !== 'binary' ? tryPretty(response.body) : { ok: false, text: '' }),
@@ -89,7 +92,7 @@ export default function ResponseViewer({ onCollapse }: { onCollapse?: () => void
     return schemaPrettyText ? highlightJson(schemaPrettyText) : '';
   }, [schemaPrettyText]);
 
-  if (sending) {
+  if (sending && !response) {
     return (
       <div className="border border-slate-700 rounded p-6 text-center text-slate-300">
         <span className="animate-pulse">{i18n.response.sendingState}</span>
@@ -152,9 +155,14 @@ export default function ResponseViewer({ onCollapse }: { onCollapse?: () => void
 
   const headerEntries = Object.entries(response.headers);
   const isBinary = response.bodyKind === 'binary';
-  // Binary thì các tab text không có ý nghĩa → ép sang tab File
+  const isSse = Boolean(response.isStream || (response.sseEvents && response.sseEvents.length > 0));
+  // Binary thì các tab text không có ý nghĩa → ép sang tab File; Nếu là SSE thì mặc định view sse
   const effectiveView: View =
-    isBinary && (view === 'pretty' || view === 'raw' || view === 'preview') ? 'file' : view;
+    isBinary && (view === 'pretty' || view === 'raw' || view === 'preview' || view === 'sse')
+      ? 'file'
+      : (view === 'pretty' && isSse && !pretty.ok)
+        ? 'sse'
+        : view;
   const ct = contentTypeOf(response.headers).toLowerCase();
   const dataUrl = responseDataUrl(response);
   const fileName = guessFileName(response);
@@ -164,13 +172,17 @@ export default function ResponseViewer({ onCollapse }: { onCollapse?: () => void
   const failed = (testRun?.results.length ?? 0) - passed;
 
   /**
-   * Ba khung nội dung (pretty / raw / preview). `tall=true` là bản trong popup phóng to:
+   * Ba khung nội dung (pretty / raw / preview / sse). `tall=true` là bản trong popup phóng to:
    * lấp đầy khung thay vì bị chặn `max-h-96` như ô nhỏ.
    */
   const bodyPane = (tall: boolean) => {
     const H = tall ? 'flex-1 min-h-0' : 'max-h-96';
     return (
       <>
+        {effectiveView === 'sse' && (
+          <SseStreamViewer response={response} tall={tall} />
+        )}
+
         {effectiveView === 'pretty' && (
           pretty.ok ? (
             <div className={`bg-slate-950 dark:bg-[#0b1219] border border-slate-750 dark:border-slate-800 rounded-lg overflow-hidden flex font-mono text-xs shadow-inner ${H}`}>
@@ -298,6 +310,7 @@ export default function ResponseViewer({ onCollapse }: { onCollapse?: () => void
                     ...(testRun ? [['tests', `Tests (${testRun.results.length})`] as [View, string]] : []),
                   ]
                 : [
+                    ...(isSse ? ([['sse', `📡 SSE Stream (${response.sseEvents?.length || 0})`]] as [View, string][]) : []),
                     ['pretty', `${i18n.response.pretty}${pretty.ok ? ' (JSON)' : ''}`],
                     ...(pretty.ok ? [['schema', '🛡️ Schema']] as [View, string][] : []),
                     ['raw', i18n.response.raw],
@@ -323,6 +336,16 @@ export default function ResponseViewer({ onCollapse }: { onCollapse?: () => void
 
         {/* Right side metrics matching mockup */}
         <div className="flex items-center gap-1.5 text-xs shrink-0 ml-auto pl-2">
+          {response.isStream && !response.streamCompleted ? (
+            <span className="flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 animate-pulse whitespace-nowrap">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
+              LIVE STREAM
+            </span>
+          ) : isSse ? (
+            <span className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-cyan-950/80 text-cyan-300 border border-cyan-800/80 whitespace-nowrap">
+              SSE ({response.sseEvents?.length || 0})
+            </span>
+          ) : null}
           <span className="text-emerald-400 font-bold flex items-center gap-1 font-mono whitespace-nowrap">
             <span>⇄</span> {response.status} {response.statusText}
           </span>
@@ -374,7 +397,18 @@ export default function ResponseViewer({ onCollapse }: { onCollapse?: () => void
               }`}
               title={i18n.response.lockSchema}
             >
-              {schemaLocked ? i18n.response.schemaLocked : `✨ ${i18n.response.lockSchema}`}
+              {schemaLocked ? i18n.response.schemaLocked : `🧬 ${i18n.response.lockSchema}`}
+            </button>
+          )}
+          {!isBinary && (
+            <button
+              type="button"
+              onClick={() => setShowAiTestModal(true)}
+              className="text-xs rounded px-2 py-0.5 font-semibold transition-all border whitespace-nowrap bg-fuchsia-950/80 hover:bg-fuchsia-900 text-fuchsia-300 border-fuchsia-700/80 hover:border-fuchsia-400 flex items-center gap-1 shadow-sm"
+              title="Tự động sinh kịch bản kiểm thử assertions từ Response mẫu"
+            >
+              <span>✨</span>
+              <span>AI Sinh Test</span>
             </button>
           )}
         </div>
@@ -485,6 +519,8 @@ export default function ResponseViewer({ onCollapse }: { onCollapse?: () => void
           {bodyPane(true)}
         </ExpandOverlay>
       )}
+
+      {showAiTestModal && <AiTestModal onClose={() => setShowAiTestModal(false)} />}
     </div>
   );
 }

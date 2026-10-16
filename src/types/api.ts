@@ -114,6 +114,15 @@ export interface ApiRequest {
   description?: string;
 }
 
+export interface SseEvent {
+  id?: string;
+  event?: string;
+  data: string;
+  retry?: number;
+  raw: string;
+  timestamp: number;
+}
+
 export interface ApiResponse {
   status: number;
   statusText: string;
@@ -123,6 +132,12 @@ export interface ApiResponse {
   /** text: body gốc; binary: body là base64 */
   body: string;
   bodyKind?: 'text' | 'binary';
+  /** Có phải Server-Sent Events hoặc streaming không */
+  isStream?: boolean;
+  /** Đã hoàn tất luồng stream hay chưa */
+  streamCompleted?: boolean;
+  /** Danh sách các SSE event đã parse */
+  sseEvents?: SseEvent[];
 }
 
 export interface Folder {
@@ -140,6 +155,8 @@ export interface Folder {
 export interface Collection {
   id: string;
   name: string;
+  description?: string;
+  auth?: AuthConfig;
   folders: Folder[];
   /** request nằm ngoài folder (root) */
   rootRequestIds: string[];

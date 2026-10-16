@@ -554,6 +554,22 @@ export default function Sidebar({ onCollapse, onGoFlow }: { onCollapse: () => vo
     })();
   }
 
+  function exportGitCol(c: Collection) {
+    void (async () => {
+      try {
+        const { downloadGitCollectionZip } = await import('../lib/git-collection');
+        const reqIds = new Set<string>(c.rootRequestIds);
+        for (const f of c.folders) {
+          for (const id of f.requestIds) reqIds.add(id);
+        }
+        const colReqs = Object.values(requests).filter((r) => reqIds.has(r.id));
+        await downloadGitCollectionZip(c, colReqs);
+      } catch (e) {
+        alert(`Xuất Git Collection thất bại: ${e instanceof Error ? e.message : e}`);
+      }
+    })();
+  }
+
   /** Xuất TẤT CẢ collections thật (bỏ qua vỏ "(flow)" sinh ra từ import flow — muốn giữ flow thì dùng Backup full). */
   function exportAll() {
     void (async () => {
@@ -587,6 +603,7 @@ export default function Sidebar({ onCollapse, onGoFlow }: { onCollapse: () => vo
     void (async () => {
       try {
         const { saveWorkspaceFile, revealExportedFile } = await import('../lib/response-file');
+        const { exportCollectionToGitFiles } = await import('../lib/git-collection');
         const cols = collections.filter((c) => !isFlowContainer(c));
         if (cols.length === 0) {
           alert('Không có collection nào để xuất.');
@@ -603,20 +620,19 @@ export default function Sidebar({ onCollapse, onGoFlow }: { onCollapse: () => vo
           }
           const colReqs = Object.values(requests).filter((r) => reqIds.has(r.id));
           
-          const json = exportAllCollections([c], colReqs);
-          // Tạo tên file an toàn
-          const safeName = c.name.replace(/[^a-z0-9_]/gi, '_').toLowerCase();
-          const saved = await saveWorkspaceFile(`${safeName}.json`, json);
-          
-          if (saved) {
-            lastPath = saved.path;
-            successCount++;
+          const gitFiles = exportCollectionToGitFiles(c, colReqs);
+          const safeCol = c.name.replace(/[^a-z0-9_]/gi, '_').toLowerCase();
+          for (const gf of gitFiles) {
+            const cleanRelPath = gf.path.replace(/^\/+/, '');
+            const saved = await saveWorkspaceFile(`${safeCol}/${cleanRelPath}`, gf.content);
+            if (saved) lastPath = saved.path;
           }
+          successCount++;
         }
         
         if (successCount > 0 && lastPath) {
           await revealExportedFile(lastPath);
-          alert(`Đã xuất thành công ${successCount} collections vào thư mục reqx_workspace!`);
+          alert(`Đã xuất thành công ${successCount} collections dưới dạng Plain-text YAML Git-friendly vào thư mục reqx_workspace!`);
         } else {
           alert('Tính năng này chỉ hoạt động trên ứng dụng Desktop (Tauri).');
         }
@@ -1020,7 +1036,8 @@ export default function Sidebar({ onCollapse, onGoFlow }: { onCollapse: () => vo
       ...(curDir
         ? [{ label: '→ Ngoài thư mục', onClick: () => moveCollection(c.id, null) } as MenuItem]
         : []),
-      { label: '📤 Xuất collection ra JSON', onClick: () => exportCol(c) },
+      { label: '📤 Xuất collection ra JSON (Postman)', onClick: () => exportCol(c) },
+      { label: '🌿 Xuất Git-friendly (Plain-text YAML / ZIP)', onClick: () => exportGitCol(c) },
       {
         label: '⚡ Tạo biến từ request trong collection…',
         onClick: () => setExtract({ colId: c.id }),
@@ -1207,6 +1224,17 @@ export default function Sidebar({ onCollapse, onGoFlow }: { onCollapse: () => vo
           const agg: AnyImportResult = { collections: [], flows: [], info: [], warnings: [], errors: [] };
           for (const file of files) {
             try {
+              if (file.name.toLowerCase().endsWith('.zip')) {
+                const buffer = await file.arrayBuffer();
+                const { importCollectionFromZip } = await import('../lib/git-collection');
+                const res = await importCollectionFromZip(buffer, file.name.replace(/\.zip$/i, ''));
+                if (res.requests.length > 0) {
+                  useAppStore.getState().importData(res.collection, res.requests);
+                  agg.collections.push({ name: res.collection.name, requests: res.requests.length });
+                  agg.info.push(`✓ Đã nạp Git Collection "${res.collection.name}" (${res.requests.length} requests)`);
+                  continue;
+                }
+              }
               const r = importAnyJson(JSON.parse(await file.text()), file.name);
               agg.collections.push(...r.collections);
               agg.flows.push(...r.flows);

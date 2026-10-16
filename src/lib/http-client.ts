@@ -1,8 +1,9 @@
-import type { ApiRequest, ApiResponse, AuthConfig, KeyValue } from '../types/api';
+import type { ApiRequest, ApiResponse, AuthConfig, KeyValue, SseEvent } from '../types/api';
 import { resolveVariables } from './variables';
 import { classifyBody, contentTypeOf } from './response-file';
 import { applyExtendedAuth, parseDigestChallenge, sha256Hex } from './auth-protocols';
 import { cookieJar } from './cookie-jar';
+import { isSseResponse, SseStreamParser, parseAllSseEvents } from './sse-parser';
 
 export interface RequestOptions {
   timeoutMs?: number;
@@ -12,6 +13,12 @@ export interface RequestOptions {
   useCookies?: boolean;
   /** Internal: đã thử lại 1 lần với nonce/realm server gửi trong 401 (Digest handshake). */
   digestAttempted?: boolean;
+  /** Bật chế độ stream nhận chunk trực tiếp */
+  stream?: boolean;
+  /** Callback nhận response cập nhật tiến độ theo từng chunk stream */
+  onStreamChunk?: (partial: ApiResponse) => void;
+  /** Callback nhận từng SSE event mới được parse */
+  onStreamEvent?: (event: SseEvent) => void;
 }
 
 function enabledEntries(list: KeyValue[]): [string, string][] {
@@ -368,7 +375,8 @@ export async function sendRequest(
         cookieJar.setCookie(url.toString(), v);
       }
     }
-    return maybeDigestRetry({
+    const sse = isSseResponse(h, res.body);
+    const parsedResp: ApiResponse = {
       status: res.status,
       statusText: res.status_text ?? '',
       timeMs: res.time_ms,
@@ -376,7 +384,12 @@ export async function sendRequest(
       headers: h,
       body: res.body,
       bodyKind: res.body_kind === 'binary' ? 'binary' : 'text',
-    });
+      isStream: sse,
+      streamCompleted: true,
+      sseEvents: sse ? parseAllSseEvents(res.body) : undefined,
+    };
+    if (sse) options.onStreamChunk?.(parsedResp);
+    return maybeDigestRetry(parsedResp);
   }
 
   const ctrl = new AbortController();
@@ -392,8 +405,6 @@ export async function sendRequest(
       signal: ctrl.signal,
       redirect: options.redirect ?? 'follow',
     });
-    const buf = await res.arrayBuffer();
-    const timeMs = Math.round(performance.now() - t0);
     const h: Record<string, string> = {};
     res.headers.forEach((v, k) => {
       h[k] = v;
@@ -401,7 +412,102 @@ export async function sendRequest(
         cookieJar.setCookie(url.toString(), v);
       }
     });
+
+    const isSse = isSseResponse(h);
+    const shouldStream = (isSse || options.stream) && !!res.body && typeof res.body.getReader === 'function';
+
+    if (shouldStream) {
+      const reader = res.body!.getReader();
+      const decoder = new TextDecoder('utf-8');
+      const parser = new SseStreamParser((ev) => {
+        options.onStreamEvent?.(ev);
+      });
+      let accumulatedBody = '';
+      const allEvents: SseEvent[] = [];
+      let totalBytes = 0;
+
+      const initialPartial: ApiResponse = {
+        status: res.status,
+        statusText: res.statusText,
+        timeMs: Math.round(performance.now() - t0),
+        sizeBytes: 0,
+        headers: h,
+        body: '',
+        bodyKind: 'text',
+        isStream: true,
+        streamCompleted: false,
+        sseEvents: [],
+      };
+      options.onStreamChunk?.(initialPartial);
+
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          if (value) {
+            totalBytes += value.byteLength;
+            const chunkStr = decoder.decode(value, { stream: true });
+            accumulatedBody += chunkStr;
+            const newEvents = parser.feed(chunkStr);
+            allEvents.push(...newEvents);
+
+            const partial: ApiResponse = {
+              status: res.status,
+              statusText: res.statusText,
+              timeMs: Math.round(performance.now() - t0),
+              sizeBytes: totalBytes,
+              headers: h,
+              body: accumulatedBody,
+              bodyKind: 'text',
+              isStream: true,
+              streamCompleted: false,
+              sseEvents: [...allEvents],
+            };
+            options.onStreamChunk?.(partial);
+          }
+        }
+      } catch (streamErr) {
+        if (externalSignal?.aborted || ctrl.signal.aborted) {
+          allEvents.push(...parser.flush());
+          const finalPartial: ApiResponse = {
+            status: res.status,
+            statusText: res.statusText,
+            timeMs: Math.round(performance.now() - t0),
+            sizeBytes: totalBytes,
+            headers: h,
+            body: accumulatedBody,
+            bodyKind: 'text',
+            isStream: true,
+            streamCompleted: true,
+            sseEvents: allEvents,
+          };
+          options.onStreamChunk?.(finalPartial);
+          return maybeDigestRetry(finalPartial);
+        }
+        throw streamErr;
+      }
+
+      allEvents.push(...parser.flush());
+      const finalResp: ApiResponse = {
+        status: res.status,
+        statusText: res.statusText,
+        timeMs: Math.round(performance.now() - t0),
+        sizeBytes: totalBytes,
+        headers: h,
+        body: accumulatedBody,
+        bodyKind: 'text',
+        isStream: true,
+        streamCompleted: true,
+        sseEvents: allEvents,
+      };
+      options.onStreamChunk?.(finalResp);
+      return maybeDigestRetry(finalResp);
+    }
+
+    const buf = await res.arrayBuffer();
+    const timeMs = Math.round(performance.now() - t0);
     const { body, bodyKind } = classifyBody(buf, contentTypeOf(h));
+    const sse = isSse || isSseResponse(h, body);
     return maybeDigestRetry({
       status: res.status,
       statusText: res.statusText,
@@ -410,6 +516,9 @@ export async function sendRequest(
       headers: h,
       body,
       bodyKind,
+      isStream: sse,
+      streamCompleted: true,
+      sseEvents: sse ? parseAllSseEvents(body) : undefined,
     });
   } catch (e) {
     if (e instanceof TypeError) {
