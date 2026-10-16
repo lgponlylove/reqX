@@ -152,7 +152,7 @@ class DiagnosticLogger {
     }
 
     return {
-      appVersion: '0.2.0',
+      appVersion: '0.2.1',
       userAgent: isClient ? navigator.userAgent : 'Unknown',
       platform: isClient ? navigator.platform : 'Unknown',
       language: isClient ? navigator.language : 'vi',

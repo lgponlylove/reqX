@@ -2,6 +2,10 @@
 
 Dự án theo SemVer, bản mới nhất nằm trên cùng. Ngày ghi theo định dạng dd/MM/yyyy.
 
+## [0.2.1] — 16/10/2026
+
+Nút "Tải về" ở banner bản mới trỏ đúng file theo OS (Windows → NSIS exe, mac ARM/Intel → dmg, Linux → AppImage) qua mục `assets` trong `latest.json`; kèm link phụ "File khác" mở trang tag. Đổi `latest.json` trỏ tag `v0.2.1`.
+
 ## [0.2.0] — 16/10/2026
 
 Trial 60 ngày + tự kiểm tra cập nhật + chính sách 1 key = 1 máy.

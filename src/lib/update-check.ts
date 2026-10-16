@@ -5,7 +5,7 @@
  */
 
 /** Đổi theo package.json mỗi lần release. */
-export const APP_VERSION = '0.2.0';
+export const APP_VERSION = '0.2.1';
 
 export const UPDATE_FEED_URL =
   'https://raw.githubusercontent.com/lgponlylove/reqX/main/latest.json';
