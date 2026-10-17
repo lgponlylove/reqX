@@ -308,6 +308,34 @@ fn reveal_in_explorer(path: String) -> Result<(), String> {
     Ok(())
 }
 
+/// Mở liên kết web trong trình duyệt mặc định của hệ thống
+#[tauri::command]
+fn open_url(url: String) -> Result<(), String> {
+    let trimmed = url.trim();
+    if !trimmed.starts_with("http://") && !trimmed.starts_with("https://") {
+        return Err("URL không hợp lệ".to_string());
+    }
+    #[cfg(target_os = "windows")]
+    std::process::Command::new("rundll32")
+        .args(["url.dll,FileProtocolHandler", trimmed])
+        .spawn()
+        .map_err(|e| format!("Không mở được link: {e}"))?;
+
+    #[cfg(target_os = "macos")]
+    std::process::Command::new("open")
+        .arg(trimmed)
+        .spawn()
+        .map_err(|e| format!("Không mở được link: {e}"))?;
+
+    #[cfg(target_os = "linux")]
+    std::process::Command::new("xdg-open")
+        .arg(trimmed)
+        .spawn()
+        .map_err(|e| format!("Không mở được link: {e}"))?;
+
+    Ok(())
+}
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -315,6 +343,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             http_send,
             open_downloads,
+            open_url,
             save_export_file,
             save_workspace_file,
             read_workspace_files,

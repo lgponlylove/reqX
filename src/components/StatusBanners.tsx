@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useLicenseStore } from '../stores/license';
-import { checkForUpdate, dismissUpdate, installNativeUpdate, type UpdateInfo } from '../lib/update-check';
+import { checkForUpdate, dismissUpdate, installNativeUpdate, openExternalUrl, type UpdateInfo } from '../lib/update-check';
 import { useTranslation } from '../stores/language';
 
 /**
@@ -90,25 +90,23 @@ export default function StatusBanners() {
           )}
 
           {(!update.isNative || installError) && (
-            <a
-              href={update.downloadUrl || update.url}
-              target="_blank"
-              rel="noreferrer"
-              className="px-2 py-0.5 rounded-lg bg-emerald-500/20 border border-emerald-500/50 hover:bg-emerald-500/30 font-semibold whitespace-nowrap"
+            <button
+              type="button"
+              onClick={() => openExternalUrl(update.downloadUrl || update.url)}
+              className="px-2 py-0.5 rounded-lg bg-emerald-500/20 border border-emerald-500/50 hover:bg-emerald-500/30 font-semibold whitespace-nowrap text-emerald-300 hover:text-emerald-100 transition-colors cursor-pointer"
             >
               {t.license.updateDownload}
-            </a>
+            </button>
           )}
 
-          <a
-            href={update.url}
-            target="_blank"
-            rel="noreferrer"
+          <button
+            type="button"
+            onClick={() => openExternalUrl(update.url)}
             title={lang === 'vi' ? 'Mở trang release' : 'Open release page'}
-            className="text-emerald-400/70 hover:text-emerald-200 whitespace-nowrap underline underline-offset-2"
+            className="text-emerald-400/70 hover:text-emerald-200 whitespace-nowrap underline underline-offset-2 cursor-pointer"
           >
             {lang === 'vi' ? 'Chi tiết' : 'Details'}
-          </a>
+          </button>
 
           {!installing && (
             <button

@@ -254,3 +254,20 @@ export function dismissUpdate(version: string): void {
   if (cached) writeCache({ ...cached, dismissed: version });
   else writeCache({ latest: version, url: '', notes: '', at: Date.now(), dismissed: version });
 }
+
+/** Mở URL bên ngoài bằng trình duyệt mặc định của hệ điều hành (chạy tốt trên cả Tauri và Web) */
+export async function openExternalUrl(url: string): Promise<void> {
+  if (isTauri()) {
+    try {
+      const { invoke } = await import('@tauri-apps/api/core');
+      await invoke('open_url', { url });
+      return;
+    } catch {
+      // fallback
+    }
+  }
+  if (typeof window !== 'undefined') {
+    window.open(url, '_blank');
+  }
+}
+
