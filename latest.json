@@ -1,13 +1,13 @@
 {
-  "latest": "0.2.2",
-  "url": "https://github.com/lgponlylove/reqX/releases/tag/v0.2.2",
-  "notes": "Hỗ trợ 1-Click Auto Update tự động qua Tauri Native Updater & tối ưu hệ thống",
+  "latest": "0.2.3",
+  "url": "https://github.com/lgponlylove/reqX/releases/tag/v0.2.3",
+  "notes": "Bản phát hành v0.2.3 — Cập nhật hệ thống và kiểm thử Auto-Update",
   "assets": {
-    "win_nsis": "ReqX_0.2.2_x64-setup.exe",
-    "win_msi": "ReqX_0.2.2_x64_en-US.msi",
-    "mac_arm": "ReqX_0.2.2_aarch64.dmg",
-    "mac_intel": "ReqX_0.2.2_x64.dmg",
-    "linux_appimage": "reqx_0.2.2_amd64.AppImage",
-    "linux_deb": "reqx_0.2.2_amd64.deb"
+    "win_nsis": "ReqX_0.2.3_x64-setup.exe",
+    "win_msi": "ReqX_0.2.3_x64_en-US.msi",
+    "mac_arm": "ReqX_0.2.3_aarch64.dmg",
+    "mac_intel": "ReqX_0.2.3_x64.dmg",
+    "linux_appimage": "reqx_0.2.3_amd64.AppImage",
+    "linux_deb": "reqx_0.2.3_amd64.deb"
   }
 }
