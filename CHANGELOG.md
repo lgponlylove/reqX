@@ -2,6 +2,15 @@
 
 Dự án theo SemVer, bản mới nhất nằm trên cùng. Ngày ghi theo định dạng dd/MM/yyyy.
 
+## [0.2.2] — 17/10/2026
+
+Tự động cập nhật 1-Click (Tauri v2 Native Updater) + Ký số bảo mật GitHub Release:
+
+- **1-Click Auto Update** (`src/lib/update-check.ts`, `StatusBanners.tsx`): Tích hợp Tauri v2 Native Updater (`tauri-plugin-updater` & `tauri-plugin-process`). Phát hiện bản mới và tải ngầm tự động, hiển thị tiến độ % và tự khởi động lại vào app mới.
+- **Ký số bảo mật release**: Nhúng Public Key Minisign vào `tauri.conf.json` và bổ sung cấu hình GitHub Workflow ký số tự động (`release.yml`).
+- **Nút kiểm tra cập nhật thủ công**: Bổ sung nút "Kiểm tra cập nhật" và phản hồi trực tiếp ngay trong modal Bản quyền (`LicenseModal.tsx`).
+- **Đồng bộ hệ sinh thái Tauri v2**: Nâng cấp toàn diện các package `@tauri-apps/api`, `@tauri-apps/cli`, `tauri-plugin-updater`, `tauri-plugin-process` sang phiên bản tương thích 2.12 / 2.14, thêm cờ `--ignore-version-mismatches` cho `build-run.bat`.
+
 ## [0.2.1] — 16/10/2026
 
 Nút "Tải về" ở banner bản mới trỏ đúng file theo OS (Windows → NSIS exe, mac ARM/Intel → dmg, Linux → AppImage) qua mục `assets` trong `latest.json`; kèm link phụ "File khác" mở trang tag. Đổi `latest.json` trỏ tag `v0.2.1`.

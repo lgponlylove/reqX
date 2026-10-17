@@ -4,6 +4,8 @@
  * Tự động che giấu thông tin nhạy cảm (Bearer tokens, passwords) để đảm bảo an toàn.
  */
 
+import { APP_VERSION } from './update-check';
+
 export interface LogEntry {
   id: string;
   timestamp: string;
@@ -152,7 +154,7 @@ class DiagnosticLogger {
     }
 
     return {
-      appVersion: '0.2.1',
+      appVersion: APP_VERSION,
       userAgent: isClient ? navigator.userAgent : 'Unknown',
       platform: isClient ? navigator.platform : 'Unknown',
       language: isClient ? navigator.language : 'vi',
