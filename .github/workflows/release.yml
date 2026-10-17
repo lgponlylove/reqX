@@ -51,7 +51,7 @@ jobs:
       - name: Build Tauri App & Publish Release
         uses: tauri-apps/tauri-action@v0
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.RELEASE_PAT || secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
@@ -60,4 +60,6 @@ jobs:
           releaseBody: 'Xem chi tiết các thay đổi trong CHANGELOG.md.'
           releaseDraft: false
           prerelease: false
+          owner: lgponlylove
+          repo: reqX-releases
           args: ${{ matrix.args }}
