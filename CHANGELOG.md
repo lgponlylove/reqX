@@ -2,6 +2,10 @@
 
 Dự án theo SemVer, bản mới nhất nằm trên cùng. Ngày ghi theo định dạng dd/MM/yyyy.
 
+## [0.2.4] — 17/10/2026
+
+Bản phát hành v0.2.4 — Tự động cập nhật 1-Click từ GitHub Releases.
+
 ## [0.2.3] — 17/10/2026
 
 Bản phát hành v0.2.3 — Kiểm thử luồng tự động cập nhật (Auto-Update).
