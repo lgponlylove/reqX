@@ -34,5 +34,14 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ]
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDU2Mjc3N0I5RTlEOTYwNzkKUldSNVlObnB1WGNuVnVWWEhtR3o4dkhickh3YlhaTmlxcmpsZE43NGlFMmw1SnozMUlhZDc3R3YK",
+      "endpoints": [
+        "https://github.com/lgponlylove/reqX-releases/releases/latest/download/latest.json",
+        "https://github.com/lgponlylove/reqX/releases/latest/download/latest.json"
+      ]
+    }
   }
 }

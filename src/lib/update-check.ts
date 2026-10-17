@@ -1,14 +1,21 @@
 /**
- * Kiểm tra phiên bản mới (nấc 1: check + báo, không tự cài).
- * Feed là file latest.json host trên GitHub cùng chỗ với ReqX-Portable.zip.
+ * Kiểm tra phiên bản mới & Tự động cập nhật (Tauri v2 Native Updater).
+ * - Trong desktop (Tauri): tự động kết nối GitHub Release (qua tauri-plugin-updater),
+ *   tự tải và cài đặt cập nhật chỉ với 1 click.
+ * - Trong web/fallback: đọc feed latest.json và hiện link tải thủ công.
  * Lỗi mạng/offline thì im lặng bỏ qua — app offline-first.
  */
+
+import { isTauri } from './http-client';
 
 /** Đổi theo package.json mỗi lần release. */
 export const APP_VERSION = '0.2.1';
 
-export const UPDATE_FEED_URL =
-  'https://raw.githubusercontent.com/lgponlylove/reqX/main/latest.json';
+export const UPDATE_FEED_URLS = [
+  'https://raw.githubusercontent.com/lgponlylove/reqX-releases/main/latest.json',
+  'https://raw.githubusercontent.com/lgponlylove/reqX/main/latest.json',
+];
+export const UPDATE_FEED_URL = UPDATE_FEED_URLS[0];
 
 const LS_CHECK = 'reqx_update_check';
 const CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000; // 1 ngày check 1 lần
@@ -19,6 +26,8 @@ export interface UpdateInfo {
   notes: string;
   /** Link trực tiếp tới file cài đúng OS của máy này (nếu dò được). */
   downloadUrl?: string;
+  /** Cho biết có thể tự động tải và cài đặt bằng Tauri Native Updater không */
+  isNative?: boolean;
 }
 
 interface FeedAssets {
@@ -110,22 +119,108 @@ export function isNewer(latest: string, current: string): boolean {
   return false;
 }
 
+// Lưu instance update của Tauri để tải và khởi động lại
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let cachedTauriUpdate: any = null;
+
+/** Kiểm tra cập nhật trực tiếp qua Tauri Updater */
+export async function checkNativeUpdate(): Promise<UpdateInfo | null> {
+  if (!isTauri()) return null;
+  try {
+    const { check } = await import('@tauri-apps/plugin-updater');
+    const update = await check();
+    if (update) {
+      cachedTauriUpdate = update;
+      const tag = `v${update.version}`;
+      return {
+        latest: update.version,
+        url: `https://github.com/lgponlylove/reqX-releases/releases/tag/${tag}`,
+        notes: update.body || '',
+        downloadUrl: `https://github.com/lgponlylove/reqX-releases/releases/tag/${tag}`,
+        isNative: true,
+      };
+    }
+  } catch (err) {
+    console.warn('[updater] native check notice:', err);
+  }
+  return null;
+}
+
+/**
+ * Tải và cài đặt tự động bản cập nhật thông qua Tauri plugin.
+ * Hoàn tất xong sẽ tự động khởi động lại ứng dụng vào phiên bản mới.
+ */
+export async function installNativeUpdate(
+  onProgress?: (pct: number, downloadedBytes: number, totalBytes?: number) => void
+): Promise<void> {
+  if (!cachedTauriUpdate) {
+    throw new Error('Chưa có bản cập nhật nào sẵn sàng để tải.');
+  }
+
+  let downloaded = 0;
+  let total: number | undefined = undefined;
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  await cachedTauriUpdate.downloadAndInstall((event: any) => {
+    if (event.event === 'Started') {
+      total = event.data?.contentLength;
+      onProgress?.(0, 0, total);
+    } else if (event.event === 'Progress') {
+      downloaded += event.data?.chunkLength ?? 0;
+      const pct = total && total > 0 ? Math.min(99, Math.round((downloaded / total) * 100)) : 0;
+      onProgress?.(pct, downloaded, total);
+    } else if (event.event === 'Finished') {
+      onProgress?.(100, downloaded, total);
+    }
+  });
+
+  const { relaunch } = await import('@tauri-apps/plugin-process');
+  await relaunch();
+}
+
 /**
  * Trả về thông tin bản mới nếu có (và chưa bị dismiss), ngược lại null.
  * force = true để check ngay (nút "kiểm tra cập nhật"), bỏ qua cache ngày.
  */
 export async function checkForUpdate(force = false): Promise<UpdateInfo | null> {
-  if (typeof window === 'undefined' || typeof fetch === 'undefined') return null;
+  if (typeof window === 'undefined') return null;
+
+  // 1. Thử native updater nếu đang chạy trong Tauri
+  if (isTauri()) {
+    const native = await checkNativeUpdate();
+    if (native) {
+      const prev = readCache();
+      writeCache({ ...native, at: Date.now(), dismissed: prev?.dismissed ?? '' });
+      if (!force && prev?.dismissed === native.latest) return null;
+      return native;
+    }
+  }
+
+  // 2. Fallback sang HTTP feed
+  if (typeof fetch === 'undefined') return null;
   const cached = readCache();
   if (!force && cached && Date.now() - cached.at < CHECK_INTERVAL_MS) {
     if (isNewer(cached.latest, APP_VERSION) && cached.dismissed !== cached.latest) return cached;
     return null;
   }
+
   const ctrl = new AbortController();
   const timer = window.setTimeout(() => ctrl.abort(), 8000);
   try {
-    const res = await fetch(UPDATE_FEED_URL, { signal: ctrl.signal, cache: 'no-store' });
-    if (!res.ok) return cached && isNewer(cached.latest, APP_VERSION) ? cached : null;
+    let res: Response | null = null;
+    for (const url of UPDATE_FEED_URLS) {
+      try {
+        const r = await fetch(url, { signal: ctrl.signal, cache: 'no-store' });
+        if (r.ok) {
+          res = r;
+          break;
+        }
+      } catch {
+        // thử url tiếp theo
+      }
+    }
+
+    if (!res || !res.ok) return cached && isNewer(cached.latest, APP_VERSION) ? cached : null;
     const j = (await res.json()) as Partial<UpdateInfo> & { assets?: FeedAssets };
     if (!j.latest || !isNewer(j.latest, APP_VERSION)) return null;
     const tag = `v${j.latest}`;
@@ -136,6 +231,7 @@ export async function checkForUpdate(force = false): Promise<UpdateInfo | null> 
       url: fallbackUrl,
       notes: j.notes || '',
       downloadUrl: file ? `https://github.com/lgponlylove/reqX/releases/download/${tag}/${file}` : fallbackUrl,
+      isNative: false,
     };
     const prev = readCache();
     writeCache({ ...info, at: Date.now(), dismissed: prev?.dismissed ?? '' });

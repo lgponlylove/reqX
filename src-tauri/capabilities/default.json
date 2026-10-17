@@ -3,5 +3,9 @@
   "identifier": "default",
   "description": "Quyen mac dinh cho app desktop",
   "windows": ["main"],
-  "permissions": ["core:default"]
+  "permissions": [
+    "core:default",
+    "updater:default",
+    "process:default"
+  ]
 }

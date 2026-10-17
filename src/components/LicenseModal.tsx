@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { useLicenseStore } from '../stores/license';
-import { APP_VERSION } from '../lib/update-check';
+import { APP_VERSION, checkForUpdate } from '../lib/update-check';
 import { useTranslation } from '../stores/language';
 
 /** Dòng đếm ngược 60 ngày dùng thử trong modal bản quyền. */
@@ -40,12 +40,31 @@ function DevicePolicyBox() {
 
 export default function LicenseModal() {
   const { isPro, info, machineId, isLoading, lastError, activateLicense, deactivateLicense, getMachineId } = useLicenseStore();
-  const { t } = useTranslation();
+  const { t, lang } = useTranslation();
   const [isOpen, setIsOpen] = useState(false);
   const [inputEmail, setInputEmail] = useState('');
   const [inputKey, setInputKey] = useState('');
   const [copiedMid, setCopiedMid] = useState(false);
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [checkingUpdate, setCheckingUpdate] = useState(false);
+  const [updateMsg, setUpdateMsg] = useState<string | null>(null);
+
+  const handleCheckUpdate = async () => {
+    try {
+      setCheckingUpdate(true);
+      setUpdateMsg(null);
+      const res = await checkForUpdate(true);
+      if (res) {
+        setUpdateMsg(`Đã có bản mới: v${res.latest}! Hãy xem thanh thông báo phía trên.`);
+      } else {
+        setUpdateMsg(lang === 'vi' ? 'Bạn đang dùng phiên bản mới nhất.' : 'You are on the latest version.');
+      }
+    } catch {
+      setUpdateMsg(lang === 'vi' ? 'Không thể kiểm tra lúc này.' : 'Failed to check updates.');
+    } finally {
+      setCheckingUpdate(false);
+    }
+  };
 
   useEffect(() => {
     if (!isOpen) {
@@ -268,7 +287,20 @@ export default function LicenseModal() {
                       </div>
                     </div>
 
-                    <div className="pt-2 flex justify-end">
+                    <div className="pt-2 flex items-center justify-between border-t border-emerald-900/40">
+                      <div className="flex items-center gap-2">
+                        <span className="text-slate-400 text-[11px]">v{APP_VERSION}</span>
+                        <button
+                          type="button"
+                          onClick={handleCheckUpdate}
+                          disabled={checkingUpdate}
+                          className="text-[11px] text-cyan-400 hover:text-cyan-300 underline font-medium disabled:opacity-50"
+                        >
+                          {checkingUpdate
+                            ? (lang === 'vi' ? 'Đang kiểm tra...' : 'Checking...')
+                            : (lang === 'vi' ? 'Kiểm tra cập nhật' : 'Check for updates')}
+                        </button>
+                      </div>
                       <button
                         type="button"
                         onClick={handleDeactivate}
@@ -277,6 +309,13 @@ export default function LicenseModal() {
                         {t.license.deactivateBtn}
                       </button>
                     </div>
+
+                    {updateMsg && (
+                      <div className="p-2.5 rounded-xl bg-slate-900/90 border border-cyan-500/30 text-cyan-300 text-xs text-center flex items-center justify-center gap-2">
+                        <span>ℹ</span>
+                        <span>{updateMsg}</span>
+                      </div>
+                    )}
                   </div>
                 ) : (
                   /* Free Version & Activation Form */
@@ -286,8 +325,27 @@ export default function LicenseModal() {
                         <span className="w-2 h-2 rounded-full bg-slate-500" />
                         <span className="text-slate-300 font-medium">{t.license.statusFree}</span>
                       </div>
-                      <span className="text-slate-400 text-[11px]">v{APP_VERSION}</span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-slate-400 text-[11px]">v{APP_VERSION}</span>
+                        <button
+                          type="button"
+                          onClick={handleCheckUpdate}
+                          disabled={checkingUpdate}
+                          className="text-[11px] text-cyan-400 hover:text-cyan-300 underline font-medium disabled:opacity-50"
+                        >
+                          {checkingUpdate
+                            ? (lang === 'vi' ? 'Đang kiểm tra...' : 'Checking...')
+                            : (lang === 'vi' ? 'Kiểm tra cập nhật' : 'Check for updates')}
+                        </button>
+                      </div>
                     </div>
+
+                    {updateMsg && (
+                      <div className="p-2.5 rounded-xl bg-slate-900/90 border border-cyan-500/30 text-cyan-300 text-xs text-center flex items-center justify-center gap-2">
+                        <span>ℹ</span>
+                        <span>{updateMsg}</span>
+                      </div>
+                    )}
 
                     {/* Đếm ngược dùng thử 60 ngày */}
                     <TrialLine />

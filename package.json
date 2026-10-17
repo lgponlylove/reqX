@@ -16,6 +16,8 @@
   },
   "dependencies": {
     "@tauri-apps/api": "^2.11.1",
+    "@tauri-apps/plugin-process": "^2.4.0",
+    "@tauri-apps/plugin-updater": "^2.14.0",
     "js-yaml": "^5.5.0",
     "jszip": "^3.10.2",
     "protobufjs": "^8.8.0",

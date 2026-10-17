@@ -18,6 +18,9 @@ reqwest = { version = "0.12", default-features = false, features = ["rustls-tls-
 base64 = "0.22"
 # Xác thực chữ ký số License Key Ed25519 hoàn toàn offline
 ed25519-dalek = { version = "2", default-features = false, features = ["std"] }
+# Tự động kiểm tra, tải và cài đặt bản cập nhật từ GitHub Release
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"
 
 [features]
 default = ["custom-protocol"]
