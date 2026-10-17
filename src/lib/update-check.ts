@@ -9,7 +9,7 @@
 import { isTauri } from './http-client';
 
 /** Đổi theo package.json mỗi lần release. */
-export const APP_VERSION = '0.2.4';
+export const APP_VERSION = '0.2.5';
 
 export const UPDATE_FEED_URLS = [
   'https://raw.githubusercontent.com/lgponlylove/reqX-releases/refs/heads/main/latest.json',

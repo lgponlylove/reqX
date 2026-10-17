@@ -1,13 +1,13 @@
 {
-  "latest": "0.2.4",
-  "url": "https://github.com/lgponlylove/reqX-releases/releases/tag/v0.2.4",
-  "notes": "Bản phát hành v0.2.4 — Tự động cập nhật trực tiếp từ GitHub Releases",
+  "latest": "0.2.5",
+  "url": "https://github.com/lgponlylove/reqX-releases/releases/tag/v0.2.5",
+  "notes": "Bản phát hành v0.2.5 — Hỗ trợ nút mở trình duyệt tải file trực tiếp",
   "assets": {
-    "win_nsis": "ReqX_0.2.4_x64-setup.exe",
-    "win_msi": "ReqX_0.2.4_x64_en-US.msi",
-    "mac_arm": "ReqX_0.2.4_aarch64.dmg",
-    "mac_intel": "ReqX_0.2.4_x64.dmg",
-    "linux_appimage": "ReqX_0.2.4_amd64.AppImage",
-    "linux_deb": "ReqX_0.2.4_amd64.deb"
+    "win_nsis": "ReqX_0.2.5_x64-setup.exe",
+    "win_msi": "ReqX_0.2.5_x64_en-US.msi",
+    "mac_arm": "ReqX_0.2.5_aarch64.dmg",
+    "mac_intel": "ReqX_0.2.5_x64.dmg",
+    "linux_appimage": "ReqX_0.2.5_amd64.AppImage",
+    "linux_deb": "ReqX_0.2.5_amd64.deb"
   }
 }
