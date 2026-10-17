@@ -12,6 +12,7 @@ import { isTauri } from './http-client';
 export const APP_VERSION = '0.2.3';
 
 export const UPDATE_FEED_URLS = [
+  'https://raw.githubusercontent.com/lgponlylove/reqX-releases/refs/heads/main/latest.json',
   'https://raw.githubusercontent.com/lgponlylove/reqX-releases/main/latest.json',
   'https://raw.githubusercontent.com/lgponlylove/reqX-releases/master/latest.json',
   'https://raw.githubusercontent.com/lgponlylove/reqX/master/latest.json',
