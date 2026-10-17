@@ -62,4 +62,5 @@ jobs:
           prerelease: false
           owner: lgponlylove
           repo: reqX-releases
+          releaseCommitish: main
           args: ${{ matrix.args }}
