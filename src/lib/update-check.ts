@@ -227,13 +227,13 @@ export async function checkForUpdate(force = false): Promise<UpdateInfo | null> 
     const j = (await res.json()) as Partial<UpdateInfo> & { assets?: FeedAssets };
     if (!j.latest || !isNewer(j.latest, APP_VERSION)) return null;
     const tag = `v${j.latest}`;
-    const fallbackUrl = j.url || `https://github.com/lgponlylove/reqX/releases/tag/${tag}`;
+    const fallbackUrl = j.url || `https://github.com/lgponlylove/reqX-releases/releases/tag/${tag}`;
     const file = j.assets ? pickAsset(currentOs(), j.assets) : null;
     const info: UpdateInfo = {
       latest: j.latest,
       url: fallbackUrl,
       notes: j.notes || '',
-      downloadUrl: file ? `https://github.com/lgponlylove/reqX/releases/download/${tag}/${file}` : fallbackUrl,
+      downloadUrl: file ? `https://github.com/lgponlylove/reqX-releases/releases/download/${tag}/${file}` : fallbackUrl,
       isNative: false,
     };
     const prev = readCache();
