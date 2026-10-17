@@ -13,6 +13,8 @@ export const APP_VERSION = '0.2.3';
 
 export const UPDATE_FEED_URLS = [
   'https://raw.githubusercontent.com/lgponlylove/reqX-releases/main/latest.json',
+  'https://raw.githubusercontent.com/lgponlylove/reqX-releases/master/latest.json',
+  'https://raw.githubusercontent.com/lgponlylove/reqX/master/latest.json',
   'https://raw.githubusercontent.com/lgponlylove/reqX/main/latest.json',
 ];
 export const UPDATE_FEED_URL = UPDATE_FEED_URLS[0];
