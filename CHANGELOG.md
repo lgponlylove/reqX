@@ -2,6 +2,10 @@
 
 Dự án theo SemVer, bản mới nhất nằm trên cùng. Ngày ghi theo định dạng dd/MM/yyyy.
 
+## [0.2.6] — 17/10/2026
+
+Bản phát hành v0.2.6 — Nâng cấp phiên bản và tối ưu đường dẫn tải trực tiếp qua reqX-releases.
+
 ## [0.2.5] — 17/10/2026
 
 Bản phát hành v0.2.5 — Tự động mở trình duyệt hệ thống khi bấm tải về.
