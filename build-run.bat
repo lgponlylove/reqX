@@ -8,7 +8,7 @@ echo [0/2] Tat app cu (neu dang chay, tranh khoa file)...
 powershell -NoProfile -Command "Stop-Process -Name 'reqx' -Force -ErrorAction SilentlyContinue"
 
 echo [1/2] Build frontend + Tauri...
-call "C:\Program Files\nodejs\npm.cmd" exec tauri build -- --no-bundle --target x86_64-pc-windows-gnu
+call "C:\Program Files\nodejs\npm.cmd" exec tauri build -- --no-bundle --ignore-version-mismatches --target x86_64-pc-windows-gnu
 if errorlevel 1 (
   echo.
   echo BUILD THAT BAI - xem loi o tren.
