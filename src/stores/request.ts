@@ -44,8 +44,8 @@ interface RequestState {
   focusTarget: { subTab: ReqSubTab; fieldKey?: string; ts: number } | null;
   triggerFocus: (subTab: ReqSubTab, fieldKey?: string) => void;
   clearFocusTarget: () => void;
-  /** Nạp lại bản mới nhất của request vào các tab đang mở chưa sửa (sau khi đổi hàng loạt) */
-  refreshTabs: (requests: Record<string, ApiRequest>) => void;
+  /** Nạp lại bản mới nhất của request vào các tab đang mở (force = true: đè cả tab dirty do AI sửa) */
+  refreshTabs: (requests: Record<string, ApiRequest>, force?: boolean) => void;
   /** Đổi tên biến: thay `{{oldKey}}` → `{{newKey}}` ngay trong mọi tab đang mở (kể cả tab đang sửa dở). */
   renameVarInTabs: (oldKey: string, newKey: string) => void;
   markClean: () => void;
@@ -233,12 +233,16 @@ export const useRequestStore = create<RequestState>()(
           tabs: s.tabs.map((t) => (t.id === s.activeId ? { ...t, dirty: false } : t)),
         })),
 
-      refreshTabs: (requests) =>
+      refreshTabs: (requests, force = false) =>
         set((s) => {
           const tabs = s.tabs.map((t) => {
             if (t.kind === 'env') return t;
             const next = requests[t.request.id];
-            return next && !t.dirty ? { ...t, request: { ...next } } : t;
+            if (!next) return t;
+            if (force || !t.dirty) {
+              return { ...t, request: { ...next }, dirty: force ? false : t.dirty };
+            }
+            return t;
           });
           const active = tabs.find((t) => t.id === s.activeId) ?? tabs[0];
           return { tabs, current: active.request, dirty: active.dirty };

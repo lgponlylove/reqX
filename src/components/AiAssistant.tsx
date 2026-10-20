@@ -709,8 +709,8 @@ export default function AiAssistant({
         }
         const saved = app.saveRequest(patch);
         if (!saved) return { ok: false, error: 'Không lưu được request.' };
-        // Đồng bộ ngay lập tức vào tab đang mở nếu tab đó đang hiển thị request này
-        useRequestStore.getState().refreshTabs({ [saved.id]: saved });
+        // Đồng bộ ngay lập tức vào tab đang mở (force=true để ép đè cả khi tab có cờ dirty)
+        useRequestStore.getState().refreshTabs({ [saved.id]: saved }, true);
         return withSelfCheck({ ok: true, id: saved.id, name: saved.name, note: 'Đã cập nhật (mở Builder để xem).' }, args, saved);
       }
       case 'import_json': {
@@ -2090,18 +2090,24 @@ export default function AiAssistant({
         {busy && streamingText === null && <div className="text-xs text-slate-500">{t.ai.thinking}</div>}
       </div>
 
-      <div className="flex gap-2 shrink-0">
-        <input
+      <div className="flex gap-2 shrink-0 items-end">
+        <textarea
+          rows={Math.min(5, Math.max(1, input.split('\n').length))}
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send(); } }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+              e.preventDefault();
+              void send();
+            }
+          }}
           placeholder={t.ai.inputPlaceholder}
-          className="flex-1 bg-slate-900 border border-slate-700 rounded px-3 py-2 text-sm outline-none focus:border-emerald-600"
+          className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500/50 resize-none font-sans text-slate-200 placeholder-slate-500 max-h-32 transition-all"
         />
         <button
           onClick={() => void send()}
           disabled={busy || !input.trim()}
-          className="bg-emerald-700 hover:bg-emerald-600 rounded px-4 py-2 text-sm disabled:opacity-40"
+          className="bg-emerald-600 hover:bg-emerald-500 text-white font-semibold rounded-lg px-4 py-2 text-sm disabled:opacity-40 shadow-md transition-all h-[38px] shrink-0"
         >
           {t.ai.send}
         </button>
