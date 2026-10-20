@@ -709,6 +709,8 @@ export default function AiAssistant({
         }
         const saved = app.saveRequest(patch);
         if (!saved) return { ok: false, error: 'Không lưu được request.' };
+        // Đồng bộ ngay lập tức vào tab đang mở nếu tab đó đang hiển thị request này
+        useRequestStore.getState().refreshTabs({ [saved.id]: saved });
         return withSelfCheck({ ok: true, id: saved.id, name: saved.name, note: 'Đã cập nhật (mở Builder để xem).' }, args, saved);
       }
       case 'import_json': {
