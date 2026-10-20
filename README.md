@@ -85,7 +85,7 @@ Export complete collection documentation directly into clean **Markdown** (for G
 
 Pre-built binaries and portable packages are available on the releases repository:
 
-👉 **[Download Latest Version (reqX-releases)](https://github.com/lgponlylove/reqX-releases)**
+👉 **[Download Latest Version (reqX-releases)](https://github.com/lgponlylove/reqX-releases/releases)**
 
 - **Windows:** `.exe` installer, `.msi` package, or zero-install `.zip` portable.
 - **Linux:** `.AppImage` (portable for all distributions) and `.deb` (Debian/Ubuntu).
