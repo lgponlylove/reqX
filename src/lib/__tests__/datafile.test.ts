@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { parseDataFile, rowSummary } from '../datafile';
+import JSZip from 'jszip';
+import { parseDataFile, parseDataFileAsync, rowSummary } from '../datafile';
 import { runTests } from '../scripts';
 import type { ApiRequest } from '../../types/api';
 
@@ -22,7 +23,7 @@ describe('parseDataFile CSV', () => {
   it('báo lỗi file trống / thiếu dòng data / đuôi lạ', () => {
     expect(parseDataFile('', 'a.csv').error).toMatch(/trống/);
     expect(parseDataFile('a,b\n', 'a.csv').error).toMatch(/ít nhất 2 dòng/);
-    expect(parseDataFile('a', 'a.txt').error).toMatch(/\.csv hoặc \.json/);
+    expect(parseDataFile('a', 'a.txt').error).toMatch(/\.csv, \.json hoặc \.xlsx/);
   });
 });
 
@@ -47,6 +48,51 @@ describe('parseDataFile JSON', () => {
     const r = parseDataFile('{"monId":"12"}', 'm.json');
     expect(r.error).toBeUndefined();
     expect(r.rows).toEqual([{ monId: '12' }]);
+  });
+});
+
+describe('parseDataFileAsync XLSX', () => {
+  it('đọc file xlsx và trả về đúng rows và columns', async () => {
+    const zip = new JSZip();
+    zip.file(
+      'xl/workbook.xml',
+      `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+      <workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+        <sheets>
+          <sheet name="TestData" sheetId="1" r:id="rId1" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"/>
+        </sheets>
+      </workbook>`
+    );
+    zip.file(
+      'xl/_rels/workbook.xml.rels',
+      `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+      <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+        <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
+      </Relationships>`
+    );
+    zip.file(
+      'xl/worksheets/sheet1.xml',
+      `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+      <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+        <sheetData>
+          <row r="1">
+            <c r="A1"><is><t>username</t></is></c>
+            <c r="B1"><is><t>password</t></is></c>
+          </row>
+          <row r="2">
+            <c r="A2"><is><t>admin</t></is></c>
+            <c r="B2"><is><t>secret123</t></is></c>
+          </row>
+        </sheetData>
+      </worksheet>`
+    );
+
+    const buffer = await zip.generateAsync({ type: 'arraybuffer' });
+    const res = await parseDataFileAsync(buffer, 'test.xlsx');
+    expect(res.error).toBeUndefined();
+    expect(res.columns).toEqual(['username', 'password']);
+    expect(res.rows).toEqual([{ username: 'admin', password: 'secret123' }]);
+    expect(res.sheets).toEqual(['TestData']);
   });
 });
 

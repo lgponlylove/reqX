@@ -3,7 +3,7 @@ import { useAppStore } from '../stores/app';
 import { useFlowStore } from '../stores/flow';
 import { useTranslation, useLanguageStore } from '../stores/language';
 import { runRequestList, runCollectionWithData, type RunItemResult, type DataIterationResult } from '../lib/runner';
-import { parseDataFile, rowSummary } from '../lib/datafile';
+import { parseDataFile, parseDataFileAsync, rowSummary } from '../lib/datafile';
 import { confirmUntrustedScripts } from '../lib/scripts';
 import { collectRequestVars } from '../lib/flow';
 import { summarize } from '../lib/scheduleEngine';
@@ -26,7 +26,14 @@ export default function Runner() {
   const [running, setRunning] = useState(false);
   const [results, setResults] = useState<RunItemResult[]>([]);
   // Data-driven (Postman: data file): mỗi dòng = 1 iteration chạy hết scope
-  const [dataFile, setDataFile] = useState<{ name: string; rows: Record<string, string>[]; columns: string[] } | null>(null);
+  const [dataFile, setDataFile] = useState<{
+    name: string;
+    rows: Record<string, string>[];
+    columns: string[];
+    sheets?: string[];
+    selectedSheet?: string;
+    rawBuffer?: ArrayBuffer;
+  } | null>(null);
   const [dataError, setDataError] = useState('');
   const [iterations, setIterations] = useState<DataIterationResult[]>([]);
   const [maxRows, setMaxRows] = useState(0); // 0 = chạy hết
@@ -78,19 +85,59 @@ export default function Runner() {
 
   const onPickDataFile = (f: File | undefined) => {
     if (!f) return;
+    const isXlsx = f.name.toLowerCase().endsWith('.xlsx');
     const reader = new FileReader();
-    reader.onload = () => {
-      const parsed = parseDataFile(String(reader.result ?? ''), f.name);
-      if (parsed.error || parsed.rows.length === 0) {
+    reader.onload = async () => {
+      try {
+        const raw = reader.result;
+        if (!raw) return;
+        const parsed = await parseDataFileAsync(raw, f.name);
+        if (parsed.error || parsed.rows.length === 0) {
+          setDataFile(null);
+          setDataError(parsed.error ?? 'File không có dòng dữ liệu!');
+          return;
+        }
+        setDataError('');
+        setDataFile({
+          name: f.name,
+          rows: parsed.rows,
+          columns: parsed.columns,
+          sheets: parsed.sheets,
+          selectedSheet: parsed.selectedSheet,
+          rawBuffer: isXlsx && raw instanceof ArrayBuffer ? raw : undefined,
+        });
+        setIterations([]);
+      } catch (err) {
         setDataFile(null);
-        setDataError(parsed.error ?? 'File không có dòng dữ liệu!');
+        setDataError(err instanceof Error ? err.message : String(err));
+      }
+    };
+    if (isXlsx) {
+      reader.readAsArrayBuffer(f);
+    } else {
+      reader.readAsText(f);
+    }
+  };
+
+  const onSelectExcelSheet = async (sheetName: string) => {
+    if (!dataFile || !dataFile.rawBuffer) return;
+    try {
+      const parsed = await parseDataFileAsync(dataFile.rawBuffer, dataFile.name, sheetName);
+      if (parsed.error || parsed.rows.length === 0) {
+        setDataError(parsed.error ?? 'Sheet này không có dòng dữ liệu!');
         return;
       }
       setDataError('');
-      setDataFile({ name: f.name, rows: parsed.rows, columns: parsed.columns });
+      setDataFile((prev) => prev ? {
+        ...prev,
+        rows: parsed.rows,
+        columns: parsed.columns,
+        selectedSheet: sheetName,
+      } : null);
       setIterations([]);
-    };
-    reader.readAsText(f);
+    } catch (err) {
+      setDataError(err instanceof Error ? err.message : String(err));
+    }
   };
 
   const start = async () => {
@@ -299,7 +346,7 @@ export default function Runner() {
           {t.runner.dataFile}
           <span className="flex items-center gap-2">
             <input
-              type="file" accept=".csv,.json"
+              type="file" accept=".csv,.json,.xlsx"
               onChange={(e) => onPickDataFile(e.target.files?.[0])}
               className="text-xs text-slate-400 file:bg-slate-800 file:border file:border-slate-700 file:rounded file:px-2 file:py-1 file:text-xs file:text-slate-200"
             />
@@ -313,6 +360,20 @@ export default function Runner() {
             )}
           </span>
         </label>
+        {dataFile && dataFile.sheets && dataFile.sheets.length > 1 && (
+          <label className="flex flex-col gap-1 text-sm">
+            <span>Sheet</span>
+            <select
+              value={dataFile.selectedSheet || dataFile.sheets[0]}
+              onChange={(e) => onSelectExcelSheet(e.target.value)}
+              className="bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-xs text-slate-200"
+            >
+              {dataFile.sheets.map((s) => (
+                <option key={s} value={s}>📊 {s}</option>
+              ))}
+            </select>
+          </label>
+        )}
         {dataFile && (
           <label className="flex flex-col gap-1 text-sm">
             {t.runner.maxRows}
@@ -456,6 +517,7 @@ export default function Runner() {
                     results,
                     totalTimeMs: totalTime,
                     environmentName: environments.find((e) => e.id === activeEnvId)?.name,
+                    lang: language,
                   });
                   const d = new Date();
                   const pad = (n: number) => String(n).padStart(2, '0');

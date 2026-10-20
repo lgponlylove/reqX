@@ -1,8 +1,12 @@
 /** Nạp file data cho Runner (Postman: data file CSV/JSON). Mỗi dòng = 1 iteration. */
 
+import { parseXlsxBuffer } from './xlsx-parser';
+
 export interface ParsedDataFile {
   rows: Record<string, string>[];
   columns: string[];
+  sheets?: string[];
+  selectedSheet?: string;
   error?: string;
 }
 
@@ -79,12 +83,58 @@ function parseJson(text: string): ParsedDataFile {
   return { rows, columns };
 }
 
-/** Đoán định dạng theo đuôi file (.csv / .json). */
+/** Đoán định dạng theo đuôi file (.csv / .json / .xlsx). */
 export function parseDataFile(text: string, filename: string): ParsedDataFile {
   const lower = filename.toLowerCase();
   if (lower.endsWith('.json')) return parseJson(text);
   if (lower.endsWith('.csv')) return parseCsv(text);
-  return { rows: [], columns: [], error: 'Chỉ nhận file .csv hoặc .json!' };
+  if (lower.endsWith('.xlsx')) {
+    return { rows: [], columns: [], error: 'Vui lòng sử dụng parseDataFileAsync cho file .xlsx!' };
+  }
+  return { rows: [], columns: [], error: 'Chỉ nhận file .csv, .json hoặc .xlsx!' };
+}
+
+/** Hỗ trợ parse async (đặc biệt cho file nhị phân Excel .xlsx) */
+export async function parseDataFileAsync(
+  data: string | ArrayBuffer,
+  filename: string,
+  sheetName?: string
+): Promise<ParsedDataFile> {
+  const lower = filename.toLowerCase();
+  if (lower.endsWith('.xlsx')) {
+    try {
+      const buffer = typeof data === 'string'
+        ? new TextEncoder().encode(data).buffer
+        : data;
+      const parsed = await parseXlsxBuffer(buffer);
+      if (parsed.error) {
+        return { rows: [], columns: [], error: parsed.error };
+      }
+      if (parsed.sheets.length === 0) {
+        return { rows: [], columns: [], error: 'File Excel không có sheet nào!' };
+      }
+      const targetSheetName = sheetName && parsed.sheets.includes(sheetName)
+        ? sheetName
+        : parsed.sheets[0];
+      const sheetData = parsed.data[targetSheetName] || { rows: [], columns: [] };
+
+      return {
+        rows: sheetData.rows.slice(0, MAX_ROWS),
+        columns: sheetData.columns,
+        sheets: parsed.sheets,
+        selectedSheet: targetSheetName,
+      };
+    } catch (err) {
+      return {
+        rows: [],
+        columns: [],
+        error: `Không thể đọc file Excel: ${err instanceof Error ? err.message : String(err)}`,
+      };
+    }
+  }
+
+  const text = typeof data === 'string' ? data : new TextDecoder().decode(data);
+  return parseDataFile(text, filename);
 }
 
 /** Tóm tắt 1 dòng để hiện UI (tối đa 2 cột đầu). */
