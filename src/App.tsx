@@ -328,28 +328,16 @@ export default function App() {
             <button
               type="button"
               onClick={() => setAiDrawerOpen((v) => !v)}
-              title={t.dock.aiDesc}
-              className={`px-3 py-1 rounded-full text-xs font-semibold flex items-center gap-1.5 transition-all border ${
+              title={`${t.dock.ai} — ${t.dock.aiDesc}`}
+              aria-label={t.dock.ai}
+              className={`px-2.5 py-1 rounded-full text-xs font-semibold flex items-center gap-1 transition-all border shrink-0 ${
                 aiDrawerOpen
                   ? 'bg-cyan-500/20 border-cyan-400 text-cyan-300 shadow-[0_0_15px_rgba(6,182,212,0.35)]'
-                  : 'border-slate-700/80 hover:border-cyan-500/50 text-slate-300 hover:text-cyan-200 bg-slate-800/60'
+                  : 'bg-slate-900/80 hover:bg-slate-800 border-slate-700/80 hover:border-cyan-500/50 text-slate-300 hover:text-cyan-200'
               }`}
             >
-              <span className="text-cyan-400">✨</span>
-              <span>{t.dock.ai}</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setView(view === 'coverage' ? 'builder' : 'coverage')}
-              title={t.dock.coverageDesc}
-              className={`px-3 py-1 rounded-full text-xs font-semibold flex items-center gap-1.5 transition-all border ${
-                view === 'coverage'
-                  ? 'bg-emerald-500/20 border-emerald-400 text-emerald-300 shadow-[0_0_15px_rgba(16,185,129,0.35)]'
-                  : 'border-slate-700/80 hover:border-emerald-500/50 text-slate-300 hover:text-emerald-200 bg-slate-800/60'
-              }`}
-            >
-              <span className="text-emerald-400">🎯</span>
-              <span>{t.dock.coverage}</span>
+              <span className="leading-none text-cyan-400">✨</span>
+              <span>AI</span>
             </button>
             <LicenseModal />
             <LanguageSwitcher />

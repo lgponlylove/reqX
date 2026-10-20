@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useAppStore } from '../stores/app';
 import { useRequestStore } from '../stores/request';
 import { useFlowStore } from '../stores/flow';
@@ -16,6 +16,7 @@ import ExtractVarsDialog from './ExtractVarsDialog';
 import ScriptEditorModal from './ScriptEditorModal';
 import OpenApiImportModal from './OpenApiImportModal';
 import HistoryDiffModal from './HistoryDiffModal';
+import { buildTreeFilter, UNFILED_KEY, type TreeFilter } from '../lib/tree-filter';
 import { useTranslation } from '../stores/language';
 import type { ApiRequest, Collection, Dir, Folder, HttpMethod, HistoryItem } from '../types/api';
 
@@ -40,6 +41,7 @@ function FolderNode({
   onDragStart,
   onDragEnd,
   renameReqSig,
+  filter,
 }: {
   collectionId: string;
   folder: Folder;
@@ -60,10 +62,13 @@ function FolderNode({
   onDragStart: (collectionId: string, requestId: string, e: React.DragEvent) => void;
   onDragEnd: () => void;
   renameReqSig: { id: string; n: number } | null;
+  /** Bộ lọc cây ở đầu sidebar — node không khớp bị ẩn, node khớp thì mở tạm không ghi vào `collapsed` */
+  filter: TreeFilter;
 }) {
   const hasNested = folder.folderIds && folder.folderIds.length > 0;
+  if (filter.active && !filter.fldVisible.has(folder.id)) return null;
   // Folder mặc định mở; trạng thái thu gọn lưu chung với collection (localStorage)
-  const open = !(collapsed[`fld:${folder.id}`] ?? false);
+  const open = filter.active || !(collapsed[`fld:${folder.id}`] ?? false);
   const toggle = () => onToggleFolder(folder.id);
   const childFolders = folder.folderIds ? folder.folderIds.map(fid => allFolders.find(f => f.id === fid)).filter(Boolean) as Folder[] : [];
 
@@ -91,7 +96,7 @@ function FolderNode({
         <button
           onClick={toggle}
           className="w-4 h-4 shrink-0 flex items-center justify-center text-slate-500 hover:text-white"
-          title={open ? 'Thu gọn folder' : 'Mở rộng folder'}
+          title={filter.active ? 'Đang lọc: mọi mục khớp đều mở tạm' : open ? 'Thu gọn folder' : 'Mở rộng folder'}
         >
           {open ? '▾' : '▸'}
         </button>
@@ -134,6 +139,7 @@ function FolderNode({
           {folder.requestIds.map((id) => {
             const r = requests[id];
             if (!r) return null;
+            if (filter.active && !filter.reqVisible.has(id)) return null;
             return <ReqRow key={id} collectionId={collectionId} req={r} compact={compact} onDragStart={onDragStart} onDragEnd={onDragEnd} onMenu={(e, colId, requestId) => openMenu(e, { kind: 'request', colId, requestId })} renameSignal={renameReqSig?.id === id ? renameReqSig.n : 0} />;
           })}
           {folder.requestIds.length === 0 && !hasNested && (
@@ -163,6 +169,7 @@ function FolderNode({
               onDragStart={onDragStart}
               onDragEnd={onDragEnd}
               renameReqSig={renameReqSig}
+              filter={filter}
             />
           ))}
         </>
@@ -299,6 +306,10 @@ export default function Sidebar({ onCollapse, onGoFlow }: { onCollapse: () => vo
   const [hisTimeFilter, setHisTimeFilter] = useState<'all' | '1h' | 'today'>('all');
   const [selectedForDiff, setSelectedForDiff] = useState<string[]>([]);
   const [diffModalItems, setDiffModalItems] = useState<[HistoryItem, HistoryItem] | null>(null);
+  /** Lọc cây collection: khớp tên request + URL + method + tên collection/folder (cùng breadth với Ctrl+K) */
+  const [treeQuery, setTreeQuery] = useState('');
+  const treeRef = useRef<HTMLInputElement>(null);
+  const filter = useMemo(() => buildTreeFilter(collections, requests, dirs, treeQuery), [collections, requests, dirs, treeQuery]);
   const [showCurl, setShowCurl] = useState(false);
   const [showOpenApi, setShowOpenApi] = useState(false);
   /** Tab sidebar: collections hoặc lịch sử (lịch sử ẩn đi cho gọn) */
@@ -379,6 +390,27 @@ export default function Sidebar({ onCollapse, onGoFlow }: { onCollapse: () => vo
   const setFldOpen = (folderId: string, open: boolean) => {
     setCollapsed((prev) => {
       const next = { ...prev, [`fld:${folderId}`]: !open };
+      try {
+        localStorage.setItem('postman-clone-collapsed-dirs', JSON.stringify(next));
+      } catch { /* ignore */ }
+      return next;
+    });
+  };
+  /** Tạo folder từ ô nhập ở sidebar. Phải mở collection ra — nếu không thì khi ô nhập biến mất,
+   *  collection cụp lại và folder vừa tạo bị ẩn, trông như "tạo không được". */
+  const commitNewFolder = (colId: string) => {
+    const name = folderName.trim();
+    if (name) {
+      addFolder(colId, name);
+      setColOpen(colId, true);
+    }
+    setFolderName('');
+    setAddingFolderFor(null);
+  };
+  /** Đặt trạng thái mở/thu cho một thư mục (dir) trong cây. */
+  const setDirOpen = (dirId: string, open: boolean) => {
+    setCollapsed((prev) => {
+      const next = { ...prev, [dirId]: !open };
       try {
         localStorage.setItem('postman-clone-collapsed-dirs', JSON.stringify(next));
       } catch { /* ignore */ }
@@ -1002,7 +1034,11 @@ export default function Sidebar({ onCollapse, onGoFlow }: { onCollapse: () => vo
         ...docsItems(c, f.id),
         {
           label: '＋ Tạo folder con trong đây',
-          onClick: () => addFolder(c.id, 'New Folder', f.id),
+          onClick: () => {
+            addFolder(c.id, 'New Folder', f.id);
+            setColOpen(c.id, true);
+            setFldOpen(f.id, true);
+          },
         },
         {
           label: '🗑 Xóa folder (requests chuyển ra ngoài)', danger: true,
@@ -1025,17 +1061,7 @@ export default function Sidebar({ onCollapse, onGoFlow }: { onCollapse: () => vo
         },
       } as MenuItem)),
       { label: '💾 Lưu request hiện tại vào đây', onClick: () => { const saved = current.id && requests[current.id] ? saveRequest(current) : saveRequest(current, c.id); if (saved) { set({ id: saved.id, origin: undefined }); markClean(); } } },
-      { label: '📁 Tạo folder mới', onClick: () => setAddingFolderFor(c.id) },
-      ...flatDirs()
-        .filter(({ d }) => d.id !== curDir?.id)
-        .slice(0, 30)
-        .map(({ path, d }) => ({
-          label: `→ 📁 ${path}`,
-          onClick: () => moveCollection(c.id, d.id),
-        })),
-      ...(curDir
-        ? [{ label: '→ Ngoài thư mục', onClick: () => moveCollection(c.id, null) } as MenuItem]
-        : []),
+      { label: '📁 Tạo folder mới', onClick: () => { setFolderName(''); setAddingFolderFor(c.id); } },
       { label: '📤 Xuất collection ra JSON (Postman)', onClick: () => exportCol(c) },
       { label: '🌿 Xuất Git-friendly (Plain-text YAML / ZIP)', onClick: () => exportGitCol(c) },
       {
@@ -1059,6 +1085,18 @@ export default function Sidebar({ onCollapse, onGoFlow }: { onCollapse: () => vo
           }
         },
       },
+      // Danh sách chuyển thư mục để CUỐI vì dài nhất (tới 30 dòng) — để nó ở trên thì
+      // mục Đổi tên/Xóa bị đẩy tuốt ra ngoài vùng nhìn thấy của menu.
+      ...flatDirs()
+        .filter(({ d }) => d.id !== curDir?.id)
+        .slice(0, 30)
+        .map(({ path, d }) => ({
+          label: `→ 📁 ${path}`,
+          onClick: () => moveCollection(c.id, d.id),
+        })),
+      ...(curDir
+        ? [{ label: '→ Ngoài thư mục', onClick: () => moveCollection(c.id, null) } as MenuItem]
+        : []),
     ];
   }
 
@@ -1068,7 +1106,7 @@ export default function Sidebar({ onCollapse, onGoFlow }: { onCollapse: () => vo
   const pushDirSubtree = (parentId: string | null, depth: number) => {
     for (const d of dirs.filter((x) => (x.parentId ?? null) === parentId)) {
       blocks.push({ t: 'dir', key: `dir-${d.id}`, dir: d, depth });
-      if (collapsed[d.id]) continue;
+      if (!filter.active && collapsed[d.id]) continue;
       for (const cid of d.collectionIds) {
         const col = collections.find((x) => x.id === cid);
         if (col) blocks.push({ t: 'col', col, depth: depth + 1 });
@@ -1081,13 +1119,18 @@ export default function Sidebar({ onCollapse, onGoFlow }: { onCollapse: () => vo
     for (const c of collections) blocks.push({ t: 'col', col: c, depth: 0 });
   } else if (unfiled.length > 0) {
     blocks.push({ t: 'dir', key: 'dir-unfiled', dir: null, depth: 0 });
-    if (!collapsed['unfiled']) {
+    if (filter.active || !collapsed['unfiled']) {
       for (const c of unfiled) blocks.push({ t: 'col', col: c, depth: 1 });
     }
   }
 
   const commitNewDir = () => {
-    if (dirName.trim()) addDir(dirName.trim(), addingDir?.parentId ?? null);
+    const name = dirName.trim();
+    if (name && addingDir) {
+      addDir(name, addingDir.parentId);
+      // Mở thư mục cha lên để thư mục con vừa tạo hiện ra ngay, không "biến mất" sau khi nhập
+      if (addingDir.parentId) setDirOpen(addingDir.parentId, true);
+    }
     setDirName('');
     setAddingDir(null);
   };
@@ -1099,7 +1142,7 @@ export default function Sidebar({ onCollapse, onGoFlow }: { onCollapse: () => vo
     const count = dir ? dir.collectionIds.length : unfiled.length;
     const label = dir ? dir.name : t.sidebar.unfiledDir;
     // Thu gọn hoặc rỗng → bo tròn cả hộp (không có card nào bên dưới)
-    const isCollapsed = !!collapsed[dkey];
+    const isCollapsed = !filter.active && !!collapsed[dkey];
     const empty = (!!dir && dir.collectionIds.length === 0 && subCount === 0) || isCollapsed;
     const hasTargetCol = dir ? dir.collectionIds.length > 0 : unfiled.length > 0;
     return (
@@ -1282,13 +1325,6 @@ export default function Sidebar({ onCollapse, onGoFlow }: { onCollapse: () => vo
             <button
               onClick={(e) => setToolMenu({ x: e.clientX, y: e.clientY })}
               title={t.sidebar.workspaceOptions}
-              className="text-slate-400 hover:text-cyan-300 p-1 rounded hover:bg-slate-800/60 transition-colors text-xs"
-            >
-              ⚙
-            </button>
-            <button
-              onClick={(e) => setToolMenu({ x: e.clientX, y: e.clientY })}
-              title={t.sidebar.moreOptions}
               className="text-slate-400 hover:text-white px-1.5 py-0.5 rounded hover:bg-slate-800/60 font-bold text-xs"
             >
               •••
@@ -1302,6 +1338,50 @@ export default function Sidebar({ onCollapse, onGoFlow }: { onCollapse: () => vo
             </button>
           </div>
         </div>
+
+        {/* Ô lọc cây (chỉ tab Collections): node không khớp bị ẩn, node cha của kết quả mở tạm —
+            không ghi đè lựa chọn thu/mở đã lưu; Esc hoặc ✕ là cây về như cũ */}
+        {sideTab === 'col' && (
+          <div className="flex items-center gap-1.5 pb-2 mb-1.5 shrink-0 border-b border-teal-500/10">
+            <div className="relative flex-1 min-w-0">
+              <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[11px] text-slate-500 pointer-events-none">🔍</span>
+              <input
+                ref={treeRef}
+                value={treeQuery}
+                onChange={(e) => setTreeQuery(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape') {
+                    setTreeQuery('');
+                    e.currentTarget.blur();
+                  }
+                }}
+                placeholder={t.sidebar.filterPlaceholder}
+                title={t.sidebar.filterPlaceholder}
+                className="w-full bg-slate-900/80 border border-slate-700 focus:border-teal-500/70 rounded-lg pl-7 pr-7 py-1 text-xs outline-none placeholder:text-slate-600"
+              />
+              {filter.active && (
+                <button
+                  onClick={() => {
+                    setTreeQuery('');
+                    treeRef.current?.focus();
+                  }}
+                  title={t.sidebar.filterClear}
+                  className="absolute right-1 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white px-1 py-0.5 rounded hover:bg-slate-800"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+            {filter.active && (
+              <span
+                className="text-[10px] font-mono text-teal-300 shrink-0"
+                title={`${filter.shownReqs}/${filter.totalReqs} ${t.sidebar.filterMatches}`}
+              >
+                {filter.shownReqs}/{filter.totalReqs}
+              </span>
+            )}
+          </div>
+        )}
 
         {/* Scrollable Tree / Content inside PROJECT Card */}
         <div className="overflow-y-auto flex-1 min-h-0 pr-0.5 flex flex-col gap-1.5">
@@ -1375,13 +1455,22 @@ export default function Sidebar({ onCollapse, onGoFlow }: { onCollapse: () => vo
           </div>
         )}
         {collections.length === 0 && <p className="text-slate-500">Chưa có. Hãy tạo hoặc Import.</p>}
+        {filter.active && filter.colVisible.size === 0 && collections.length > 0 && (
+          <p className="text-[11px] text-slate-500 italic py-1">
+            {t.sidebar.filterEmpty}: <b className="not-italic text-slate-400">{treeQuery.trim()}</b>
+          </p>
+        )}
         {blocks.map((b, bi) => {
-          if (b.t === 'dir') return renderDirHeader(b.dir, b.key, b.depth);
+          if (b.t === 'dir') {
+            if (filter.active && !filter.dirVisible.has(b.dir?.id ?? UNFILED_KEY)) return null;
+            return renderDirHeader(b.dir, b.key, b.depth);
+          }
           const c = b.col;
+          if (filter.active && !filter.colVisible.has(c.id)) return null;
           const colDepth = b.depth;
           // Collection mặc định thu gọn 1 dòng kiểu Postman (mở khi đang sửa tên/tạo folder)
           const colKey = `col:${c.id}`;
-          const colOpen = !(collapsed[colKey] ?? true) || renamingId === c.id || addingFolderFor === c.id;
+          const colOpen = filter.active || !(collapsed[colKey] ?? true) || renamingId === c.id || addingFolderFor === c.id;
           // Card nằm trong thư mục → bỏ viền riêng, nối liền thành 1 hộp với nắp thư mục
           const bare = dirs.some((d) => d.collectionIds.includes(c.id));
           const isLast = bi === blocks.length - 1 || blocks[bi + 1]?.t === 'dir';
@@ -1393,7 +1482,7 @@ export default function Sidebar({ onCollapse, onGoFlow }: { onCollapse: () => vo
           if (isSingleRequest) {
             const reqId = c.rootRequestIds[0];
             const r = requests[reqId];
-            if (r) {
+            if (r && (!filter.active || filter.reqVisible.has(reqId))) {
               return (
                 <div
                   key={c.id}
@@ -1474,7 +1563,7 @@ export default function Sidebar({ onCollapse, onGoFlow }: { onCollapse: () => vo
                 <>
                   <button
                     onClick={() => toggleCollapse(`col:${c.id}`)}
-                    title={colOpen ? 'Thu gọn collection' : 'Mở rộng collection'}
+                    title={filter.active ? 'Đang lọc: mọi mục khớp đều mở tạm' : colOpen ? 'Thu gọn collection' : 'Mở rộng collection'}
                     className="text-slate-500 hover:text-white text-xs shrink-0 px-0.5"
                   >
                     {colOpen ? '▾' : '▸'}
@@ -1498,6 +1587,29 @@ export default function Sidebar({ onCollapse, onGoFlow }: { onCollapse: () => vo
 
             {colOpen && (
             <>
+            {/* Thêm folder — đặt NGAY DƯỚI tiêu đề collection để ô nhập luôn hiện nơi vừa bấm */}
+            {addingFolderFor === c.id && (
+              <div className="flex gap-1 mt-1 mb-1">
+                <input
+                  autoFocus
+                  className="flex-1 min-w-0 bg-slate-900 border border-slate-600 rounded px-1.5 py-1 text-xs"
+                  placeholder="Tên folder..."
+                  value={folderName}
+                  onChange={(e) => setFolderName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && folderName.trim()) commitNewFolder(c.id);
+                    if (e.key === 'Escape') { setFolderName(''); setAddingFolderFor(null); }
+                  }}
+                />
+                <button
+                  onClick={() => commitNewFolder(c.id)}
+                  className="bg-slate-700 hover:bg-slate-600 rounded px-2 text-xs"
+                >
+                  OK
+                </button>
+              </div>
+            )}
+
             {/* Folders — chỉ render folder gốc, folder con do FolderNode đệ quy */}
             {c.folders
               .filter((f) => !c.folders.some((p) => p.folderIds?.includes(f.id)))
@@ -1523,39 +1635,9 @@ export default function Sidebar({ onCollapse, onGoFlow }: { onCollapse: () => vo
                 onDragStart={onDragStart}
                 onDragEnd={() => setDropTarget(null)}
                 renameReqSig={renameReqSig}
+                filter={filter}
               />
             ))}
-
-            {/* Thêm folder */}
-            {addingFolderFor === c.id && (
-              <div className="flex gap-1 mt-1.5">
-                <input
-                  autoFocus
-                  className="flex-1 min-w-0 bg-slate-900 border border-slate-600 rounded px-1.5 py-1 text-xs"
-                  placeholder="Tên folder..."
-                  value={folderName}
-                  onChange={(e) => setFolderName(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && folderName.trim()) {
-                      addFolder(c.id, folderName.trim());
-                      setFolderName('');
-                      setAddingFolderFor(null);
-                    }
-                    if (e.key === 'Escape') setAddingFolderFor(null);
-                  }}
-                />
-                <button
-                  onClick={() => {
-                    if (folderName.trim()) addFolder(c.id, folderName.trim());
-                    setFolderName('');
-                    setAddingFolderFor(null);
-                  }}
-                  className="bg-slate-700 hover:bg-slate-600 rounded px-2 text-xs"
-                >
-                  OK
-                </button>
-              </div>
-            )}
 
             {/* Root requests (dropzone) */}
             <div
@@ -1567,6 +1649,7 @@ export default function Sidebar({ onCollapse, onGoFlow }: { onCollapse: () => vo
               {c.rootRequestIds.map((id) => {
                 const r = requests[id];
                 if (!r) return null;
+                if (filter.active && !filter.reqVisible.has(id)) return null;
                 return <ReqRow key={id} collectionId={c.id} req={r} compact={compact} onDragStart={onDragStart} onDragEnd={() => setDropTarget(null)} onMenu={(e, colId, requestId) => openMenu(e, { kind: 'request', colId, requestId })} renameSignal={renameReqSig?.id === id ? renameReqSig.n : 0} />;
               })}
             </div>

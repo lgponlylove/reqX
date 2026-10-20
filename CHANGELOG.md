@@ -2,9 +2,9 @@
 
 Dự án theo SemVer, bản mới nhất nằm trên cùng. Ngày ghi theo định dạng dd/MM/yyyy.
 
-## [0.2.7] — 20/10/2026
+## [0.2.7] — 20/10/2026 *(chưa phát hành — chưa build `.exe`, chưa tag)*
 
-Batch 4 tính năng cho QA/QC/DEV/BA (chốt từ bảng ứng viên: #1, #3, #4, #7) + sửa chiều cao ô soạn thảo.
+Batch 4 tính năng cho QA/QC/DEV/BA (chốt từ bảng ứng viên: #1, #3, #4, #7) + sửa chiều cao ô soạn thảo. Nhãn version đã nâng 0.2.6 → **0.2.7** ở cả 5 chỗ: `package.json`, `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml`, bản ghi `reqx` trong `src-tauri/Cargo.lock`, `APP_VERSION` (`src/lib/update-check.ts`).
 
 **Sửa layout — ô script/body tự co giãn**
 - `ScriptCodeEditor.tsx` + `JsonBodyEditor.tsx` thêm chế độ `fill`: editor lớn hết chỗ còn lại của pane, `minHeight` chỉ còn là sàn, kéo vạch chia là ô theo. Trước đây cố định 8 dòng nên thừa một dải trắng phía trên Response.
@@ -25,7 +25,7 @@ Batch 4 tính năng cho QA/QC/DEV/BA (chốt từ bảng ứng viên: #1, #3, #4
 **P3 — Trang độ phủ kiểm thử** *(#47)*
 - `coverage.ts` (hàm thuần) + `CoverageView.tsx`: mỗi collection/thư mục có bao nhiêu request, bao nhiêu đã có điều kiện kiểm thử (tính cả kế thừa qua `scriptChainFor`, phân biệt "test riêng" và "chỉ nhờ kế thừa"), bao nhiêu chưa từng chạy, bao nhiêu fail ở lần chạy **gần nhất**.
 - Nguồn chạy gom 3 nơi: `useFlowStore.runs` (Runner/Flow) + `schedule.runs` (hẹn giờ) + `history` (lần gửi ở tab Builder).
-- Nút 🎯 Độ phủ trên header, có trong rail công cụ + Command Palette; lọc theo tên, toggle "Chỉ hiện chỗ chưa phủ", xuất CSV có BOM.
+- Vào trang bằng rail công cụ + Command Palette (nút 🎯 trên header đã bỏ ở batch cuối cho gọn); lọc theo tên, toggle "Chỉ hiện chỗ chưa phủ", xuất CSV có BOM.
 - Ghi thẳng vào trang điều không chắc: ReqX khớp "đã chạy" theo **tên** request, đổi tên thì phải chạy lại mới được tính.
 - Kiểm chứng: `coverage.test.ts` 7 tests (fixture 3 collection: có test / không test / kế thừa / chưa chạy / fail gần nhất / collection rỗng).
 
@@ -36,9 +36,21 @@ Batch 4 tính năng cho QA/QC/DEV/BA (chốt từ bảng ứng viên: #1, #3, #4
 - Cổng an toàn bắt kịp đường mới: `stripUntrustedScripts` cắt luôn `assertions` của request import khi không có `--allow-scripts`, hộp thoại duyệt script liệt kê "bảng điều kiện".
 - Kiểm chứng: `assertions.test.ts` 10 tests — compile xong chạy thật trong sandbox `runTests`, đủ từng kind/op, path thiếu báo "Thiếu JSON …" chứ không nổ script, và một dòng cố nhét `pm.test("INJECTED")` chỉ trở thành dữ liệu trong tên test.
 
+**Batch cuối 20/10 — cây sidebar có bộ lọc + sửa menu chuột phải + dọn header**
+
+*Biết trong lúc làm (không có trong bảng ứng viên):* chuột phải collection "không thấy chức năng xóa" và "tạo folder mới không được" — cả hai là lỗi tiếp cận, không phải thiếu tính năng.
+
+- **Bộ lọc cây collection** (`tree-filter.ts` mới + ô 🔍 đầu card PROJECT): khớp **tên request + URL + method + tên collection/folder** (cùng breadth với Ctrl+K). Node không khớp bị ẩn ở mọi cấp (thư mục chứa → collection → folder lồng → dòng request); tên collection/folder khớp thì nguyên subtree hiện. Bộ đếm `x/y request khớp` + empty state.
+- **Không ghi đè lựa chọn thu/mở đã lưu:** khi đang lọc, `colOpen`/`open` chỉ thêm nhánh `filter.active ||` phía trước → Esc hoặc ✕ xoá hết là cây về đúng như cũ, localStorage `postman-clone-collapsed-dirs` không bị đụng tới.
+- **Sửa `ContextMenu` (nguyên nhân thật của "menu không có Xóa"):** `window.addEventListener('scroll', onClose, true)` bắt cả sự kiện cuộn của CHÍNH menu (menu giới hạn 12 dòng, `overflow-y-auto`) → vừa lăn chuột là menu đóng, 2 mục đuôi `✎ Đổi tên` / `🗑 Xóa collection` không bao giờ với tới. Nay cuộn trong menu thì giữ nguyên, chỉ đóng khi nền chạy cuộn; chiều cao kẹp theo màn hình; thêm điều hướng bàn phím ↑/↓/Enter + Esc, item đang chọn tự `scrollIntoView`.
+- **Dời danh sách "→ 📁 chuyển vào thư mục" (tới 30 dòng) xuống CUỐI menu collection** để Đổi tên/Xóa nằm trong khoảng 10 dòng đầu.
+- **Sửa "tạo folder không được":** ô `Tên folder...` render sau toàn bộ danh sách folder nên nằm tuốt ngoài màn hình → dời lên ngay dưới tiêu đề collection; và khi Enter, `addingFolderFor` trả null làm collection đang thu gọn **cụp lại, ẩn mất folder vừa tạo** → `commitNewFolder` gọi thêm `setColOpen`, `＋ Tạo folder con` gọi `setFldOpen`, `commitNewDir` gọi `setDirOpen(cha)`. Đã đo tách riêng: tầng store (`addFolder`/`addDir`/`deleteCollection`) ghi đúng, lỗi nằm ở UI.
+- **Bỏ nút ⚙ dư** ở card PROJECT (menu ••• mở đúng menu đó, chuyển tooltip sang `workspaceOptions`); **nút ✨ Trợ lý AI** rút gọn còn `✨ AI`; **bỏ nút 🎯 Độ phủ** trên header (rail + Ctrl+K vẫn còn) + xoá key i18n `dock.coverageDesc` hết chỗ dùng.
+- Kiểm chứng: `tree-filter.test.ts` 12 tests (khớp tên/URL/method, folder khớp tên mở cả subtree, collection khớp tên, nhóm unfiled, thư mục cha của kết quả lồng, dữ liệu hỏng có vòng lặp cha↔con không treo). `npx tsc --noEmit` 0 lỗi; `npx vitest run` 45 files / 427 tests passed.
+
 **Tổng kiểm chứng batch:** `npx tsc --noEmit` 0 lỗi; `npx vitest run` 43 files / 408 tests passed (thêm 4 suite mới: 6 + 7 + 7 + 10 = 30 tests).
 
-**Treo lại (chưa làm, chờ quyết định):** bộ key test bảo mật P0/P1 (IDOR / token hết hạn / injection / schema — chờ chốt Q1–Q3); `docs/HD-AI.md` đã cũ; nhãn version chưa bump trong `package.json`/`tauri.conf.json`; chưa khai `"bin": {"reqx": …}` trong `package.json`; đổi tên biến trong môi trường khác chưa lan sang bản đang mở.
+**Treo lại (chưa làm, chờ quyết định):** bộ key test bảo mật P0/P1 (IDOR / token hết hạn / injection / schema — chờ chốt Q1–Q3); `docs/HD-AI.md` đã cũ; chưa khai `"bin": {"reqx": …}` trong `package.json`; đổi tên biến trong môi trường khác chưa lan sang bản đang mở. Hai phát hiện mới khi debug menu: **`Collection.auth` có trong type nhưng KHÔNG được kế thừa lúc gửi** (`effective = { ...req }` ở `runner.ts:93`, `RequestBar` cũng vậy — auth collection chỉ dùng khi export Git-friendly) nên chưa đặt Auth 1 lần cho cả project được; và menu collection chưa có "➕ Thêm request mới" (chỉ có ở menu request).
 
 ## [0.2.6] — 17/10/2026
 
