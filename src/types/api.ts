@@ -117,6 +117,14 @@ export interface ApiRequest {
   /** Nguồn gốc: 'imported' = từ file import vào (chạy script phải hỏi trước); tự tạo hoặc đã mở-ra-lưu = local */
   origin?: 'local' | 'imported';
   description?: string;
+  /** Snapshot baseline lưu lại để so sánh diff response khi kiểm thử regression/staging */
+  snapshot?: {
+    status: number;
+    body: string;
+    headers?: Record<string, string>;
+    savedAt: number;
+    envName?: string;
+  };
 }
 
 /** Bảng kiểm tra gì trong response. */

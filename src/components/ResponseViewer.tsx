@@ -11,6 +11,8 @@ import ExpandOverlay from './ExpandOverlay';
 import AiTestModal from './AiTestModal';
 import SseStreamViewer from './SseStreamViewer';
 import ResponseVisualizer from './ResponseVisualizer';
+import SnapshotDiffModal from './SnapshotDiffModal';
+import StressTestModal from './StressTestModal';
 import { useTranslation } from '../stores/language';
 
 type View = 'pretty' | 'visualizer' | 'sse' | 'schema' | 'raw' | 'headers' | 'preview' | 'tests' | 'file';
@@ -67,6 +69,8 @@ export default function ResponseViewer({ onCollapse }: { onCollapse?: () => void
   // Response dài bị chặn ở max-h-96 → ô ⤢ mở toàn bộ nội dung trong popup
   const [expanded, setExpanded] = useState(false);
   const [showAiTestModal, setShowAiTestModal] = useState(false);
+  const [showSnapshotModal, setShowSnapshotModal] = useState(false);
+  const [showStressModal, setShowStressModal] = useState(false);
   /** Form "🐞 Báo lỗi": 2 ô tự giải thích + mong đợi, sinh file .md đính ticket. */
   const [bug, setBug] = useState<{ expected: string; note: string } | null>(null);
   const [bugCopied, setBugCopied] = useState(false);
@@ -489,6 +493,26 @@ export default function ResponseViewer({ onCollapse }: { onCollapse?: () => void
               <span>AI Sinh Test</span>
             </button>
           )}
+          {!isBinary && (
+            <button
+              type="button"
+              onClick={() => setShowSnapshotModal(true)}
+              className="text-xs rounded px-2 py-0.5 font-semibold transition-all border whitespace-nowrap bg-emerald-950/80 hover:bg-emerald-900 text-emerald-300 border-emerald-700/80 hover:border-emerald-400 flex items-center gap-1 shadow-sm"
+              title="So sánh Response này với Snapshot Baseline để phát hiện lỗi thay đổi giao thức (Regression Diff)"
+            >
+              <span>🔀</span>
+              <span>Snapshot Diff</span>
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => setShowStressModal(true)}
+            className="text-xs rounded px-2 py-0.5 font-semibold transition-all border whitespace-nowrap bg-amber-950/80 hover:bg-amber-900 text-amber-300 border-amber-700/80 hover:border-amber-400 flex items-center gap-1 shadow-sm"
+            title="Kiểm thử tải nội bộ và bẫy lỗi tranh chấp Race Condition với nhiều luồng đồng thời"
+          >
+            <span>⚡</span>
+            <span>Stress Test</span>
+          </button>
           <button
             type="button"
             onClick={() => setBug(bug ? null : { expected: '', note: '' })}
@@ -676,6 +700,25 @@ export default function ResponseViewer({ onCollapse }: { onCollapse?: () => void
       )}
 
       {showAiTestModal && <AiTestModal onClose={() => setShowAiTestModal(false)} />}
+
+      {showSnapshotModal && response && (
+        <SnapshotDiffModal
+          request={useRequestStore.getState().current}
+          currentResponse={{
+            status: response.status,
+            body: response.body,
+            headers: response.headers,
+          }}
+          onClose={() => setShowSnapshotModal(false)}
+        />
+      )}
+
+      {showStressModal && (
+        <StressTestModal
+          request={useRequestStore.getState().current}
+          onClose={() => setShowStressModal(false)}
+        />
+      )}
     </div>
   );
 }
