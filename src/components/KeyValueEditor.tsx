@@ -12,6 +12,8 @@ interface Props {
   valuePlaceholder?: string;
   /** Danh sách key gợi ý khi gõ (vd. tên header thông dụng) — không truyền thì không có autocomplete */
   suggestKeys?: string[];
+  /** Tên trường cần nháy sáng và cuộn tới (vd: 'authorization') */
+  highlightKey?: string;
 }
 
 /** Số dòng gợi ý hiển thị tối đa — đủ để không phải cuộn mà vẫn kín màn hình. */
@@ -24,7 +26,7 @@ const MAX_SUGGESTIONS = 9;
 const KEY_COL = 'w-[34%] min-w-[110px] max-w-[300px]';
 
 export default function KeyValueEditor({
-  items, onChange, keyPlaceholder, valuePlaceholder, suggestKeys,
+  items, onChange, keyPlaceholder, valuePlaceholder, suggestKeys, highlightKey,
 }: Props) {
   const { t: i18n } = useTranslation();
   const { environments, activeEnvId, globals } = useAppStore();
@@ -115,8 +117,16 @@ export default function KeyValueEditor({
       )}
       {items.map((kv) => {
         const list = openId === kv.id ? candidates(kv) : [];
+        const isTarget = highlightKey && kv.key.trim().toLowerCase() === highlightKey.trim().toLowerCase();
         return (
-          <div key={kv.id} className="flex gap-1.5 items-center">
+          <div
+            key={kv.id}
+            className={`flex gap-1.5 items-center rounded p-1 transition-all duration-300 ${
+              isTarget
+                ? 'bg-amber-950/60 border border-amber-500 shadow-[0_0_15px_rgba(245,158,11,0.4)] ring-1 ring-amber-400'
+                : ''
+            }`}
+          >
             <input
               type="checkbox"
               title={i18n.request.toggleRow}

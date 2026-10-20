@@ -40,6 +40,10 @@ interface RequestState {
   setActiveTab: (id: string) => void;
   /** Chọn bảng con cho tab đang mở (không ảnh hưởng các tab khác) */
   setSubTab: (tab: ReqSubTab) => void;
+  /** Yêu cầu focus và nháy sáng một trường cụ thể (vd: key header Authorization) */
+  focusTarget: { subTab: ReqSubTab; fieldKey?: string; ts: number } | null;
+  triggerFocus: (subTab: ReqSubTab, fieldKey?: string) => void;
+  clearFocusTarget: () => void;
   /** Nạp lại bản mới nhất của request vào các tab đang mở chưa sửa (sau khi đổi hàng loạt) */
   refreshTabs: (requests: Record<string, ApiRequest>) => void;
   /** Đổi tên biến: thay `{{oldKey}}` → `{{newKey}}` ngay trong mọi tab đang mở (kể cả tab đang sửa dở). */
@@ -212,6 +216,16 @@ export const useRequestStore = create<RequestState>()(
 
       setSubTab: (tab) =>
         set((s) => ({ tabs: s.tabs.map((t) => (t.id === s.activeId ? { ...t, subTab: tab } : t)) })),
+
+      focusTarget: null,
+
+      triggerFocus: (subTab, fieldKey) =>
+        set((s) => ({
+          tabs: s.tabs.map((t) => (t.id === s.activeId ? { ...t, subTab } : t)),
+          focusTarget: { subTab, fieldKey, ts: Date.now() },
+        })),
+
+      clearFocusTarget: () => set({ focusTarget: null }),
 
       markClean: () =>
         set((s) => ({

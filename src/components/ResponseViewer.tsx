@@ -13,6 +13,7 @@ import SseStreamViewer from './SseStreamViewer';
 import ResponseVisualizer from './ResponseVisualizer';
 import SnapshotDiffModal from './SnapshotDiffModal';
 import StressTestModal from './StressTestModal';
+import { diagnoseError } from '../lib/diagnostics';
 import { useTranslation } from '../stores/language';
 
 type View = 'pretty' | 'visualizer' | 'sse' | 'schema' | 'raw' | 'headers' | 'preview' | 'tests' | 'file';
@@ -102,6 +103,14 @@ export default function ResponseViewer({ onCollapse }: { onCollapse?: () => void
   const schemaHighlighted = useMemo(() => {
     return schemaPrettyText ? highlightJson(schemaPrettyText) : '';
   }, [schemaPrettyText]);
+
+  const currentReq = useRequestStore.getState().current;
+  const triggerFocus = useRequestStore((s) => s.triggerFocus);
+
+  // Phân tích nguyên nhân lỗi tự động
+  const diagnostics = useMemo(() => {
+    return diagnoseError(currentReq, response, sendError);
+  }, [currentReq, response, sendError]);
 
   if (sending && !response) {
     return (
@@ -428,13 +437,21 @@ export default function ResponseViewer({ onCollapse }: { onCollapse?: () => void
               SSE ({response.sseEvents?.length || 0})
             </span>
           ) : null}
-          <span className="text-emerald-400 font-bold flex items-center gap-1 font-mono whitespace-nowrap">
+          <span className={`font-bold flex items-center gap-1 font-mono whitespace-nowrap ${
+            response.status >= 200 && response.status < 300
+              ? 'text-emerald-400'
+              : response.status >= 300 && response.status < 400
+              ? 'text-sky-400'
+              : response.status >= 400 && response.status < 500
+              ? 'text-amber-400'
+              : 'text-rose-400'
+          }`}>
             <span>⇄</span> {response.status} {response.statusText}
           </span>
-          <span className="text-emerald-400 font-mono font-medium whitespace-nowrap">
+          <span className="text-slate-400 font-mono font-medium whitespace-nowrap">
             {response.timeMs} ms
           </span>
-          <span className="text-emerald-400 font-mono font-medium whitespace-nowrap">
+          <span className="text-slate-400 font-mono font-medium whitespace-nowrap">
             {formatSize(response.sizeBytes)}
           </span>
           <button
@@ -528,6 +545,28 @@ export default function ResponseViewer({ onCollapse }: { onCollapse?: () => void
           </button>
         </div>
       </div>
+
+      {diagnostics && (
+        <div className="mb-2.5 rounded border border-amber-800/80 bg-amber-950/40 p-2.5 flex items-center justify-between gap-3 text-xs animate-in fade-in duration-200">
+          <div className="flex items-center gap-2">
+            <span className="text-base">🎯</span>
+            <div>
+              <span className="font-bold text-amber-300">Phát hiện nguyên nhân: </span>
+              <span className="text-amber-200/90">{diagnostics.reason}. </span>
+              <span className="text-slate-400">{diagnostics.suggestion}</span>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => triggerFocus(diagnostics.subTab, diagnostics.fieldKey)}
+            className="shrink-0 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold px-3 py-1 rounded shadow-md transition-all flex items-center gap-1 cursor-pointer"
+            title="Tự động mở tab và con trỏ nhảy ngay đến vị trí cấu hình này"
+          >
+            <span>👉</span>
+            <span>Focus tới {diagnostics.fieldKey ? `"${diagnostics.fieldKey}"` : `Tab ${diagnostics.subTab.toUpperCase()}`}</span>
+          </button>
+        </div>
+      )}
 
       {bug && response && (
         <div className="mb-2.5 rounded border border-rose-800/70 bg-rose-950/30 p-3 flex flex-col gap-2">

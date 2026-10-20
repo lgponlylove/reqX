@@ -62,6 +62,7 @@ export default function RequestTabs() {
   // Bảng con đang mở là của RIÊNG tab này — đổi request khác không bị nhảy theo
   const tab = useRequestStore(activeSubTab);
   const setTab = useRequestStore((s) => s.setSubTab);
+  const focusTarget = useRequestStore((s) => s.focusTarget);
   const [fmtMsg, setFmtMsg] = useState('');
   // Ô đang phóng to — rỗng = không mở. Nội dung sửa thẳng qua set() nên không có bản copy lệch nhau.
   const [expanded, setExpanded] = useState<'' | 'pre' | 'tests' | 'body'>('');
@@ -211,6 +212,7 @@ export default function RequestTabs() {
             onChange={(params) => set({ params })}
             keyPlaceholder={i18n.request.paramKeyPlaceholder}
             valuePlaceholder={i18n.request.paramValuePlaceholder}
+            highlightKey={focusTarget?.subTab === 'params' ? focusTarget.fieldKey : undefined}
           />
           <p className="text-xs text-slate-500 mt-2">
             {i18n.request.paramsHelp}
@@ -230,6 +232,7 @@ export default function RequestTabs() {
           keyPlaceholder={i18n.request.headerKeyPlaceholder}
           valuePlaceholder={i18n.request.headerValuePlaceholder}
           suggestKeys={headerKeys}
+          highlightKey={focusTarget?.subTab === 'headers' ? focusTarget.fieldKey : undefined}
         />
       )}
 
