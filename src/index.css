@@ -1,0 +1,230 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root,
+html.dark {
+  color-scheme: dark;
+  --theme-bg-app: #070c14;
+  --theme-bg-aside: #0b141e;
+  --theme-bg-header: #08101a;
+  --theme-bg-capsule: #09131d;
+  --theme-code-bg: #0b1219;
+  --theme-code-gutter: #080e14;
+
+  /* Bảng màu slate cho Dark Mode (Cyberpunk dark) */
+  --color-slate-50: 248 250 252;
+  --color-slate-100: 241 245 249;
+  --color-slate-200: 226 232 240;
+  --color-slate-300: 203 213 225;
+  --color-slate-400: 148 163 184;
+  --color-slate-500: 100 116 139;
+  --color-slate-600: 71 85 105;
+  --color-slate-700: 51 65 85;
+  --color-slate-750: 41 53 72;
+  --color-slate-800: 30 41 59;
+  --color-slate-850: 21 31 50;
+  --color-slate-900: 15 23 42;
+  --color-slate-950: 8 13 26;
+}
+
+html.light {
+  color-scheme: light;
+  --theme-bg-app: #f1f5f9;
+  --theme-bg-aside: #ffffff;
+  --theme-bg-header: #ffffff;
+  --theme-bg-capsule: #e2e8f0;
+  --theme-code-bg: #f8fafc;
+  --theme-code-gutter: #f1f5f9;
+
+  /* Bảng màu slate cho Light Mode (Clean modern developer light) */
+  --color-slate-50: 15 23 42;
+  --color-slate-100: 30 41 59;       /* Chữ đậm nhất */
+  --color-slate-200: 51 65 85;       /* Tiêu đề */
+  --color-slate-300: 71 85 105;      /* Chữ nội dung */
+  --color-slate-400: 100 116 139;    /* Chữ phụ / nhãn */
+  --color-slate-500: 100 116 139;    /* 148 163 184 chỉ 2.6:1 trên trắng — 150 chỗ dùng làm chữ */
+  --color-slate-600: 203 213 225;    /* Viền phụ */
+  --color-slate-700: 226 232 240;    /* Viền input / card */
+  --color-slate-750: 235 240 246;
+  --color-slate-800: 241 245 249;    /* Viền nhẹ / nền elevated */
+  --color-slate-850: 245 247 250;    /* Nền thẻ phụ */
+  --color-slate-900: 255 255 255;    /* Nền thẻ trắng tinh khôi */
+  --color-slate-950: 248 250 252;    /* Nền tổng thể cửa sổ */
+
+  /* Accent: bản nhạt (pha cho nền tối) đặt trên trắng không đọc nổi, ví dụ
+     text-amber-300 chỉ 1.9:1. Light Mode dịch hẳn sang vùng chữ đậm của cùng dải:
+     200→gốc 900, 300→gốc 800, 400/500→gốc 700. Lý do chọn 700 cho 500 chứ không phải
+     mức "trung gian 600": `bg-emerald-600 hover:bg-emerald-500` (11 nút) và
+     `bg-emerald-400 hover:bg-emerald-300` (nút Gửi) phải còn khác màu khi hover, và
+     700 (#047857) cho chữ trắng 5.5:1 trong khi 600 (#059669) chỉ 3.4:1.
+     Tên var khớp `--accent-*` trong tailwind.config.js; Dark Mode dùng fallback gốc. */
+  --accent-amber-200: 120 53 15;
+  --accent-amber-300: 146 64 14;
+  --accent-amber-400: 180 83 9;
+  --accent-amber-500: 180 83 9;
+  --accent-emerald-200: 6 78 59;
+  --accent-emerald-300: 6 95 70;
+  --accent-emerald-400: 4 120 87;
+  --accent-emerald-500: 4 120 87;
+  --accent-sky-200: 12 74 110;
+  --accent-sky-300: 7 89 133;
+  --accent-sky-400: 3 105 161;
+  --accent-sky-500: 3 105 161;
+  --accent-cyan-200: 22 78 99;
+  --accent-cyan-300: 21 94 117;
+  --accent-cyan-400: 14 116 144;
+  --accent-cyan-500: 14 116 144;
+  --accent-rose-200: 136 19 55;
+  --accent-rose-300: 159 18 57;
+  --accent-rose-400: 190 18 60;
+  --accent-rose-500: 190 18 60;
+  --accent-red-200: 127 29 29;
+  --accent-red-300: 153 27 27;
+  --accent-red-400: 185 28 28;
+  --accent-red-500: 185 28 28;
+  --accent-violet-200: 76 29 149;
+  --accent-violet-300: 91 33 182;
+  --accent-violet-400: 109 40 217;
+  --accent-violet-500: 109 40 217;
+  --accent-purple-200: 88 28 135;
+  --accent-purple-300: 107 33 168;
+  --accent-purple-400: 126 34 206;
+  --accent-purple-500: 126 34 206;
+  --accent-teal-200: 19 78 74;
+  --accent-teal-300: 17 94 89;
+  --accent-teal-400: 15 118 110;
+  --accent-teal-500: 15 118 110;
+  --accent-orange-200: 124 45 18;
+  --accent-orange-300: 154 52 18;
+  --accent-orange-400: 194 65 12;
+  --accent-orange-500: 194 65 12;
+
+  /* 800/900/950 chủ yếu được dùng làm NỀN chip/badge (`bg-emerald-950 text-emerald-300`)
+     và VIỀN (`border-emerald-800` — 31 lần, gấp 4 lần vai trò nền của bước 800). Light
+     Mode đẩy ngược lên bản nhạt: 800→300, 900→200, 950→100 để chip thành khối màu dịu
+     như badge GitHub, viền đủ thấy mà không gắt. Thứ tự 100<200<300 giữ nguyên chiều
+     đậm dần cho cặp hover (`bg-red-950 hover:bg-red-900`). Đã kiểm: không có `text-*-800
+     /900/950` nào (0 lần) và không có `text-white` trên `bg-*-800/900/950` nên đảo được. */
+  --accent-amber-800: 252 211 77;
+  --accent-amber-900: 253 230 138;
+  --accent-amber-950: 254 243 199;
+  --accent-emerald-800: 110 231 183;
+  --accent-emerald-900: 167 243 208;
+  --accent-emerald-950: 209 250 229;
+  --accent-sky-800: 125 211 252;
+  --accent-sky-900: 186 230 253;
+  --accent-sky-950: 224 242 254;
+  --accent-cyan-800: 103 232 249;
+  --accent-cyan-900: 165 243 252;
+  --accent-cyan-950: 207 250 254;
+  --accent-rose-800: 253 164 175;
+  --accent-rose-900: 254 205 211;
+  --accent-rose-950: 255 228 230;
+  --accent-red-800: 252 165 165;
+  --accent-red-900: 254 202 202;
+  --accent-red-950: 254 226 226;
+  --accent-violet-800: 196 181 253;
+  --accent-violet-900: 221 214 254;
+  --accent-violet-950: 237 233 254;
+  --accent-purple-800: 216 180 254;
+  --accent-purple-900: 233 213 255;
+  --accent-purple-950: 243 232 255;
+  --accent-teal-800: 94 234 212;
+  --accent-teal-900: 153 246 228;
+  --accent-teal-950: 204 251 241;
+  --accent-orange-800: 253 186 116;
+  --accent-orange-900: 254 215 170;
+  --accent-orange-950: 255 237 213;
+}
+
+body {
+  @apply bg-slate-950 text-slate-100 font-sans antialiased transition-colors duration-200;
+  background-image: 
+    radial-gradient(at 0% 0%, rgba(16, 185, 129, 0.04) 0px, transparent 50%),
+    radial-gradient(at 100% 100%, rgba(6, 182, 212, 0.03) 0px, transparent 50%);
+  background-attachment: fixed;
+}
+
+html.light body {
+  background-image: 
+    radial-gradient(at 0% 0%, rgba(16, 185, 129, 0.06) 0px, transparent 50%),
+    radial-gradient(at 100% 100%, rgba(6, 182, 212, 0.05) 0px, transparent 50%);
+}
+
+/* Light Mode đảo ngược thang slate (600+ = màu nền/viền rất nhạt), nên chỗ dùng
+   `text-slate-600` làm CHỮ thành vô hình (1.4:1 trên trắng). Sửa ở utility chữ để
+   không đụng `bg-slate-600`/`border-slate-700` đang đúng.
+   KHÔNG sửa `text-slate-950`: cả 2 chỗ dùng (nút Gửi RequestBar.tsx:245 trên
+   `bg-emerald-400`, nút Runner.tsx:481 trên nền xanh đậm) đều là chữ trên MÀU, mà
+   Light Mode đã tối accent đi rồi — ép chữ xuống #0f172a là chữ đen trên nền xanh đen.
+   Để var gốc (248 250 252 = gần trắng) cho 2 nút đó: trắng/#047857 = 5.5:1. */
+html.light .text-slate-600 {
+  color: rgb(71 85 105);           /* #475569 — 7.5:1 */
+}
+html.light .placeholder-slate-600::placeholder {
+  color: rgb(100 116 139);
+}
+
+/* Glass & Neon accents */
+.cyber-card {
+  @apply bg-slate-900/70 backdrop-blur-md border border-slate-700/60 rounded-xl shadow-xl shadow-black/20;
+}
+
+.cyber-glow-emerald {
+  box-shadow: 0 0 20px -3px rgba(16, 185, 129, 0.25);
+}
+
+.cyber-glow-cyan {
+  box-shadow: 0 0 20px -3px rgba(6, 182, 212, 0.25);
+}
+
+/* Scrollbar dark */
+html.dark *,
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #1e293b #080d1a;
+}
+html.dark *::-webkit-scrollbar,
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+html.dark *::-webkit-scrollbar-track,
+*::-webkit-scrollbar-track {
+  background: #080d1a;
+}
+html.dark *::-webkit-scrollbar-thumb,
+*::-webkit-scrollbar-thumb {
+  background: #1e293b;
+  border-radius: 9999px;
+  border: 2px solid #080d1a;
+}
+html.dark *::-webkit-scrollbar-thumb:hover,
+*::-webkit-scrollbar-thumb:hover {
+  background: #10b981;
+}
+html.dark *::-webkit-scrollbar-corner,
+*::-webkit-scrollbar-corner {
+  background: #080d1a;
+}
+
+/* Scrollbar light */
+html.light * {
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e1 #f8fafc;
+}
+html.light *::-webkit-scrollbar-track {
+  background: #f8fafc;
+}
+html.light *::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 9999px;
+  border: 2px solid #f8fafc;
+}
+html.light *::-webkit-scrollbar-thumb:hover {
+  background: #0d9488;
+}
+html.light *::-webkit-scrollbar-corner {
+  background: #f8fafc;
+}

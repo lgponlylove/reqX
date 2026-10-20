@@ -1,0 +1,43 @@
+# Deps & build
+node_modules/
+dist/
+dist-cli/
+*.local
+
+# Tauri / Rust
+src-tauri/target/
+src-tauri/gen/
+*.exe
+*.msi
+*.AppImage
+*.dmg
+*.deb
+
+# Dữ liệu local của app (có thể chứa URL/key thật) — không đẩy lên GitHub
+src-tauri/target/**/reqx-*.json
+SSO-*.json
+reqx-*.json
+*.reqx-flow.json
+reqx-backup.json
+*.lic
+reqx.lic
+
+# License generator tool (chứa Private Key ký bản quyền - chỉ giữ trên máy cá nhân)
+license-generator.html
+scripts/license-generator.html
+scripts/generate-license.cjs
+scripts/build-license-html.cjs
+
+# Zip & Office docs
+*.zip
+*.docx
+ReqX-Public/
+docs/reqX-releases-0.2.6.zip
+docs/reqX-releases-0.2.6/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.log
