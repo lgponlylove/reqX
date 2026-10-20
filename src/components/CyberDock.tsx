@@ -1,7 +1,7 @@
 import { useMockStore } from '../stores/mock';
 import type { ReactNode } from 'react';
 
-export type ToolView = 'ws' | 'grpc' | 'mock' | 'env' | 'ai' | 'cookies';
+export type ToolView = 'ws' | 'grpc' | 'mock' | 'env' | 'ai' | 'cookies' | 'coverage';
 
 export interface ToolItem {
   id: ToolView;
@@ -68,6 +68,18 @@ export const TOOLS: ToolItem[] = [
         <circle cx="12" cy="12" r="10" />
         <line x1="2" y1="12" x2="22" y2="12" />
         <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+      </svg>
+    ),
+  },
+  {
+    id: 'coverage',
+    label: 'Độ phủ kiểm thử',
+    desc: 'Collection nào còn request chưa được kiểm thử',
+    renderIcon: () => (
+      <svg viewBox="0 0 24 24" className="w-4 h-4 fill-none stroke-current" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="12" cy="12" r="9" />
+        <circle cx="12" cy="12" r="4.5" />
+        <path d="M12 3v4.5M21 12h-4.5" />
       </svg>
     ),
   },

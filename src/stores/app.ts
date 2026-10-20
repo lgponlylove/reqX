@@ -87,8 +87,8 @@ interface AppState {
   addFolder: (collectionId: string, name: string, parentFolderId?: string) => void;
   renameFolder: (collectionId: string, folderId: string, name: string) => void;
   deleteFolder: (collectionId: string, folderId: string) => void;
-  /** Script cấp collection (chạy trước/sau mọi request trong collection). */
-  setCollectionScripts: (collectionId: string, patch: { preRequest?: string; tests?: string }) => void;
+  /** Script cấp collection (chạy trước/sau mọi request trong collection + script dọn dẹp cuối đợt). */
+  setCollectionScripts: (collectionId: string, patch: { preRequest?: string; tests?: string; teardown?: string }) => void;
   /** Script cấp folder (kế thừa xuống request trong folder). */
   setFolderScripts: (collectionId: string, folderId: string, patch: { preRequest?: string; tests?: string }) => void;
   moveRequest: (collectionId: string, requestId: string, target: { folderId: string } | 'root') => void;

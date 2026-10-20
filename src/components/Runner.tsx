@@ -2,7 +2,7 @@ import { useMemo, useRef, useState } from 'react';
 import { useAppStore } from '../stores/app';
 import { useFlowStore } from '../stores/flow';
 import { useTranslation, useLanguageStore } from '../stores/language';
-import { runRequestList, runCollectionWithData, type RunItemResult, type DataIterationResult } from '../lib/runner';
+import { runRequestList, runCollectionWithData, type RunItemResult, type DataIterationResult, type TeardownOutcome } from '../lib/runner';
 import { parseDataFile, parseDataFileAsync, rowSummary } from '../lib/datafile';
 import { confirmUntrustedScripts } from '../lib/scripts';
 import { collectRequestVars } from '../lib/flow';
@@ -25,6 +25,8 @@ export default function Runner() {
   const [stopOnError, setStopOnError] = useState(false);
   const [running, setRunning] = useState(false);
   const [results, setResults] = useState<RunItemResult[]>([]);
+  /** Script dọn dẹp của collection — data file thì 1 mục cho mỗi vòng. */
+  const [teardowns, setTeardowns] = useState<TeardownOutcome[]>([]);
   // Data-driven (Postman: data file): mỗi dòng = 1 iteration chạy hết scope
   const [dataFile, setDataFile] = useState<{
     name: string;
@@ -153,6 +155,7 @@ export default function Runner() {
     setRunning(true);
     setResults([]);
     setIterations([]);
+    setTeardowns([]);
     const ctrl = new AbortController();
     abortRef.current = ctrl;
     const hooks = {
@@ -184,6 +187,7 @@ export default function Runner() {
         signal: ctrl.signal,
         contractTesting: { enabled: contractTestingEnabled, spec: contractSpec?.spec },
         onIteration: (it) => setIterations((prev) => [...prev, it]),
+        onTeardown: (o) => setTeardowns((prev) => [...prev, o]),
       });
       const flat: RunItemResult[] = iters.flatMap((it) =>
         it.items.map((r) => ({ ...r, name: `#${it.rowIndex + 1} ${r.name}` })),
@@ -223,6 +227,7 @@ export default function Runner() {
         collected.push(r);
         setResults((prev) => [...prev, r]);
       },
+      onTeardown: (o) => setTeardowns((prev) => [...prev, o]),
     });
     const { steps, bodies } = summarize(`manual-col:${refId}`, at, collected);
     await saveBodies(bodies);
@@ -451,6 +456,31 @@ export default function Runner() {
               </li>
             ))}
           </ul>
+        </div>
+      )}
+
+      {/* Script dọn dẹp của collection — chạy cuối đợt, KHÔNG tính vào số request pass/fail */}
+      {teardowns.length > 0 && (
+        <div className="text-xs bg-slate-950 border border-slate-800 rounded px-3 py-2">
+          <div className="flex items-center gap-3 flex-wrap">
+            <b className="text-slate-300">🧹 Script dọn dẹp «{teardowns[0].collectionName}»</b>
+            <span>
+              <b className="text-emerald-400">{teardowns.filter((x) => !x.error).length}</b>/{teardowns.length} vòng sạch
+            </span>
+            {teardowns.some((x) => x.error) && (
+              <span className="text-red-400">Lỗi: {teardowns.find((x) => x.error)!.error}</span>
+            )}
+          </div>
+          {teardowns.some((x) => x.logs.length > 0) && (
+            <details className="mt-1">
+              <summary className="cursor-pointer text-slate-500">
+                log console ({teardowns.reduce((a, x) => a + x.logs.length, 0)} dòng)
+              </summary>
+              <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap text-slate-400">
+                {teardowns.flatMap((x) => x.logs).join('\n')}
+              </pre>
+            </details>
+          )}
         </div>
       )}
 

@@ -1,4 +1,5 @@
 import type { ApiRequest, Collection, Folder } from '../types/api';
+import { compileAssertions } from './assertions';
 
 /** Chuỗi script đã giải quyết theo mức kế thừa, theo đúng thứ tự chạy. */
 export interface ScriptChain {
@@ -54,6 +55,9 @@ export function scriptChainFor(collections: Collection[], req: ApiRequest): Scri
   if (has(req.preRequest)) pre.push(req.preRequest!);
 
   if (has(req.tests)) tests.push(req.tests!);
+  // Bảng điều kiện (không cần code) sinh thêm một script chạy ngay sau script của request
+  const fromTable = compileAssertions(req.assertions);
+  if (fromTable) tests.push(fromTable);
   if (col) {
     const path = folderPathOf(col, req.id);
     for (let i = path.length - 1; i >= 0; i--) if (has(path[i].tests)) tests.push(path[i].tests!);
@@ -64,9 +68,11 @@ export function scriptChainFor(collections: Collection[], req: ApiRequest): Scri
 
 /** Số script được kế thừa từ collection/folder cho request này (để hiện badge). */
 export function inheritedScriptCount(collections: Collection[], req: ApiRequest): { pre: number; tests: number } {
-  const chain = scriptChainFor(collections, req);
+  // Đếm thẳng từ cấp cha, không trừ ngược trên chuỗi — chuỗi còn kèm script sinh từ bảng điều kiện.
+  const col = findCollectionOf(collections, req);
+  const path = col ? folderPathOf(col, req.id) : [];
   return {
-    pre: chain.pre.length - (has(req.preRequest) ? 1 : 0),
-    tests: chain.tests.length - (has(req.tests) ? 1 : 0),
+    pre: (has(col?.preRequest) ? 1 : 0) + path.filter((f) => has(f.preRequest)).length,
+    tests: path.filter((f) => has(f.tests)).length + (has(col?.tests) ? 1 : 0),
   };
 }

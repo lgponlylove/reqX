@@ -94,6 +94,7 @@ export function parseBackup(json: unknown): ParsedBackup | { error: string } {
       rootRequestIds: [],
       preRequest: typeof (c as any).preRequest === 'string' ? (c as any).preRequest : '',
       tests: typeof (c as any).tests === 'string' ? (c as any).tests : '',
+      teardown: typeof (c as any).teardown === 'string' ? (c as any).teardown : '',
     };
     colIdMap.set(oldColId, col.id);
     const folderIdMap = new Map<string, string>();

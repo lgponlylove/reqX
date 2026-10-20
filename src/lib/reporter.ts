@@ -80,7 +80,7 @@ export function generateRunnerHtmlReport(opts: {
         ? `<details class="sub-details"><summary>${isEn ? 'Inspect Response Body' : 'Xem Response Body'}</summary><pre>${escapeHtml(maskedBody.slice(0, 4000))}${maskedBody.length > 4000 ? (isEn ? '\n...[truncated]' : '\n...[đã rút gọn]') : ''}</pre></details>`
         : '';
 
-      // Tái tạo curl command để dev dễ copy fix bug (đã mask URL)
+      // curl tái hiện tối giản (method + URL đã mask) — RunItemResult không giữ request gốc nên thiếu header/auth/body
       const maskedCurlUrl = maskUrl(r.url);
       const curlLines: string[] = [`curl -X ${r.method} '${maskedCurlUrl}'`];
       const curlCommand = curlLines.join(' ');

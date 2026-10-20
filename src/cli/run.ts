@@ -68,12 +68,13 @@ export function stripUntrustedScripts(run: LoadedRun): { run: LoadedRun; blocked
   const affected = new Set(blocked.map((r) => r.collectionId).filter(Boolean) as string[]);
   const collections: Collection[] = run.collections.map((c) =>
     affected.has(c.id)
-      ? { ...c, preRequest: '', tests: '', folders: c.folders.map((f) => ({ ...f, preRequest: '', tests: '' })) }
+      ? { ...c, preRequest: '', tests: '', teardown: '', folders: c.folders.map((f) => ({ ...f, preRequest: '', tests: '' })) }
       : c,
   );
   const requests: Record<string, ApiRequest> = {};
   for (const [id, r] of Object.entries(run.requests)) {
-    requests[id] = blockedIds.has(id) ? { ...r, preRequest: '', tests: '' } : r;
+    // bảng điều kiện cũng sinh ra code chạy hộ → phải cắt kèm, không được để sót đường sau
+    requests[id] = blockedIds.has(id) ? { ...r, preRequest: '', tests: '', assertions: [] } : r;
   }
   return { run: { collections, requests, warnings: run.warnings }, blocked };
 }
@@ -166,6 +167,10 @@ export async function runLoaded(
           io.log(statusLine(r, items.length - 1, total));
           if (!r.ok && r.error) io.log(`      ! ${r.error}`);
           for (const line of r.logs) io.log(`      · ${line}`);
+        },
+        onTeardown: (o) => {
+          io.log(`  🧹 Dọn dẹp «${o.collectionName}»${o.error ? ` — LỖI: ${o.error}` : ' xong'}`);
+          for (const line of o.logs) io.log(`      · ${line}`);
         },
       });
       done += out.length;

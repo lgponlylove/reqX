@@ -1044,7 +1044,10 @@ export default function Sidebar({ onCollapse, onGoFlow }: { onCollapse: () => vo
       },
       ...docsItems(c),
       {
-        label: (c.preRequest ?? '').trim() || (c.tests ?? '').trim() ? '📜 Script collection (có)' : '📜 Script collection…',
+        label:
+          (c.preRequest ?? '').trim() || (c.tests ?? '').trim() || (c.teardown ?? '').trim()
+            ? '📜 Script collection (có)'
+            : '📜 Script collection…',
         onClick: () => setScriptEdit({ colId: c.id }),
       },
       { label: '✎ Đổi tên collection', onClick: () => { setRenamingId(c.id); setRenamingText(c.name); } },
@@ -1486,7 +1489,7 @@ export default function Sidebar({ onCollapse, onGoFlow }: { onCollapse: () => vo
                   </span>
                   <b className={`flex-1 min-w-0 truncate ${compact ? 'text-xs font-medium' : ''}`}>
                     {c.name}
-                    {(c.preRequest ?? '').trim() || (c.tests ?? '').trim() ? ' 📜' : ''}{' '}
+                    {(c.preRequest ?? '').trim() || (c.tests ?? '').trim() || (c.teardown ?? '').trim() ? ' 📜' : ''}{' '}
                     <span className="text-slate-500 font-normal">({totalReqs})</span>
                   </b>
                 </>
@@ -1816,14 +1819,19 @@ export default function Sidebar({ onCollapse, onGoFlow }: { onCollapse: () => vo
         if (!col) return null;
         const fld = scriptEdit.folderId ? col.folders.find((x) => x.id === scriptEdit.folderId) : undefined;
         if (scriptEdit.folderId && !fld) return null;
-        const value = { preRequest: (fld ?? col).preRequest ?? '', tests: (fld ?? col).tests ?? '' };
+        const value = {
+          preRequest: (fld ?? col).preRequest ?? '',
+          tests: (fld ?? col).tests ?? '',
+          ...(fld ? {} : { teardown: col.teardown ?? '' }),
+        };
         return (
           <ScriptEditorModal
             title={fld ? `Script folder “${fld.name}”` : `Script collection “${col.name}”`}
+            showTeardown={!fld}
             subtitle={
               fld
                 ? 'Chạy cho mọi request trong folder này (sau script collection, trước script của request).'
-                : 'Chạy cho mọi request trong collection, kể cả khi chạy từng request ở tab Builder.'
+                : 'Chạy cho mọi request trong collection, kể cả khi chạy từng request ở tab Builder. Ô "Dọn dẹp" chỉ chạy khi chạy cả đợt ở Runner / reqx run.'
             }
             value={value}
             onSave={(v) => {

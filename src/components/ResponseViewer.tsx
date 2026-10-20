@@ -1,8 +1,11 @@
 import { useMemo, useState } from 'react';
 import { useAppStore } from '../stores/app';
 import { useRequestStore } from '../stores/request';
-import { contentTypeOf, downloadResponse, guessFileName, openDownloadsFolder, responseDataUrl } from '../lib/response-file';
+import { contentTypeOf, downloadResponse, guessFileName, openDownloadsFolder, responseDataUrl, saveExportBesideApp } from '../lib/response-file';
 import { isTauri } from '../lib/http-client';
+import { bugFileName, buildBugReport } from '../lib/bug-report';
+import { looksSecret } from '../lib/secrets';
+import type { ApiRequest } from '../types/api';
 import { generateJsonSchema } from '../lib/json-schema';
 import ExpandOverlay from './ExpandOverlay';
 import AiTestModal from './AiTestModal';
@@ -64,6 +67,9 @@ export default function ResponseViewer({ onCollapse }: { onCollapse?: () => void
   // Response dài bị chặn ở max-h-96 → ô ⤢ mở toàn bộ nội dung trong popup
   const [expanded, setExpanded] = useState(false);
   const [showAiTestModal, setShowAiTestModal] = useState(false);
+  /** Form "🐞 Báo lỗi": 2 ô tự giải thích + mong đợi, sinh file .md đính ticket. */
+  const [bug, setBug] = useState<{ expected: string; note: string } | null>(null);
+  const [bugCopied, setBugCopied] = useState(false);
 
   const pretty = useMemo(
     () => (response && response.bodyKind !== 'binary' ? tryPretty(response.body) : { ok: false, text: '' }),
@@ -276,6 +282,72 @@ export default function ResponseViewer({ onCollapse }: { onCollapse?: () => void
 
   const inTauri = isTauri();
 
+  /**
+   * Gom mọi giá trị nghi là secret đang có trong RAM (biến env/global + auth + header).
+   * Regex theo tên không bọc hết được (token nhúng trong body, apikey tự đặt tên),
+   * nên xóa theo CHÍNH giá trị — bằng chứng lỗi mang ra ngoài project.
+   */
+  function collectSecretValues(req: ApiRequest, envVars: Record<string, string>, globals: Record<string, string>, st: ReturnType<typeof useAppStore.getState>): string[] {
+    const out: string[] = [];
+    const env = st.environments.find((e) => e.id === st.activeEnvId);
+    for (const [k, v] of Object.entries(envVars)) if (looksSecret(k, v)) out.push(v);
+    for (const [k, v] of Object.entries(globals)) if (looksSecret(k, v)) out.push(v);
+    for (const k of st.envSecrets[env?.id ?? ''] ?? []) {
+      const v = env?.variables[k];
+      if (v) out.push(v);
+    }
+    for (const k of st.globalSecrets ?? []) {
+      const v = globals[k];
+      if (v) out.push(v);
+    }
+    // auth: mọi chuỗi đủ dài bên trong (token/password/apiKey/clientSecret…)
+    for (const v of Object.values(req.auth as unknown as Record<string, unknown>)) {
+      if (typeof v === 'string' && v.length >= 6) out.push(v);
+      else if (v && typeof v === 'object') {
+        for (const inner of Object.values(v as Record<string, unknown>)) {
+          if (typeof inner === 'string' && inner.length >= 6) out.push(inner);
+        }
+      }
+    }
+    for (const h of req.headers) if (h.enabled && looksSecret(h.key, h.value)) out.push(h.value);
+    return out;
+  }
+
+  function buildBugMarkdown(expected: string, note: string): string {
+    const st = useAppStore.getState();
+    const req = useRequestStore.getState().current;
+    const env = st.environments.find((e) => e.id === st.activeEnvId);
+    const envVars = env?.variables ?? {};
+    return buildBugReport({
+      req,
+      res: response!,
+      envName: env?.name,
+      envVars,
+      globalVars: st.globals,
+      testRun,
+      expected,
+      note,
+      secretValues: collectSecretValues(req, envVars, st.globals, st),
+    });
+  }
+
+  /** saveExportBesideApp chỉ có trên bản desktop — web thì tải về thư mục Downloads. */
+  async function saveBugReport(md: string) {
+    const fname = bugFileName(useRequestStore.getState().current);
+    const saved = await saveExportBesideApp(fname, md);
+    if (saved) {
+      alert(`Đã lưu bằng chứng lỗi:\n${saved.path}`);
+      return;
+    }
+    const url = URL.createObjectURL(new Blob([md], { type: 'text/markdown;charset=utf-8' }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = fname;
+    a.click();
+    URL.revokeObjectURL(url);
+    alert('Đã tải bằng chứng lỗi về thư mục Downloads.');
+  }
+
   async function openFolder() {
     try {
       await openDownloadsFolder(inTauri);
@@ -417,8 +489,85 @@ export default function ResponseViewer({ onCollapse }: { onCollapse?: () => void
               <span>AI Sinh Test</span>
             </button>
           )}
+          <button
+            type="button"
+            onClick={() => setBug(bug ? null : { expected: '', note: '' })}
+            className={`text-xs rounded px-2 py-0.5 font-semibold transition-all border whitespace-nowrap flex items-center gap-1 ${
+              bug
+                ? 'bg-rose-800 text-white border-rose-400'
+                : 'bg-rose-950/80 hover:bg-rose-900 text-rose-300 border-rose-800/80 hover:border-rose-500'
+            }`}
+            title="Xuất bằng chứng lỗi 1 click: file .md dán thẳng vào ticket (token/cookie tự che)"
+          >
+            <span>🐞</span>
+            <span>Báo lỗi</span>
+          </button>
         </div>
       </div>
+
+      {bug && response && (
+        <div className="mb-2.5 rounded border border-rose-800/70 bg-rose-950/30 p-3 flex flex-col gap-2">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-xs font-bold text-rose-100">
+              🐞 Bằng chứng lỗi — file .md đính vào ticket, khỏi chụp màn hình
+            </span>
+            <button
+              onClick={() => setBug(null)}
+              title="Đóng"
+              className="text-slate-400 hover:text-white text-xs px-1"
+            >
+              ✕
+            </button>
+          </div>
+          <label className="flex flex-col gap-1 text-[11px] text-slate-300">
+            Điều mong đợi (Dev cần biết bạn kỳ vọng gì)
+            <textarea
+              value={bug.expected}
+              onChange={(e) => setBug({ ...bug, expected: e.target.value })}
+              rows={2}
+              placeholder="VD: POST /login phải trả 200 kèm access_token — thực tế trả 500."
+              className="bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-100 resize-y min-h-14"
+            />
+          </label>
+          <label className="flex flex-col gap-1 text-[11px] text-slate-300">
+            Ghi nhận của người test (làm gì, thấy gì, mức độ)
+            <textarea
+              value={bug.note}
+              onChange={(e) => setBug({ ...bug, note: e.target.value })}
+              rows={2}
+              placeholder="VD: chỉ xảy với env Staging, tái hiện 3/3 lần, block test đăng nhập."
+              className="bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-100 resize-y min-h-14"
+            />
+          </label>
+          <div className="flex items-center gap-2 flex-wrap">
+            <button
+              type="button"
+              onClick={() => saveBugReport(buildBugMarkdown(bug.expected, bug.note))}
+              className="text-xs bg-rose-700 hover:bg-rose-600 text-white rounded px-2.5 py-1 font-semibold whitespace-nowrap"
+            >
+              💾 Lưu file .md
+            </button>
+            <button
+              type="button"
+              onClick={async () => {
+                try {
+                  await navigator.clipboard.writeText(buildBugMarkdown(bug.expected, bug.note));
+                  setBugCopied(true);
+                  window.setTimeout(() => setBugCopied(false), 1500);
+                } catch {
+                  setBugCopied(false);
+                }
+              }}
+              className="text-xs bg-slate-800 hover:bg-slate-700 text-slate-200 rounded px-2.5 py-1 whitespace-nowrap"
+            >
+              {bugCopied ? '✓ Đã chép' : '📋 Sao chép'}
+            </button>
+            <span className="text-[11px] text-rose-200/80">
+              Token / cookie / password tự động che. Cần số liệu đầy đủ thì mở lại ReqX.
+            </span>
+          </div>
+        </div>
+      )}
 
       {effectiveView === 'schema' && generatedSchema && (
         <div className="flex flex-col gap-2">

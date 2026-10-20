@@ -9,6 +9,8 @@ import BinaryBodyEditor from './BinaryBodyEditor';
 import OAuth2Editor from './OAuth2Editor';
 import ExpandOverlay from './ExpandOverlay';
 import ScriptSnippetMenu, { insertSnippet } from './ScriptSnippetMenu';
+import AssertionTable from './AssertionTable';
+import { assertionCount } from '../lib/assertions';
 import AiScriptButton from './AiScriptButton';
 import { inheritedScriptCount } from '../lib/script-chain';
 import { useTranslation } from '../stores/language';
@@ -185,10 +187,13 @@ export default function RequestTabs() {
             }`}
           >
             {tabLabels[id]}
-            {(id === 'pre' || id === 'tests') &&
-              (id === 'pre' ? current.preRequest : current.tests)?.trim() && (
-                <span className="ml-1 text-[10px] text-amber-400">●</span>
-              )}
+            {(id === 'pre' && !!current.preRequest?.trim()) ||
+              (id === 'tests' && (!!current.tests?.trim() || assertionCount(current.assertions) > 0)) ? (
+              <span className="ml-1 text-[10px] text-amber-400">●</span>
+            ) : null}
+            {id === 'tests' && assertionCount(current.assertions) > 0 && (
+              <span className="ml-1 text-[11px] text-emerald-400">({assertionCount(current.assertions)})</span>
+            )}
             {id === 'params' && current.params.length > 0 && (
               <span className="ml-1 text-[11px] text-emerald-400">({current.params.filter((p) => p.enabled).length})</span>
             )}
@@ -437,6 +442,7 @@ export default function RequestTabs() {
               onPick={(code) => set({ tests: insertSnippet(current.tests ?? '', code) })}
             />
           </div>
+          <AssertionTable value={current.assertions ?? []} onChange={(list) => set({ assertions: list })} />
           <ScriptCodeEditor
             fill
             value={current.tests ?? ''}

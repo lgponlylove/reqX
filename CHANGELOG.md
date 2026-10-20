@@ -2,6 +2,44 @@
 
 Dự án theo SemVer, bản mới nhất nằm trên cùng. Ngày ghi theo định dạng dd/MM/yyyy.
 
+## [0.2.7] — 20/10/2026
+
+Batch 4 tính năng cho QA/QC/DEV/BA (chốt từ bảng ứng viên: #1, #3, #4, #7) + sửa chiều cao ô soạn thảo.
+
+**Sửa layout — ô script/body tự co giãn**
+- `ScriptCodeEditor.tsx` + `JsonBodyEditor.tsx` thêm chế độ `fill`: editor lớn hết chỗ còn lại của pane, `minHeight` chỉ còn là sàn, kéo vạch chia là ô theo. Trước đây cố định 8 dòng nên thừa một dải trắng phía trên Response.
+- Gắn vào tab Pre-request, Tests và mọi kiểu Body (JSON / raw / urlencoded / form-data) trong `RequestTabs.tsx` — chuỗi `flex-1 min-h-0` nối từ gốc tab xuống.
+
+**P1 — Script dọn dẹp (teardown) ở collection** *(#45)*
+- `Collection.teardown` (`types/api.ts:171`): chạy MỘT LẦN sau hết đợt ở Runner/CLI (có data file thì sau mỗi vòng), dùng để xóa data mà các request tạo ra. Không có cấp folder vì "hết đợt" chỉ tồn tại ở mức collection.
+- Thực thi trong `runner.ts` (`runTeardownFor`) nên 5 nơi gọi (Runner ×2, `cli/run.ts`, `AiAssistant.tsx` ×2, `scheduleEngine.ts`) tự có dọn dẹp mà không sửa chỗ gọi. Kết quả tách khỏi `RunItemResult[]` → không làm sai số pass/fail, Runner có bảng "🧹 Script dọn dẹp" riêng.
+- 4 đường bắt buộc cho một field script mới: UI (`ScriptEditorModal` tab 3 + `Sidebar` badge), execution, import/export (`postman-io` dùng `listen: 'teardown'` — Postman bỏ qua event lạ nên vòng-file vẫn giữ được), backup, và **cả hai cổng an toàn** (`untrustedScriptRequests` + `stripUntrustedScripts`).
+- Kiểm chứng: `teardown.test.ts` 6 tests.
+
+**P2 — Xuất bằng chứng lỗi 1 click** *(#46)*
+- `bug-report.ts` mới + nút 🐞 Báo lỗi ở toolbar Response (`ResponseViewer.tsx`): 2 ô "Điều mong đợi" / "Ghi nhận của người test", sinh `reqx-bug-<ten>-<ngay>.md` qua `saveExportBesideApp` (web thì tải về Downloads) hoặc 📋 Sao chép.
+- Che secret 3 lớp: regex theo tên (`maskSensitiveBody`/`maskUrl`/`maskCurl`) → bỏ hẳn dòng header credential (ghi `🔒 đã bỏ (credential)`, không để `***` gây tưởng còn giá trị thật) → lưới cuối `redactValues` xóa theo **chính giá trị** đang nằm trong RAM (env secret, global secret, mọi chuỗi ≥6 ký tự trong auth, header nghi secret).
+- Body cắt 4000 ký tự kèm ghi chú "tổng N ký tự — mở ReqX để xem đầy đủ"; response nhị phân không dump.
+- Kiểm chứng: `bug-report.test.ts` 7 tests, cài 5 loại secret ở 5 vị trí khác nhau rồi đòi không được lọt ra file.
+
+**P3 — Trang độ phủ kiểm thử** *(#47)*
+- `coverage.ts` (hàm thuần) + `CoverageView.tsx`: mỗi collection/thư mục có bao nhiêu request, bao nhiêu đã có điều kiện kiểm thử (tính cả kế thừa qua `scriptChainFor`, phân biệt "test riêng" và "chỉ nhờ kế thừa"), bao nhiêu chưa từng chạy, bao nhiêu fail ở lần chạy **gần nhất**.
+- Nguồn chạy gom 3 nơi: `useFlowStore.runs` (Runner/Flow) + `schedule.runs` (hẹn giờ) + `history` (lần gửi ở tab Builder).
+- Nút 🎯 Độ phủ trên header, có trong rail công cụ + Command Palette; lọc theo tên, toggle "Chỉ hiện chỗ chưa phủ", xuất CSV có BOM.
+- Ghi thẳng vào trang điều không chắc: ReqX khớp "đã chạy" theo **tên** request, đổi tên thì phải chạy lại mới được tính.
+- Kiểm chứng: `coverage.test.ts` 7 tests (fixture 3 collection: có test / không test / kế thừa / chưa chạy / fail gần nhất / collection rỗng).
+
+**P4 — Bảng điều kiện kiểm thử không cần viết code** *(#48)*
+- `ApiRequest.assertions` (`types/api.ts`) + `assertions.ts`: mỗi dòng là `kiểm tra gì → so sánh → mong đợi` (status, thời gian phản hồi, header, trường JSON theo dot-path, nội dung trả về). `compileAssertions` sinh `pm.test` cho từng dòng; dot-path tự dò (`data.items.1.id`), **không dùng eval/new Function** cho giá trị user gõ.
+- Nối vào đúng một chỗ (`script-chain.ts`) nên Builder, Runner, Flow, CLI và báo cáo độ phủ đều chạy bảng điều kiện mà không sửa từng nơi; badge `(N)` trên tab Tests, nút "Xem code sinh ra" để đối chiếu.
+- Export Postman: code đã compile ghi vào event `test` — **một chiều**, import lại chỉ đọc được script, không dựng lại bảng.
+- Cổng an toàn bắt kịp đường mới: `stripUntrustedScripts` cắt luôn `assertions` của request import khi không có `--allow-scripts`, hộp thoại duyệt script liệt kê "bảng điều kiện".
+- Kiểm chứng: `assertions.test.ts` 10 tests — compile xong chạy thật trong sandbox `runTests`, đủ từng kind/op, path thiếu báo "Thiếu JSON …" chứ không nổ script, và một dòng cố nhét `pm.test("INJECTED")` chỉ trở thành dữ liệu trong tên test.
+
+**Tổng kiểm chứng batch:** `npx tsc --noEmit` 0 lỗi; `npx vitest run` 43 files / 408 tests passed (thêm 4 suite mới: 6 + 7 + 7 + 10 = 30 tests).
+
+**Treo lại (chưa làm, chờ quyết định):** bộ key test bảo mật P0/P1 (IDOR / token hết hạn / injection / schema — chờ chốt Q1–Q3); `docs/HD-AI.md` đã cũ; nhãn version chưa bump trong `package.json`/`tauri.conf.json`; chưa khai `"bin": {"reqx": …}` trong `package.json`; đổi tên biến trong môi trường khác chưa lan sang bản đang mở.
+
 ## [0.2.6] — 17/10/2026
 
 Bản phát hành v0.2.6 — Nâng cấp phiên bản và tối ưu đường dẫn tải trực tiếp qua reqX-releases.

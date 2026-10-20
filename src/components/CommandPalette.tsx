@@ -64,6 +64,7 @@ export default function CommandPalette({ onOpenView }: { onOpenView?: (view: str
     env: t.dock.env,
     ai: t.dock.ai,
     cookies: t.dock.cookies,
+    coverage: t.dock.coverage,
   };
 
   const commands = useMemo<Item[]>(() => {

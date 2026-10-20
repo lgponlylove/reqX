@@ -1,4 +1,5 @@
 import type { ApiRequest, AuthConfig, Collection, Folder } from '../types/api';
+import { compileAssertions } from './assertions';
 import { uid } from './variables';
 
 /** Parse auth từ Postman collection-level hoặc request-level. */
@@ -26,8 +27,8 @@ function parsePostmanAuth(auth?: { type?: string; bearer?: Array<{ key: string; 
 }
 
 /** Parse mảng `event` của Postman (prerequest / test) thành script của ReqX. */
-function parsePmEvents(events: unknown): { preRequest: string; tests: string } {
-  const out = { preRequest: '', tests: '' };
+function parsePmEvents(events: unknown): { preRequest: string; tests: string; teardown: string } {
+  const out = { preRequest: '', tests: '', teardown: '' };
   if (!Array.isArray(events)) return out;
   for (const e of events as Array<{ listen?: string; script?: { exec?: string[] | string } }>) {
     const exec = e?.script?.exec;
@@ -35,6 +36,8 @@ function parsePmEvents(events: unknown): { preRequest: string; tests: string } {
     if (!code.trim()) continue;
     if (e.listen === 'prerequest') out.preRequest = code;
     else if (e.listen === 'test') out.tests = code;
+    // ReqX tự thêm (Postman bỏ qua event lạ khi import) — giữ script dọn dẹp khi đi vòng qua file
+    else if (e.listen === 'teardown') out.teardown = code;
   }
   return out;
 }
@@ -59,6 +62,7 @@ export function importPostmanCollection(json: unknown): {
     rootRequestIds: [],
     preRequest: colScripts.preRequest,
     tests: colScripts.tests,
+    teardown: colScripts.teardown,
   };
   const requests: ApiRequest[] = [];
   const colAuth = parsePostmanAuth(data?.auth);
@@ -182,13 +186,21 @@ export function exportCollection(collection: Collection, requests: ApiRequest[])
 }
 
 /** Script ReqX → mảng `event` Postman (bỏ trống để khỏi thêm rác vào file). */
-function toPmEvents(preRequest?: string, tests?: string): Array<{ listen: string; script: { type: string; exec: string[] } }> {
+function toPmEvents(
+  preRequest?: string,
+  tests?: string,
+  /** Chỉ ở mức collection: script dọn dẹp, Postman bỏ qua listen lạ khi import. */
+  teardown?: string,
+): Array<{ listen: string; script: { type: string; exec: string[] } }> {
   const out: Array<{ listen: string; script: { type: string; exec: string[] } }> = [];
   if ((preRequest ?? '').trim()) {
     out.push({ listen: 'prerequest', script: { type: 'text/javascript', exec: preRequest!.split('\n') } });
   }
   if ((tests ?? '').trim()) {
     out.push({ listen: 'test', script: { type: 'text/javascript', exec: tests!.split('\n') } });
+  }
+  if ((teardown ?? '').trim()) {
+    out.push({ listen: 'teardown', script: { type: 'text/javascript', exec: teardown!.split('\n') } });
   }
   return out;
 }
@@ -228,7 +240,7 @@ export function collectionToPostman(collection: Collection, byId: Map<string, Ap
     };
   }
   
-  const colEvents = toPmEvents(collection.preRequest, collection.tests);
+  const colEvents = toPmEvents(collection.preRequest, collection.tests, collection.teardown);
   return {
     info: { name: collection.name, schema: 'https://schema.getpostman.com/json/collection/v2.1.0/collection.json' },
     ...(colEvents.length ? { event: colEvents } : {}),
@@ -254,7 +266,11 @@ function fromApiRequest(r?: ApiRequest) {
   if (!r) return null;
   // Dữ liệu cũ (persist bản đầu) có thể thiếu field → guard để export không chết im
   const headers = Array.isArray(r.headers) ? r.headers : [];
-  const events = toPmEvents(r.preRequest, r.tests);
+  // Bảng điều kiện chỉ có ở ReqX → khi xuất sang Postman phải compile thành code.
+  // Một chiều: Postman/ReqX khi import lại chỉ đọc được phần script, không dựng lại được bảng.
+  const tableCode = compileAssertions(r.assertions);
+  const testsCode = [r.tests ?? '', tableCode].map((s) => s.trim()).filter(Boolean).join('\n\n');
+  const events = toPmEvents(r.preRequest, testsCode);
   let bodyObj: unknown = undefined;
   if (r.bodyType === 'graphql') {
     bodyObj = {

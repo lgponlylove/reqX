@@ -107,11 +107,33 @@ export interface ApiRequest {
   preRequest?: string;
   /** Script JS kiểm tra response (pm.test / pm.expect) */
   tests?: string;
+  /**
+   * Điều kiện kiểm thử kiểu bảng (không cần viết code). ReqX sinh ra pm.test
+   * và nối vào chuỗi script Tests — xem lib/assertions.ts.
+   */
+  assertions?: Assertion[];
   collectionId?: string;
   updatedAt: number;
   /** Nguồn gốc: 'imported' = từ file import vào (chạy script phải hỏi trước); tự tạo hoặc đã mở-ra-lưu = local */
   origin?: 'local' | 'imported';
   description?: string;
+}
+
+/** Bảng kiểm tra gì trong response. */
+export type AssertionKind = 'status' | 'responseTime' | 'header' | 'jsonField' | 'bodyText';
+
+/** Cách so sánh. Không có op nào dùng eval — chỉ so sánh giá trị đã lấy ra. */
+export type AssertionOp = 'equal' | 'notEqual' | 'in' | 'contains' | 'notContains' | 'exists' | 'notExists' | 'lt' | 'gt' | 'type';
+
+export interface Assertion {
+  id: string;
+  enabled: boolean;
+  kind: AssertionKind;
+  /** header: tên header (không phân biệt hoa thường); jsonField: dot-path, vd `data.user.id` hoặc `items.0.id` */
+  target: string;
+  op: AssertionOp;
+  /** in: danh cách nhau dấu phẩy; type: string/number/boolean/array/object/null; các op khác: giá trị mong đợi */
+  expected: string;
 }
 
 export interface SseEvent {
@@ -164,6 +186,11 @@ export interface Collection {
   preRequest?: string;
   /** Script test chạy sau mọi request trong collection */
   tests?: string;
+  /**
+   * Script dọn dẹp, chạy MỘT LẦN sau khi hết cả đợt (Runner/CLI; có data file thì sau mỗi vòng).
+   * Dùng để xóa data mà các request tạo ra. Không có cấp folder vì "hết đợt" chỉ có ở mức collection.
+   */
+  teardown?: string;
 }
 
 /** Thư mục (kiểu workspace): chứa các collection, lồng nhau không giới hạn qua parentId. Collection không nằm trong dir nào = "Ngoài thư mục". */

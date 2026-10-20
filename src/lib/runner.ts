@@ -1,7 +1,7 @@
 import type { ApiRequest, ApiResponse, Collection } from '../types/api';
 import { sendRequest } from './http-client';
-import { runPreRequestChain, runTestsChain, type MutableRequest } from './scripts';
-import { scriptChainFor } from './script-chain';
+import { runPreRequest, runPreRequestChain, runTestsChain, type MutableRequest } from './scripts';
+import { scriptChainFor, findCollectionOf } from './script-chain';
 import { uid } from './variables';
 import { validateResponseContract, extractEmbeddedSchema } from './contract-test';
 
@@ -183,6 +183,43 @@ export interface RunAllOpts {
   dataRow?: Record<string, string>;
   /** Kiểm thử Contract Testing với OpenAPI schema */
   contractTesting?: { enabled: boolean; spec?: any };
+  /** Nhận kết quả script "dọn dẹp" mức collection (vẫn chạy dù không truyền callback). */
+  onTeardown?: (o: TeardownOutcome) => void;
+}
+
+/**
+ * Kết quả script dọn dẹp — KHÔNG nằm trong danh sách RunItemResult vì nó không phải
+ * một request, đưa vào đó sẽ làm sai số request pass/fail trong báo cáo.
+ */
+export interface TeardownOutcome {
+  collectionName: string;
+  logs: string[];
+  error?: string;
+}
+
+/** Collection chủ sở hữu danh sách request (dựa theo request đầu tiên — Runner/CLI luôn chạy 1 collection/lần). */
+function ownerCollection(list: ApiRequest[], collections?: Collection[]): Collection | null {
+  if (list.length === 0) return null;
+  return findCollectionOf(collections ?? [], list[0]);
+}
+
+/**
+ * Script dọn dẹp mức collection: chạy SAU cả đợt để xóa data các request vừa tạo
+ * (data file: sau MỖI vòng, vì mỗi vòng sinh một bộ data riêng).
+ * Chạy cả khi đợt bị dừng giữa chừng — thà dọn còn hơn bỏ rác.
+ */
+async function runTeardownFor(
+  list: ApiRequest[],
+  hooks: RunnerHooks,
+  opts: RunAllOpts,
+  dataRow?: Record<string, string>,
+): Promise<void> {
+  const col = ownerCollection(list, opts.collections);
+  const code = col?.teardown ?? '';
+  if (!col || !code.trim()) return;
+  const inert: MutableRequest = { url: '', headers: {}, body: '' };
+  const { logs, error } = await runPreRequest(code, { ...varCtx(hooks, dataRow), request: inert });
+  opts.onTeardown?.({ collectionName: col.name, logs, error });
 }
 
 export interface DataIterationResult {
@@ -240,6 +277,7 @@ export async function runCollectionWithData(
     };
     out.push(it);
     opts.onIteration?.(it, i);
+    await runTeardownFor(list, hooks, opts, rows[i]);
     if (!it.ok && opts.stopOnError) break;
   }
   return out;
@@ -265,5 +303,6 @@ export async function runRequestList(
       });
     }
   }
+  await runTeardownFor(list, hooks, opts, opts.dataRow);
   return out;
 }

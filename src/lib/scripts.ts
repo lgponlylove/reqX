@@ -1,6 +1,7 @@
 import type { ApiRequest, ApiResponse, Collection, KeyValue } from '../types/api';
 import { sendRequest } from './http-client';
-import { scriptChainFor } from './script-chain';
+import { scriptChainFor, findCollectionOf } from './script-chain';
+import { assertionCount } from './assertions';
 import { uid } from './variables';
 import { validateJsonSchema } from './json-schema';
 
@@ -472,6 +473,8 @@ export function untrustedScriptRequests(reqs: ApiRequest[], collections?: Collec
     if (r.origin !== 'imported') return false;
     if ((r.preRequest ?? '').trim() || (r.tests ?? '').trim()) return true;
     if (!collections) return false;
+    // Script dọn dẹp ở collection cũng là code lạ → phải hỏi trước khi chạy cả đợt
+    if ((findCollectionOf(collections, r)?.teardown ?? '').trim()) return true;
     // Đã tới đây nghĩa là bản thân request không có script → mọi script trong chuỗi là kế thừa
     const chain = scriptChainFor(collections, r);
     return chain.pre.length > 0 || chain.tests.length > 0;
@@ -506,6 +509,7 @@ export function confirmUntrustedScripts(reqs: ApiRequest[], where: string, colle
       const kinds: string[] = [];
       if ((r.preRequest ?? '').trim()) kinds.push('pre-request');
       if ((r.tests ?? '').trim()) kinds.push('tests');
+      if (assertionCount(r.assertions) > 0) kinds.push('bảng điều kiện');
       if (kinds.length === 0) kinds.push('kế thừa từ collection/folder');
       return `- ${r.name || r.url} (${kinds.join(' + ')})`;
     })

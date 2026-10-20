@@ -19,6 +19,7 @@ import { runScheduleNow } from './lib/scheduleEngine';
 import MockServer from './components/MockServer';
 import CyberDock, { TOOLS, type ToolView } from './components/CyberDock';
 import CookieManager from './components/CookieManager';
+import CoverageView from './components/CoverageView';
 import { useMockStore } from './stores/mock';
 import { useRequestStore } from './stores/request';
 import LanguageSwitcher from './components/LanguageSwitcher';
@@ -60,7 +61,7 @@ function EnvSelector({ onOpenEnv }: { onOpenEnv?: () => void }) {
   );
 }
 
-type View = 'builder' | 'runner' | 'flow' | 'ws' | 'grpc' | 'mock' | 'env' | 'ai' | 'cookies';
+type View = 'builder' | 'runner' | 'flow' | 'ws' | 'grpc' | 'mock' | 'env' | 'ai' | 'cookies' | 'coverage';
 
 const MAIN_VIEWS: { id: View; key: 'builder' | 'runner' | 'flow' }[] = [
   { id: 'builder', key: 'builder' },
@@ -337,6 +338,19 @@ export default function App() {
               <span className="text-cyan-400">✨</span>
               <span>{t.dock.ai}</span>
             </button>
+            <button
+              type="button"
+              onClick={() => setView(view === 'coverage' ? 'builder' : 'coverage')}
+              title={t.dock.coverageDesc}
+              className={`px-3 py-1 rounded-full text-xs font-semibold flex items-center gap-1.5 transition-all border ${
+                view === 'coverage'
+                  ? 'bg-emerald-500/20 border-emerald-400 text-emerald-300 shadow-[0_0_15px_rgba(16,185,129,0.35)]'
+                  : 'border-slate-700/80 hover:border-emerald-500/50 text-slate-300 hover:text-emerald-200 bg-slate-800/60'
+              }`}
+            >
+              <span className="text-emerald-400">🎯</span>
+              <span>{t.dock.coverage}</span>
+            </button>
             <LicenseModal />
             <LanguageSwitcher />
             <ThemeToggle />
@@ -447,6 +461,9 @@ export default function App() {
             </div>
             <div className={view === 'cookies' ? 'flex-1 min-h-0 overflow-y-auto' : 'hidden'}>
               <CookieManager />
+            </div>
+            <div className={view === 'coverage' ? 'flex-1 min-h-0 overflow-y-auto' : 'hidden'}>
+              <CoverageView />
             </div>
           </section>
 
