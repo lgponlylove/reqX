@@ -1,0 +1,34 @@
+[package]
+name = "reqx"
+version = "0.2.7"
+description = "ReqX — API client (Tauri + React)"
+authors = ["you"]
+edition = "2021"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# HTTP native (không CORS): rustls để khỏi phụ thuộc schannel khi build GNU
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls-webpki-roots", "json", "multipart"] }
+# base64 để trả body nhị phân (ảnh/PDF/zip...) về frontend
+base64 = "0.22"
+# Xác thực chữ ký số License Key Ed25519 hoàn toàn offline
+ed25519-dalek = { version = "2", default-features = false, features = ["std"] }
+# Tự động kiểm tra, tải và cài đặt bản cập nhật từ GitHub Release
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"
+
+[features]
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]
+
+[profile.release]
+opt-level = "z"        # Tối ưu kích thước mã máy và tăng tính năng inline
+lto = true             # Link-Time Optimization: xáo trộn và liên kết mã máy giữa các crate
+codegen-units = 1      # Biên dịch đơn khối để tối đa hóa độ phân mảnh decompile
+panic = "abort"        # Gỡ bỏ hoàn toàn panic stack unwinding & thông tin đường dẫn file nguồn
+strip = true           # Xóa 100% symbol table, tên hàm, tên biến (Ghidra/IDA Pro chỉ thấy sub_xxxx)
