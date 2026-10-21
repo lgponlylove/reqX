@@ -198,14 +198,14 @@ export default function JsonBodyEditor({ value, onChange, placeholder, tall, fil
       <div
         ref={backRef}
         aria-hidden
-        className="absolute inset-0 p-2.5 font-mono text-sm whitespace-pre-wrap break-words overflow-hidden pointer-events-none text-slate-100"
+        className="absolute inset-0 p-2.5 font-mono text-sm leading-6 whitespace-pre overflow-hidden pointer-events-none text-slate-100"
         style={{ scrollbarGutter: 'stable' }}
       >
         {value ? highlightJson(value) : <span className="text-slate-500">{placeholder}</span>}
       </div>
       <textarea
         ref={taRef}
-        className={`relative block w-full p-2.5 font-mono text-sm bg-transparent outline-none text-transparent caret-emerald-300 selection:bg-emerald-900 whitespace-pre-wrap break-words ${stretch ? 'h-full resize-none' : 'min-h-32'}`}
+        className={`relative block w-full p-2.5 font-mono text-sm leading-6 bg-transparent outline-none text-transparent caret-emerald-300 selection:bg-emerald-900 whitespace-pre overflow-auto ${stretch ? 'h-full resize-none' : 'min-h-32'}`}
         style={{ scrollbarGutter: 'stable' }}
         rows={tall ? 20 : 7}
         placeholder=""

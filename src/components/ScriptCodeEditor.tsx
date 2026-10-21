@@ -354,10 +354,7 @@ export default function ScriptCodeEditor({
         <div
           ref={backRef}
           aria-hidden
-          className="absolute inset-0 p-2.5 font-mono text-xs whitespace-pre-wrap break-words overflow-hidden pointer-events-none text-slate-200"
-          // Lớp highlight phải rộng đúng bằng phần chữ của textarea: textarea có scrollbar
-          // chiếm ~8px, nếu không chừa gutter giống nhau thì 2 lớp xuống dòng lệch nhau
-          // và chữ nhân đôi khi cuộn.
+          className="absolute inset-0 p-2.5 font-mono text-xs leading-5 whitespace-pre overflow-hidden pointer-events-none text-slate-200"
           style={stretch ? { scrollbarGutter: 'stable' } : { minHeight, scrollbarGutter: 'stable' }}
         >
           {value ? highlightJs(value) : <span className="text-slate-600 italic">{placeholder}</span>}
@@ -375,7 +372,7 @@ export default function ScriptCodeEditor({
           onScroll={syncScroll}
           onBlur={() => setTimeout(() => setMenuOpen(false), 200)}
           placeholder=""
-          className={`relative block w-full p-2.5 font-mono text-xs bg-transparent outline-none text-transparent caret-emerald-400 selection:bg-emerald-900/60 whitespace-pre-wrap break-words ${
+          className={`relative block w-full p-2.5 font-mono text-xs leading-5 bg-transparent outline-none text-transparent caret-emerald-400 selection:bg-emerald-900/60 whitespace-pre overflow-auto ${
             stretch ? 'h-full resize-none' : 'resize-y'
           }`}
         />
