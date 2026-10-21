@@ -1422,10 +1422,10 @@ export default function Sidebar({ onCollapse, onGoFlow }: { onCollapse: () => vo
           <div className="flex gap-1 text-xs">
             <button
               onClick={() => setShowTreeModal(true)}
-              title="Mở cấu trúc cây & chỉnh sửa JSON cấu trúc các thư mục/collections"
+              title={t.treeModal.treeButtonTitle}
               className="px-1.5 py-0.5 rounded text-[11px] bg-teal-950/70 border border-teal-500/30 text-teal-300 hover:bg-teal-900/80 hover:text-white transition-colors flex items-center gap-1 font-mono"
             >
-              🌳 Cây
+              {t.treeModal.treeButton}
             </button>
             <button onClick={() => setAllCols(true)} title={t.sidebar.openAll} className="text-slate-400 hover:text-white px-1 text-[11px]">{t.sidebar.openAll}</button>
             <button onClick={() => setAllCols(false)} title={t.sidebar.closeAll} className="text-slate-400 hover:text-white px-1 text-[11px]">{t.sidebar.closeAll}</button>

@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { useAppStore } from '../stores/app';
+import { useTranslation } from '../stores/language';
 import type { Dir, Collection, Folder, ApiRequest } from '../types/api';
 
 export interface TreeStructureItem {
@@ -16,6 +17,7 @@ interface TreeStructureModalProps {
 }
 
 export default function TreeStructureModal({ isOpen, onClose }: TreeStructureModalProps) {
+  const { t } = useTranslation();
   const dirs = useAppStore((s) => s.dirs);
   const collections = useAppStore((s) => s.collections);
   const requests = useAppStore((s) => s.requests);
@@ -47,7 +49,7 @@ export default function TreeStructureModal({ isOpen, onClose }: TreeStructureMod
       if (!r) return null;
       return {
         id: r.id,
-        name: r.name || '(Không tên)',
+        name: r.name || t.treeModal.unnamedRequest,
         type: 'request',
         method: r.method,
       };
@@ -127,7 +129,7 @@ export default function TreeStructureModal({ isOpen, onClose }: TreeStructureMod
       if (rootDirs.length > 0) {
         result.push({
           id: 'unfiled-wrapper',
-          name: 'Ngoài thư mục (Unfiled Collections)',
+          name: t.treeModal.unfiledWrapper,
           type: 'dir',
           children: unfiledCols,
         });
@@ -137,7 +139,7 @@ export default function TreeStructureModal({ isOpen, onClose }: TreeStructureMod
     }
 
     return result;
-  }, [dirs, collections, requests]);
+  }, [dirs, collections, requests, t]);
 
   // Khi chuyển sang tab JSON, load lại chuỗi JSON mới nhất
   const openJsonTab = () => {
@@ -153,7 +155,7 @@ export default function TreeStructureModal({ isOpen, onClose }: TreeStructureMod
       setJsonSuccess(null);
       const parsed = JSON.parse(jsonText);
       if (!Array.isArray(parsed)) {
-        throw new Error('Dữ liệu JSON gốc phải là một danh sách mảng (Array).');
+        throw new Error(t.treeModal.applyErrorArray);
       }
 
       // Chuẩn hóa và áp dụng vào store
@@ -163,7 +165,7 @@ export default function TreeStructureModal({ isOpen, onClose }: TreeStructureMod
         // Fallback: cập nhật thông qua store reorderTree
         useAppStore.getState().reorderTree(parsed);
       }
-      setJsonSuccess('✓ Đã cập nhật và sắp xếp lại toàn bộ cấu trúc cây thành công!');
+      setJsonSuccess(t.treeModal.applySuccess);
     } catch (err) {
       setJsonError(err instanceof Error ? err.message : String(err));
     }
@@ -394,14 +396,14 @@ export default function TreeStructureModal({ isOpen, onClose }: TreeStructureMod
               {/* Nút Lên / Xuống */}
               <button
                 onClick={() => handleShiftItem(item.type, item.id, 'up')}
-                title="Di chuyển lên trên"
+                title={t.treeModal.moveUp}
                 className="p-0.5 hover:bg-slate-700 rounded text-slate-400 hover:text-cyan-300 text-xs"
               >
                 ▲
               </button>
               <button
                 onClick={() => handleShiftItem(item.type, item.id, 'down')}
-                title="Di chuyển xuống dưới"
+                title={t.treeModal.moveDown}
                 className="p-0.5 hover:bg-slate-700 rounded text-slate-400 hover:text-cyan-300 text-xs"
               >
                 ▼
@@ -417,10 +419,10 @@ export default function TreeStructureModal({ isOpen, onClose }: TreeStructureMod
                   });
                   setDestinationChoice('');
                 }}
-                title="Chuyển đến vị trí/thư mục khác…"
+                title={t.treeModal.moveQuickTitle}
                 className="text-[11px] px-1.5 py-0.5 bg-slate-700 hover:bg-teal-600 text-slate-200 hover:text-white rounded ml-1 transition-colors"
               >
-                Chuyển…
+                {t.treeModal.moveQuick}
               </button>
             </div>
           )}
@@ -443,7 +445,7 @@ export default function TreeStructureModal({ isOpen, onClose }: TreeStructureMod
           <div className="flex items-center gap-2">
             <span className="text-teal-400 text-lg">🌳</span>
             <h2 className="font-bold text-sm tracking-wide uppercase text-teal-300 font-mono">
-              Quản lý Cấu trúc Cây Collections & Thư mục
+              {t.treeModal.modalTitle}
             </h2>
           </div>
 
@@ -458,7 +460,7 @@ export default function TreeStructureModal({ isOpen, onClose }: TreeStructureMod
                     : 'text-slate-400 hover:text-white'
                 }`}
               >
-                🌲 Cây Trực quan
+                {t.treeModal.tabVisual}
               </button>
               <button
                 onClick={openJsonTab}
@@ -468,14 +470,14 @@ export default function TreeStructureModal({ isOpen, onClose }: TreeStructureMod
                     : 'text-slate-400 hover:text-white'
                 }`}
               >
-                {'{ }'} Cấu trúc JSON
+                {t.treeModal.tabJson}
               </button>
             </div>
 
             <button
               onClick={onClose}
               className="text-slate-400 hover:text-rose-400 text-lg px-2 py-0.5 rounded hover:bg-slate-800 transition-colors"
-              title="Đóng"
+              title={t.common.close}
             >
               ✕
             </button>
@@ -488,10 +490,10 @@ export default function TreeStructureModal({ isOpen, onClose }: TreeStructureMod
             <div className="flex flex-col gap-3 flex-1 min-h-0">
               <div className="bg-slate-900/60 border border-slate-800 rounded-lg p-2.5 text-xs text-slate-300 flex items-center justify-between">
                 <span>
-                  💡 <b>Mẹo:</b> Sử dụng nút <b>▲ / ▼</b> để đổi thứ tự trực tiếp, hoặc nút <b>Chuyển…</b> để di chuyển thư mục/collection/request đến bất kỳ đích nào một cách nhanh chóng.
+                  💡 <b>{t.treeModal.visualTip}</b>
                 </span>
                 <span className="text-teal-400 font-mono">
-                  Tổng: {collections.length} collections
+                  {t.treeModal.totalCollections.replace('{count}', String(collections.length))}
                 </span>
               </div>
 
@@ -500,13 +502,15 @@ export default function TreeStructureModal({ isOpen, onClose }: TreeStructureMod
                 <div className="p-3 bg-slate-900 border border-teal-500/50 rounded-xl flex flex-col gap-2 shadow-lg">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-semibold text-teal-300">
-                      Chuyển <b>[{selectedTarget.type.toUpperCase()}] {selectedTarget.name}</b> tới:
+                      {t.treeModal.moveModalTitle
+                        .replace('{type}', selectedTarget.type.toUpperCase())
+                        .replace('{name}', selectedTarget.name)}
                     </span>
                     <button
                       onClick={() => setSelectedTarget(null)}
                       className="text-slate-400 hover:text-white text-xs px-1"
                     >
-                      ✕ Hủy
+                      {t.treeModal.cancel}
                     </button>
                   </div>
 
@@ -516,17 +520,17 @@ export default function TreeStructureModal({ isOpen, onClose }: TreeStructureMod
                       onChange={(e) => setDestinationChoice(e.target.value)}
                       className="flex-1 bg-slate-950 border border-slate-700 text-slate-200 rounded px-2 py-1.5 text-xs outline-none focus:border-teal-400"
                     >
-                      <option value="">-- Chọn nơi đến --</option>
+                      <option value="">{t.treeModal.selectDestination}</option>
                       {selectedTarget.type === 'request' && (
                         <>
                           {collections.map((c) => (
                             <React.Fragment key={c.id}>
                               <option value={`col:${c.id}:root`}>
-                                📁 Collection: {c.name} (gốc)
+                                {t.treeModal.collectionRoot.replace('{name}', c.name)}
                               </option>
                               {c.folders.map((f) => (
                                 <option key={f.id} value={`col:${c.id}:fld:${f.id}`}>
-                                  &nbsp;&nbsp;↳ 📂 Folder: {c.name} / {f.name}
+                                  &nbsp;&nbsp;{t.treeModal.folderDestination.replace('{colName}', c.name).replace('{fldName}', f.name)}
                                 </option>
                               ))}
                             </React.Fragment>
@@ -536,12 +540,12 @@ export default function TreeStructureModal({ isOpen, onClose }: TreeStructureMod
 
                       {(selectedTarget.type === 'collection' || selectedTarget.type === 'dir') && (
                         <>
-                          <option value="dir:null">📁 Thư mục Gốc (Root / Ngoài thư mục)</option>
+                          <option value="dir:null">{t.treeModal.rootDirectory}</option>
                           {dirs
                             .filter((d) => d.id !== selectedTarget.id)
                             .map((d) => (
                               <option key={d.id} value={`dir:${d.id}`}>
-                                📁 Thư mục: {d.name}
+                                {t.treeModal.directoryDestination.replace('{name}', d.name)}
                               </option>
                             ))}
                         </>
@@ -553,7 +557,7 @@ export default function TreeStructureModal({ isOpen, onClose }: TreeStructureMod
                       disabled={!destinationChoice}
                       className="px-3 py-1.5 bg-teal-600 hover:bg-teal-500 disabled:opacity-50 text-white rounded text-xs font-semibold"
                     >
-                      Xác nhận chuyển
+                      {t.treeModal.confirmMove}
                     </button>
                   </div>
                 </div>
@@ -564,7 +568,7 @@ export default function TreeStructureModal({ isOpen, onClose }: TreeStructureMod
                 {treeData.map((node) => renderVisualNode(node))}
                 {treeData.length === 0 && (
                   <div className="text-center py-10 text-slate-500 text-xs">
-                    Chưa có Collection hay Thư mục nào.
+                    {t.treeModal.noItems}
                   </div>
                 )}
               </div>
@@ -573,16 +577,16 @@ export default function TreeStructureModal({ isOpen, onClose }: TreeStructureMod
             <div className="flex flex-col gap-2 flex-1 min-h-0">
               <div className="text-xs text-slate-400 flex items-center justify-between">
                 <span>
-                  Chỉnh sửa trực tiếp file JSON cấu trúc cây bên dưới để định vị, di chuyển hoặc đổi vị trí các mục hàng loạt:
+                  {t.treeModal.jsonTip}
                 </span>
                 <button
                   onClick={() => {
                     navigator.clipboard.writeText(jsonText);
-                    setJsonSuccess('Đã sao chép cấu trúc JSON vào Clipboard!');
+                    setJsonSuccess(t.treeModal.copiedJson);
                   }}
                   className="px-2 py-0.5 bg-slate-800 hover:bg-slate-700 rounded text-slate-300 text-xs"
                 >
-                  📋 Copy JSON
+                  {t.treeModal.copyJson}
                 </button>
               </div>
 
@@ -613,13 +617,13 @@ export default function TreeStructureModal({ isOpen, onClose }: TreeStructureMod
 
               <div className="flex items-center justify-between pt-1">
                 <span className="text-[11px] text-slate-500">
-                  Tip: Cấu trúc giữ nguyên ID để liên kết chính xác dữ liệu gốc.
+                  {t.treeModal.jsonIdTip}
                 </span>
                 <button
                   onClick={applyJsonTree}
                   className="px-4 py-2 bg-teal-600 hover:bg-teal-500 text-white rounded-lg text-xs font-semibold shadow-lg shadow-teal-500/20 transition-colors"
                 >
-                  ⚡ Áp dụng Cấu trúc JSON
+                  {t.treeModal.applyJson}
                 </button>
               </div>
             </div>
