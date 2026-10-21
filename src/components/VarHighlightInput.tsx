@@ -132,6 +132,52 @@ export default function VarHighlightInput({ value, onChange, onPaste, placeholde
     }
   }
 
+  // Double click trên input: nếu con trỏ đang nằm trong {{varName}} thì mở tab EnvironmentManager
+  function handleDoubleClick(e: React.MouseEvent<HTMLInputElement>) {
+    const input = inputRef.current;
+    if (!input) return;
+    const pos = input.selectionStart || 0;
+    
+    // Tìm biến bao quanh vị trí con trỏ
+    VAR_RE.lastIndex = 0;
+    let m: RegExpExecArray | null;
+    while ((m = VAR_RE.exec(value)) !== null) {
+      const start = m.index;
+      const end = start + m[0].length;
+      if (pos >= start && pos <= end) {
+        const varName = m[1];
+        if (varName) {
+          e.preventDefault();
+          // Tìm xem biến thuộc Environment nào (active, globals, hay envs khác)
+          const st = useAppStore.getState();
+          const activeEnv = st.environments.find((env) => env.id === st.activeEnvId);
+          const inActive = activeEnv && (varName in activeEnv.variables || (st.envSecrets[activeEnv.id] ?? []).includes(varName));
+          const inGlobal = varName in st.globals || (st.globalSecrets ?? []).includes(varName);
+
+          let foundEnvId = st.activeEnvId;
+          let isGlobal = false;
+
+          if (inActive) {
+            foundEnvId = st.activeEnvId;
+          } else if (inGlobal) {
+            isGlobal = true;
+          } else {
+            // Thử tìm trong các env khác
+            const other = st.environments.find((env) => varName in env.variables || (st.envSecrets[env.id] ?? []).includes(varName));
+            if (other) foundEnvId = other.id;
+          }
+
+          st.setTargetEnvVar({
+            name: varName,
+            envId: foundEnvId,
+            isGlobal,
+          });
+          break;
+        }
+      }
+    }
+  }
+
   // Tách value thành đoạn thường / biến / param
   const parts: { text: string; name: string | null; isParam?: boolean }[] = [];
   let last = 0;
@@ -235,6 +281,7 @@ export default function VarHighlightInput({ value, onChange, onPaste, placeholde
           // Cho phép click vào suggestion menu trước khi đóng (tránh mất focus đột ngột)
           setTimeout(() => setShowSuggest(false), 200);
         }}
+        onDoubleClick={handleDoubleClick}
         placeholder=""
         spellCheck={false}
         autoComplete="off"

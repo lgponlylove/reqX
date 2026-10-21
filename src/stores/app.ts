@@ -171,6 +171,9 @@ interface AppState {
   /** Prompt tạm thời gửi từ nút "✨ AI viết script" → AiAssistant nhận rồi xóa. */
   aiSeedPrompt: string | null;
   setAiSeedPrompt: (p: string | null) => void;
+  /** Yêu cầu mở EnvironmentManager và focus/filter đúng biến này (khi double click {{var}}). */
+  targetEnvVar: { name: string; envId?: string | null; isGlobal?: boolean } | null;
+  setTargetEnvVar: (t: { name: string; envId?: string | null; isGlobal?: boolean } | null) => void;
 }
 
 /** Thống kê 1 nấc chain: số lần gọi/lỗi + tokens (cộng dồn, có nút reset) */
@@ -215,6 +218,7 @@ export const useAppStore = create<AppState>()(
   aiChat: [],
   aiContents: [],
   aiSeedPrompt: null,
+  targetEnvVar: null,
   history: [],
   response: null,
   sendError: null,
@@ -778,6 +782,7 @@ export const useAppStore = create<AppState>()(
   setAiContents: (c) => set({ aiContents: sanitizeContents(c.slice(-30)) }),
   clearAiChat: () => set({ aiChat: [], aiContents: [] }),
   setAiSeedPrompt: (p) => set({ aiSeedPrompt: p }),
+  setTargetEnvVar: (t) => set({ targetEnvVar: t }),
 
   importDirs: (dirs) =>
     set((s) => ({ dirs: [...s.dirs, ...dirs] })),

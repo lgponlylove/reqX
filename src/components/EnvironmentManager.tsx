@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import { useAppStore } from '../stores/app';
 import { useTranslation } from '../stores/language';
 import { countVarRefs } from '../lib/variables';
@@ -21,6 +21,8 @@ function VarTable({
   onRename,
   onToggleSecret,
   onAdd,
+  initialFilter,
+  focusVarKey,
 }: {
   title: React.ReactNode;
   accent: keyof typeof ACCENT;
@@ -32,13 +34,19 @@ function VarTable({
   onRename: (oldKey: string, newKey: string) => void;
   onToggleSecret: (key: string, secret: boolean) => void;
   onAdd: (key: string, value: string) => void;
+  initialFilter?: string;
+  focusVarKey?: string | null;
 }) {
   const requests = useAppStore((s) => s.requests);
   const collections = useAppStore((s) => s.collections);
   const environments = useAppStore((s) => s.environments);
   const globals = useAppStore((s) => s.globals);
   const { t } = useTranslation();
-  const [filter, setFilter] = useState('');
+  const [filter, setFilter] = useState(initialFilter ?? '');
+
+  useEffect(() => {
+    if (initialFilter !== undefined) setFilter(initialFilter);
+  }, [initialFilter]);
   const [newKey, setNewKey] = useState('');
   const [newVal, setNewVal] = useState('');
   const [editingKey, setEditingKey] = useState<string | null>(null);
@@ -111,8 +119,16 @@ function VarTable({
           const v = vars[k] ?? '';
           const isSecret = secrets.includes(k);
           const used = refs[k] ?? 0;
+          const isTargetFocus = focusVarKey === k;
           return (
-            <div key={k} className="flex gap-2 items-center">
+            <div
+              key={k}
+              className={`flex gap-2 items-center rounded-lg p-1 transition-all ${
+                isTargetFocus
+                  ? 'ring-2 ring-emerald-400 bg-emerald-950/40 shadow-[0_0_15px_rgba(52,211,153,0.3)]'
+                  : ''
+              }`}
+            >
               {editingKey === k ? (
                 <input
                   autoFocus
@@ -222,6 +238,7 @@ export default function EnvironmentManager() {
     addEnvironment, renameEnvironment, deleteEnvironment, duplicateEnvironment,
     setActiveEnv, setEnvVar, deleteEnvVar, renameEnvVar, setEnvSecret,
     setGlobal, deleteGlobal, renameGlobal, setGlobalSecret,
+    targetEnvVar, setTargetEnvVar,
   } = useAppStore();
 
   const [newEnv, setNewEnv] = useState('');
@@ -230,6 +247,23 @@ export default function EnvironmentManager() {
   /** true = đang quản lý Globals ("môi trường" dùng chung), false = môi trường đang chọn */
   const [managingGlobals, setManagingGlobals] = useState(false);
   const [extract, setExtract] = useState(false);
+  const [focusVarKey, setFocusVarKey] = useState<string | null>(null);
+  const [initialFilter, setInitialFilter] = useState('');
+
+  // Xử lý khi có yêu cầu jump nhanh đến biến từ thao tác double-click
+  useEffect(() => {
+    if (!targetEnvVar) return;
+    if (targetEnvVar.isGlobal) {
+      setManagingGlobals(true);
+    } else if (targetEnvVar.envId) {
+      setActiveEnv(targetEnvVar.envId);
+      setManagingGlobals(false);
+    }
+    setInitialFilter(targetEnvVar.name);
+    setFocusVarKey(targetEnvVar.name);
+    // Xóa trigger sau khi đã nhận
+    setTargetEnvVar(null);
+  }, [targetEnvVar, setActiveEnv, setTargetEnvVar]);
 
   const active = environments.find((e) => e.id === activeEnvId);
   const globalCount = Object.keys(globals).length + globalSecrets.filter((k) => !(k in globals)).length;
@@ -442,6 +476,8 @@ export default function EnvironmentManager() {
               onRename={renameGlobal}
               onToggleSecret={setGlobalSecret}
               onAdd={(k, v) => setGlobal(k, v)}
+              initialFilter={initialFilter}
+              focusVarKey={focusVarKey}
             />
           ) : active ? (
             <VarTable
@@ -455,6 +491,8 @@ export default function EnvironmentManager() {
               onRename={(oldK, newK) => renameEnvVar(active.id, oldK, newK)}
               onToggleSecret={(k, secret) => setEnvSecret(active.id, k, secret)}
               onAdd={(k, v) => setEnvVar(active.id, k, v)}
+              initialFilter={initialFilter}
+              focusVarKey={focusVarKey}
             />
           ) : (
             <div className="bg-slate-800/30 rounded-lg p-4 border border-slate-800 flex items-center justify-center min-h-[150px]">

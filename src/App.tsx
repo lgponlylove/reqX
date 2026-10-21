@@ -134,6 +134,14 @@ export default function App() {
     if (aiSeedPrompt) setAiDrawerOpen(true);
   }, [aiSeedPrompt]);
 
+  const targetEnvVar = useAppStore((s) => s.targetEnvVar);
+  useEffect(() => {
+    if (targetEnvVar) {
+      useRequestStore.getState().openEnvTab(targetEnvVar.envId);
+      setView('builder');
+    }
+  }, [targetEnvVar]);
+
   // Có kết quả mới thì tự mở lại — thu gọn là để soạn request, không phải để bỏ xem response
   useEffect(() => {
     if (response && response !== lastResponse.current) {

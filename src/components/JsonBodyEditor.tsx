@@ -150,6 +150,49 @@ export default function JsonBodyEditor({ value, onChange, placeholder, tall, fil
     }
   }
 
+  // Double click trên textarea: nếu con trỏ đang nằm trong {{varName}} thì mở tab EnvironmentManager
+  function handleDoubleClick(e: React.MouseEvent<HTMLTextAreaElement>) {
+    const ta = taRef.current;
+    if (!ta) return;
+    const pos = ta.selectionStart || 0;
+
+    const VAR_PATTERN = /\{\{\s*([\w.-]+)\s*\}\}/g;
+    let m: RegExpExecArray | null;
+    while ((m = VAR_PATTERN.exec(value)) !== null) {
+      const start = m.index;
+      const end = start + m[0].length;
+      if (pos >= start && pos <= end) {
+        const varName = m[1];
+        if (varName) {
+          e.preventDefault();
+          const st = useAppStore.getState();
+          const activeEnv = st.environments.find((env) => env.id === st.activeEnvId);
+          const inActive = activeEnv && (varName in activeEnv.variables || (st.envSecrets[activeEnv.id] ?? []).includes(varName));
+          const inGlobal = varName in st.globals || (st.globalSecrets ?? []).includes(varName);
+
+          let foundEnvId = st.activeEnvId;
+          let isGlobal = false;
+
+          if (inActive) {
+            foundEnvId = st.activeEnvId;
+          } else if (inGlobal) {
+            isGlobal = true;
+          } else {
+            const other = st.environments.find((env) => varName in env.variables || (st.envSecrets[env.id] ?? []).includes(varName));
+            if (other) foundEnvId = other.id;
+          }
+
+          st.setTargetEnvVar({
+            name: varName,
+            envId: foundEnvId,
+            isGlobal,
+          });
+          break;
+        }
+      }
+    }
+  }
+
   return (
     <div className={`relative bg-slate-900 border border-slate-700 rounded ${tall ? 'flex-1 min-h-0' : ''} ${fill ? 'flex-1 min-h-32' : ''}`}>
       <div
@@ -205,6 +248,7 @@ export default function JsonBodyEditor({ value, onChange, placeholder, tall, fil
         onBlur={() => {
           setTimeout(() => setShowSuggest(false), 200);
         }}
+        onDoubleClick={handleDoubleClick}
         onScroll={syncFromTa}
       />
       {showSuggest && filteredVars.length > 0 && (
