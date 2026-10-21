@@ -135,6 +135,8 @@ interface AppState {
   setSending: (v: boolean) => void;
   importDirs: (dirs: import('../types/api').Dir[]) => void;
   importData: (collection: Collection, reqs: ApiRequest[]) => void;
+  /** Tái sắp xếp hoặc áp dụng lại cấu trúc cây phân cấp từ JSON */
+  reorderTree: (tree: any[]) => void;
   /** API key Google AI Studio cho tab AI (lưu trong máy này, chỉ gửi tới googleapis.com) */
   aiKey: string;
   /** Key dự phòng — tự dùng khi key chính gặp lỗi quota/rate limit */
@@ -793,6 +795,115 @@ export const useAppStore = create<AppState>()(
         collections.push(collection);
       }
       return { collections, requests: next };
+    }),
+
+  reorderTree: (tree: any[]) =>
+    set((s) => {
+      // Map lưu vị trí và quan hệ mới từ tree JSON
+      // tree có thể chứa: Dir nodes, Collection nodes, Folder nodes, Request nodes
+      const nextDirs = [...s.dirs];
+      const nextCollections = [...s.collections];
+
+      // Đệ quy phân tích cấu trúc cây
+      const processNodes = (nodes: any[], parentDirId: string | null = null) => {
+        if (!Array.isArray(nodes)) return;
+        for (const node of nodes) {
+          if (!node || typeof node !== 'object') continue;
+
+          if (node.type === 'dir' && node.id && node.id !== 'unfiled-wrapper') {
+            const dirIndex = nextDirs.findIndex((d) => d.id === node.id);
+            if (dirIndex >= 0) {
+              nextDirs[dirIndex] = {
+                ...nextDirs[dirIndex],
+                name: node.name || nextDirs[dirIndex].name,
+                parentId: parentDirId,
+                collectionIds: [], // Sẽ được điền khi duyệt qua con của dir
+              };
+            }
+            if (Array.isArray(node.children)) {
+              processNodes(node.children, node.id);
+            }
+          } else if (node.type === 'collection' && node.id) {
+            // Gán collection vào parentDirId (nếu có)
+            if (parentDirId) {
+              const pDir = nextDirs.find((d) => d.id === parentDirId);
+              if (pDir && !pDir.collectionIds.includes(node.id)) {
+                pDir.collectionIds.push(node.id);
+              }
+            }
+            // Xử lý folders và requests bên trong collection
+            const colIndex = nextCollections.findIndex((c) => c.id === node.id);
+            if (colIndex >= 0) {
+              const existingCol = nextCollections[colIndex];
+              const rootReqIds: string[] = [];
+              const updatedFolders = [...existingCol.folders];
+
+              // Helper duyệt children của collection
+              const processColChildren = (children: any[], parentFolderId?: string) => {
+                if (!Array.isArray(children)) return;
+                for (const child of children) {
+                  if (child.type === 'request' && child.id) {
+                    if (parentFolderId) {
+                      const f = updatedFolders.find((x) => x.id === parentFolderId);
+                      if (f && !f.requestIds.includes(child.id)) {
+                        f.requestIds.push(child.id);
+                      }
+                    } else {
+                      if (!rootReqIds.includes(child.id)) {
+                        rootReqIds.push(child.id);
+                      }
+                    }
+                  } else if (child.type === 'folder' && child.id) {
+                    const fIndex = updatedFolders.findIndex((x) => x.id === child.id);
+                    if (fIndex >= 0) {
+                      updatedFolders[fIndex] = {
+                        ...updatedFolders[fIndex],
+                        name: child.name || updatedFolders[fIndex].name,
+                        requestIds: [],
+                        folderIds: [],
+                      };
+                    }
+                    if (parentFolderId) {
+                      const pf = updatedFolders.find((x) => x.id === parentFolderId);
+                      if (pf && !pf.folderIds.includes(child.id)) {
+                        pf.folderIds.push(child.id);
+                      }
+                    }
+                    if (Array.isArray(child.children)) {
+                      processColChildren(child.children, child.id);
+                    }
+                  }
+                }
+              };
+
+              if (Array.isArray(node.children)) {
+                // Reset tạm requestIds của các folder để build lại đúng thứ tự mới
+                for (let i = 0; i < updatedFolders.length; i++) {
+                  updatedFolders[i] = { ...updatedFolders[i], requestIds: [], folderIds: [] };
+                }
+                processColChildren(node.children);
+                nextCollections[colIndex] = {
+                  ...existingCol,
+                  name: node.name || existingCol.name,
+                  rootRequestIds: rootReqIds,
+                  folders: updatedFolders,
+                };
+              }
+            }
+          } else if (node.id === 'unfiled-wrapper' && Array.isArray(node.children)) {
+            // Những collection ngoài thư mục
+            processNodes(node.children, null);
+          }
+        }
+      };
+
+      processNodes(tree, null);
+
+      // Đảm bảo không mất request nào: nếu request có trong s.requests nhưng tree json vô tình thiếu, giữ lại
+      return {
+        dirs: nextDirs,
+        collections: nextCollections,
+      };
     }),
     }),
     {
