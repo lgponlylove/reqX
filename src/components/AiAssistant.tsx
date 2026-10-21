@@ -338,6 +338,7 @@ export default function AiAssistant({
   const [busy, setBusy] = useState(false);
   const [streamingText, setStreamingText] = useState<string | null>(null);
   const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
+  const [hoveredPrompt, setHoveredPrompt] = useState<string | null>(null);
   const copyText = async (text: string, index: number) => {
     try {
       if (navigator?.clipboard?.writeText) {
@@ -1990,23 +1991,28 @@ export default function AiAssistant({
         )}
       </div>
 
-      <div ref={boxRef} className="flex-1 min-h-0 overflow-auto border border-slate-800 rounded p-3 flex flex-col gap-2 bg-slate-950/50 relative">
-        {/* Sticky Prompt Pinned Header: Neo câu lệnh gần nhất của user lên đầu giống Postman */}
+      <div
+        ref={boxRef}
+        onMouseLeave={() => setHoveredPrompt(null)}
+        className="flex-1 min-h-0 overflow-auto border border-slate-800 rounded p-3 flex flex-col gap-2 bg-slate-950/50 relative"
+      >
+        {/* Sticky Prompt Pinned Header: Neo câu lệnh tương ứng khi rê chuột hoặc câu gần nhất */}
         {(() => {
           const lastUserMsg = [...msgs].reverse().find((m) => m.role === 'user');
-          if (!lastUserMsg) return null;
+          const activePromptText = hoveredPrompt || lastUserMsg?.text;
+          if (!activePromptText) return null;
           return (
             <div className="sticky top-0 z-10 -mt-1 -mx-1 mb-2 px-3 py-2 bg-slate-900/95 border-b border-teal-500/30 backdrop-blur-md rounded-t shadow-md flex items-center justify-between gap-2 group transition-all">
               <div className="flex items-center gap-2 min-w-0 flex-1">
                 <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-teal-400 bg-teal-950/80 border border-teal-500/40 px-1.5 py-0.5 rounded shrink-0">
                   Prompt
                 </span>
-                <span className="text-xs text-slate-200 font-medium truncate" title={lastUserMsg.text}>
-                  {lastUserMsg.text}
+                <span className="text-xs text-slate-200 font-medium truncate" title={activePromptText}>
+                  {activePromptText}
                 </span>
               </div>
               <button
-                onClick={() => setInput(lastUserMsg.text)}
+                onClick={() => setInput(activePromptText)}
                 title="Dán lại câu lệnh này vào ô nhập"
                 className="opacity-0 group-hover:opacity-100 text-[10px] text-slate-400 hover:text-cyan-300 px-1.5 py-0.5 rounded hover:bg-slate-800 transition-all shrink-0 font-mono"
               >
@@ -2022,10 +2028,19 @@ export default function AiAssistant({
           </p>
         )}
         {msgs.map((m, i) => {
+          // Tìm câu lệnh user tương ứng cho block này (quay ngược từ index i đến user msg gần nhất)
+          const findPromptFor = (idx: number) => {
+            for (let k = idx; k >= 0; k--) {
+              if (msgs[k].role === 'user') return msgs[k].text;
+            }
+            return null;
+          };
+
           if (m.role === 'user') {
             return (
               <div
                 key={i}
+                onMouseEnter={() => setHoveredPrompt(m.text)}
                 className="group relative text-sm rounded-xl px-3 py-2 bg-slate-800 text-slate-100 self-end max-w-[90%] shadow-sm border border-slate-700/60"
               >
                 <div className="whitespace-pre-wrap break-words pr-6">{m.text}</div>
@@ -2054,6 +2069,10 @@ export default function AiAssistant({
             return (
               <div
                 key={i}
+                onMouseEnter={() => {
+                  const p = findPromptFor(i);
+                  if (p) setHoveredPrompt(p);
+                }}
                 className="group relative text-sm rounded-xl px-3 py-2 bg-slate-900/90 border border-slate-800 hover:border-slate-700 text-slate-200 self-start max-w-[95%] shadow-sm transition-colors"
               >
                 <div className="flex items-center justify-between pb-1.5 mb-1.5 border-b border-slate-800/80 text-[11px]">
@@ -2089,6 +2108,10 @@ export default function AiAssistant({
           return (
             <div
               key={i}
+              onMouseEnter={() => {
+                const p = findPromptFor(i);
+                if (p) setHoveredPrompt(p);
+              }}
               className="group text-slate-400 text-xs font-mono py-0.5 px-1.5 flex items-center justify-between hover:bg-slate-900/50 rounded transition-colors"
             >
               <span className="truncate pr-2">{m.text}</span>
