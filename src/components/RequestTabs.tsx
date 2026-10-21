@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useRequestStore, activeSubTab, type ReqSubTab } from '../stores/request';
 import { useAppStore } from '../stores/app';
 import KeyValueEditor from './KeyValueEditor';
+import VarHighlightInput from './VarHighlightInput';
 import { COMMON_HEADER_KEYS } from '../lib/header-suggestions';
 import JsonBodyEditor from './JsonBodyEditor';
 import ScriptCodeEditor from './ScriptCodeEditor';
@@ -542,6 +543,10 @@ export function JsonHint({ body, validMsg, invalidMsg }: { body: string; validMs
 function AuthEditor() {
   const { t: i18n } = useTranslation();
   const { current, set } = useRequestStore();
+  const { environments, activeEnvId, globals } = useAppStore();
+  const activeEnv = environments.find((e) => e.id === activeEnvId);
+  const hasVar = (name: string) => (activeEnv?.variables[name] !== undefined || globals[name] !== undefined);
+
   const auth = current.auth;
   const setAuth = (patch: Partial<typeof auth>) => set({ auth: { ...auth, ...patch } });
 
@@ -597,13 +602,14 @@ function AuthEditor() {
       {auth.type === 'bearer' && (
         <label className="flex flex-col gap-1 text-sm">
           Token
-          <input
-            type="password"
-            className="bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 font-mono"
-            placeholder="eyJhbGciOi... hoặc {{token}}"
-            value={auth.token ?? ''}
-            onChange={(e) => setAuth({ token: e.target.value })}
-          />
+          <div className="bg-slate-900 border border-slate-700 rounded focus-within:border-emerald-500 transition-colors">
+            <VarHighlightInput
+              value={auth.token ?? ''}
+              onChange={(v) => setAuth({ token: v })}
+              placeholder="eyJhbGciOi... hoặc {{token}}"
+              hasVar={hasVar}
+            />
+          </div>
         </label>
       )}
 
@@ -611,22 +617,25 @@ function AuthEditor() {
         <div className="grid grid-cols-2 gap-2">
           <label className="flex flex-col gap-1 text-sm">
             Username
-            <input
-              className="bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 font-mono"
-              placeholder="admin hoặc {{username}}"
-              value={auth.username ?? ''}
-              onChange={(e) => setAuth({ username: e.target.value })}
-            />
+            <div className="bg-slate-900 border border-slate-700 rounded focus-within:border-emerald-500 transition-colors">
+              <VarHighlightInput
+                value={auth.username ?? ''}
+                onChange={(v) => setAuth({ username: v })}
+                placeholder="admin hoặc {{username}}"
+                hasVar={hasVar}
+              />
+            </div>
           </label>
           <label className="flex flex-col gap-1 text-sm">
             Password
-            <input
-              type="password"
-              className="bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 font-mono"
-              placeholder="••••••"
-              value={auth.password ?? ''}
-              onChange={(e) => setAuth({ password: e.target.value })}
-            />
+            <div className="bg-slate-900 border border-slate-700 rounded focus-within:border-emerald-500 transition-colors">
+              <VarHighlightInput
+                value={auth.password ?? ''}
+                onChange={(v) => setAuth({ password: v })}
+                placeholder="•••••• hoặc {{password}}"
+                hasVar={hasVar}
+              />
+            </div>
           </label>
         </div>
       )}
@@ -636,12 +645,14 @@ function AuthEditor() {
           <div className="grid grid-cols-2 gap-2">
             <label className="flex flex-col gap-1 text-sm">
               {i18n.request.authKeyName}
-              <input
-                className="bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 font-mono"
-                placeholder="X-API-Key"
-                value={auth.apiKeyName ?? ''}
-                onChange={(e) => setAuth({ apiKeyName: e.target.value })}
-              />
+              <div className="bg-slate-900 border border-slate-700 rounded focus-within:border-emerald-500 transition-colors">
+                <VarHighlightInput
+                  value={auth.apiKeyName ?? ''}
+                  onChange={(v) => setAuth({ apiKeyName: v })}
+                  placeholder="X-API-Key"
+                  hasVar={hasVar}
+                />
+              </div>
             </label>
             <label className="flex flex-col gap-1 text-sm">
               {i18n.request.authWhere}
@@ -657,13 +668,14 @@ function AuthEditor() {
           </div>
           <label className="flex flex-col gap-1 text-sm">
             {i18n.request.authKeyVal}
-            <input
-              type="password"
-              className="bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 font-mono"
-              placeholder="abc123 hoặc {{apiKey}}"
-              value={auth.apiKey ?? ''}
-              onChange={(e) => setAuth({ apiKey: e.target.value })}
-            />
+            <div className="bg-slate-900 border border-slate-700 rounded focus-within:border-emerald-500 transition-colors">
+              <VarHighlightInput
+                value={auth.apiKey ?? ''}
+                onChange={(v) => setAuth({ apiKey: v })}
+                placeholder="abc123 hoặc {{apiKey}}"
+                hasVar={hasVar}
+              />
+            </div>
           </label>
         </div>
       )}
