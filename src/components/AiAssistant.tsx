@@ -29,6 +29,7 @@ import { useScheduleStore } from '../stores/schedule';
 import { engineRunning } from '../lib/scheduleEngine';
 import { getDocTopic, listDocTopics, searchDocs } from '../lib/docs/app-guide';
 import { useTranslation } from '../stores/language';
+import { MarkdownMessage } from './MarkdownMessage';
 import type { ApiRequest, ApiResponse, HttpMethod, KeyValue } from '../types/api';
 
 /** Mục lục mẫu script — nhét vào prompt để model biết đường gọi get_script_snippet, không phải copy cả code. */
@@ -37,6 +38,12 @@ const SNIPPET_INDEX = SCRIPT_SNIPPETS.map(
 ).join('\n');
 
 const SYSTEM = `Bạn là trợ lý trong app ReqX (test API kiểu Postman). Trả lời NGẮN GỌN bằng Tiếng Việt.
+Quy tắc định dạng:
+- Trình bày mạch lạc, sạch đẹp, dễ nhìn.
+- HẠN CHẾ lạm dụng dấu in đậm **...**. Không bọc **...** liên tục vào mọi từ, URL, method hoặc tên trường. Chỉ in đậm tiêu đề mục hoặc từ khóa trọng tâm.
+- URL, method, tên biến, status code hoặc mã code ngắn hãy đặt trong dấu backtick \`...\` (ví dụ: \`POST\`, \`http://...\`, \`Authorization\`, \`200 OK\`, \`401 Unauthorized\`).
+- Sử dụng danh sách gạch đầu dòng (-) hoặc số (1. 2.) rõ ràng, súc tích.
+
 Bạn có tools để xem và điều khiển app. Quy tắc:
 - Khi người dùng hỏi về tính năng của reqX, cách sử dụng, phím tắt, cấu hình, CLI, script, runner, flow, mock, environment: BẮT BUỘC gọi tool get_feature_guide để tra cứu tài liệu chính thống của app rồi giải thích chi tiết, kèm ví dụ cụ thể.
 - Khi người dùng nhắc tên (collection/request/flow/env): gọi tool list tương ứng trước để kiểm tra. Nếu KHÔNG có tên khớp chính xác 100% (hoặc có nhiều tên gần giống, VD người dùng bảo 'order/get' nhưng chỉ có 'order/print by id' hoặc 'order/get by id'): BẮT BUỘC liệt kê các request tìm được và HỎI LẠI người dùng để xác nhận, TUYỆT ĐỐI KHÔNG tự ý chọn bừa request khác để sửa hay chèn script.
@@ -1983,7 +1990,32 @@ export default function AiAssistant({
         )}
       </div>
 
-      <div ref={boxRef} className="flex-1 min-h-0 overflow-auto border border-slate-800 rounded p-3 flex flex-col gap-2 bg-slate-950/50">
+      <div ref={boxRef} className="flex-1 min-h-0 overflow-auto border border-slate-800 rounded p-3 flex flex-col gap-2 bg-slate-950/50 relative">
+        {/* Sticky Prompt Pinned Header: Neo câu lệnh gần nhất của user lên đầu giống Postman */}
+        {(() => {
+          const lastUserMsg = [...msgs].reverse().find((m) => m.role === 'user');
+          if (!lastUserMsg) return null;
+          return (
+            <div className="sticky top-0 z-10 -mt-1 -mx-1 mb-2 px-3 py-2 bg-slate-900/95 border-b border-teal-500/30 backdrop-blur-md rounded-t shadow-md flex items-center justify-between gap-2 group transition-all">
+              <div className="flex items-center gap-2 min-w-0 flex-1">
+                <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-teal-400 bg-teal-950/80 border border-teal-500/40 px-1.5 py-0.5 rounded shrink-0">
+                  Prompt
+                </span>
+                <span className="text-xs text-slate-200 font-medium truncate" title={lastUserMsg.text}>
+                  {lastUserMsg.text}
+                </span>
+              </div>
+              <button
+                onClick={() => setInput(lastUserMsg.text)}
+                title="Dán lại câu lệnh này vào ô nhập"
+                className="opacity-0 group-hover:opacity-100 text-[10px] text-slate-400 hover:text-cyan-300 px-1.5 py-0.5 rounded hover:bg-slate-800 transition-all shrink-0 font-mono"
+              >
+                ↩ Dùng lại
+              </button>
+            </div>
+          );
+        })()}
+
         {msgs.length === 0 && (
           <p className="text-slate-500 text-sm">
             {t.ai.emptyHint}
@@ -2049,7 +2081,7 @@ export default function AiAssistant({
                     )}
                   </button>
                 </div>
-                <div className="whitespace-pre-wrap break-words">{m.text}</div>
+                <MarkdownMessage content={m.text} />
               </div>
             );
           }
@@ -2084,7 +2116,7 @@ export default function AiAssistant({
                 <span className="inline-block animate-spin text-xs">✨</span> {t.ai.streaming}
               </span>
             </div>
-            <div className="whitespace-pre-wrap break-words">{streamingText || '…'}</div>
+            <MarkdownMessage content={streamingText || '…'} />
           </div>
         )}
         {busy && streamingText === null && <div className="text-xs text-slate-500">{t.ai.thinking}</div>}
