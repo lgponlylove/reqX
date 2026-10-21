@@ -66,6 +66,7 @@ function FolderNode({
   /** Bộ lọc cây ở đầu sidebar — node không khớp bị ẩn, node khớp thì mở tạm không ghi vào `collapsed` */
   filter: TreeFilter;
 }) {
+  const { t } = useTranslation();
   const hasNested = folder.folderIds && folder.folderIds.length > 0;
   if (filter.active && !filter.fldVisible.has(folder.id)) return null;
   // Folder mặc định mở; trạng thái thu gọn lưu chung với collection (localStorage)
@@ -144,7 +145,7 @@ function FolderNode({
             return <ReqRow key={id} collectionId={collectionId} req={r} compact={compact} onDragStart={onDragStart} onDragEnd={onDragEnd} onMenu={(e, colId, requestId) => openMenu(e, { kind: 'request', colId, requestId })} renameSignal={renameReqSig?.id === id ? renameReqSig.n : 0} />;
           })}
           {folder.requestIds.length === 0 && !hasNested && (
-            <p className="text-[11px] text-slate-600 italic px-2 py-0.5">Kéo request vào đây</p>
+            <p className="text-[11px] text-slate-600 italic px-2 py-0.5">{t.sidebar.dragRequestHere}</p>
           )}
 
           {/* Render nested folders */}
@@ -900,11 +901,11 @@ export default function Sidebar({ onCollapse, onGoFlow }: { onCollapse: () => vo
     // Folder và collection cùng dùng một cặp mục tài liệu (md để commit, html để mở trình duyệt).
     const docsItems = (col: Collection, folderId?: string): MenuItem[] => [
       {
-        label: folderId ? '📄 Tài liệu Markdown của folder' : '📄 Tài liệu Markdown của collection',
+        label: folderId ? t.sidebar.folderDocsMd : t.sidebar.colDocsMd,
         onClick: () => exportDocs(col, 'md', folderId),
       },
       {
-        label: folderId ? '🌐 Tài liệu HTML của folder' : '🌐 Tài liệu HTML của collection',
+        label: folderId ? t.sidebar.folderDocsHtml : t.sidebar.colDocsHtml,
         onClick: () => exportDocs(col, 'html', folderId),
       },
     ];
@@ -913,11 +914,11 @@ export default function Sidebar({ onCollapse, onGoFlow }: { onCollapse: () => vo
       if (!d) return [];
       return [
         {
-          label: '＋ Thư mục con ở đây',
+          label: t.sidebar.newSubFolderHere,
           onClick: () => { setDirName(''); setAddingDir({ parentId: d.id }); },
         },
         {
-          label: '＋ Collection mới ở đây',
+          label: t.sidebar.newColHere,
           onClick: () => {
             const col: Collection = {
               id: uid('col'),
@@ -931,27 +932,27 @@ export default function Sidebar({ onCollapse, onGoFlow }: { onCollapse: () => vo
             setRenamingText(col.name);
           },
         },
-        { label: '✎ Đổi tên thư mục', onClick: () => setDirRenaming({ id: d.id, text: d.name }) },
+        { label: t.sidebar.renameDir, onClick: () => setDirRenaming({ id: d.id, text: d.name }) },
         ...dirs
           .filter((t) => t.id !== d.id && (t.parentId ?? null) !== d.id && !isDescDir(d.id, t.id))
           .filter((t) => (d.parentId ?? null) !== t.id)
           .slice(0, 20)
-          .map((t) => ({
-            label: `→ 📁 ${dirPath(t.id)}`,
-            onClick: () => moveDir(d.id, t.id),
+          .map((dirItem) => ({
+            label: `→ 📁 ${dirPath(dirItem.id)}`,
+            onClick: () => moveDir(d.id, dirItem.id),
           })),
         ...((d.parentId ?? null) !== null
-          ? [{ label: '→ Ra ngoài (gốc)', onClick: () => moveDir(d.id, null) } as MenuItem]
+          ? [{ label: t.sidebar.moveToRoot, onClick: () => moveDir(d.id, null) } as MenuItem]
           : []),
         {
-          label: '⬇ Xuất dữ liệu thư mục này',
+          label: t.sidebar.exportDirData,
           onClick: () => exportDirData(d.id),
         },
         {
-          label: '🗑 Xóa thư mục + bên trong', danger: true,
+          label: t.sidebar.deleteDirWithContents, danger: true,
           onClick: () => {
             const st = countDirDeep(d.id);
-            if (confirm(`Xóa thư mục "${d.name}"?\nSẽ xóa: ${st.subDirs} thư mục con, ${st.cols} collection, ${st.reqs} request bên trong.\nKhông thể hoàn tác!`)) {
+            if (confirm(t.sidebar.deleteDirConfirm.replace('{name}', d.name).replace('{subDirs}', String(st.subDirs)).replace('{cols}', String(st.cols)).replace('{reqs}', String(st.reqs)))) {
               deleteDir(d.id);
             }
           },
@@ -966,10 +967,10 @@ export default function Sidebar({ onCollapse, onGoFlow }: { onCollapse: () => vo
       // Tìm folder hiện tại của request này (nếu có)
       const currentFolder = c.folders.find((f) => f.requestIds.includes(r.id));
       return [
-        { label: ' Mở request', onClick: () => load(r) },
-        { label: '⧉ Nhân bản request', onClick: () => duplicateRequest(c.id, r.id) },
+        { label: t.sidebar.openRequest, onClick: () => load(r) },
+        { label: t.sidebar.duplicateRequest, onClick: () => duplicateRequest(c.id, r.id) },
         {
-          label: '➡ Chuyển sang collection…',
+          label: t.sidebar.moveToCollection,
           onClick: () => setMovePick({ requestId: r.id, fromId: c.id, x: menu.x, y: menu.y }),
         },
         // Submenu: Move to folder trong cùng collection
@@ -981,14 +982,14 @@ export default function Sidebar({ onCollapse, onGoFlow }: { onCollapse: () => vo
             onClick: () => moveRequest(c.id, r.id, { folderId: f.id }),
           })),
         ...(currentFolder
-          ? [{ label: '→ Ra ngoài (root)', onClick: () => moveRequest(c.id, r.id, 'root') } as MenuItem]
+          ? [{ label: t.sidebar.moveToRoot, onClick: () => moveRequest(c.id, r.id, 'root') } as MenuItem]
           : []),
         {
-          label: '✎ Đổi tên request',
+          label: t.sidebar.renameRequest,
           onClick: () => setRenameReqSig((s) => ({ id: r.id, n: (s?.n ?? 0) + 1 })),
         },
         {
-          label: '➕ Thêm request mới vào đây',
+          label: t.sidebar.addRequestHere,
           onClick: () => {
             const nr: ApiRequest = {
               id: uid('req'),
@@ -1012,9 +1013,9 @@ export default function Sidebar({ onCollapse, onGoFlow }: { onCollapse: () => vo
           },
         },
         {
-          label: '🗑 Xóa request khỏi collection', danger: true,
+          label: t.sidebar.deleteRequest, danger: true,
           onClick: () => {
-            if (confirm(`Xóa request "${r.name || r.url}" khỏi collection?`)) {
+            if (confirm(t.sidebar.deleteRequestConfirm.replace('{name}', r.name || r.url))) {
               removeRequestFromCollection(c.id, r.id);
             }
           },
@@ -1025,18 +1026,18 @@ export default function Sidebar({ onCollapse, onGoFlow }: { onCollapse: () => vo
       const f = c.folders.find((x) => x.id === menu.folderId);
       if (!f) return [];
       return [
-        { label: '✎ Đổi tên folder', onClick: () => { setRenamingFolder(f.id); setRenamingFolderText(f.name); } },
+        { label: t.sidebar.renameFolder, onClick: () => { setRenamingFolder(f.id); setRenamingFolderText(f.name); } },
         {
-          label: (f.preRequest ?? '').trim() || (f.tests ?? '').trim() ? '📜 Script folder (có)' : '📜 Script folder…',
+          label: (f.preRequest ?? '').trim() || (f.tests ?? '').trim() ? t.sidebar.scriptFolderHas : t.sidebar.scriptFolder,
           onClick: () => setScriptEdit({ colId: c.id, folderId: f.id }),
         },
         {
-          label: '⚡ Tạo biến từ request trong folder…',
+          label: t.sidebar.extractVars,
           onClick: () => setExtract({ colId: c.id, folderId: f.id }),
         },
         ...docsItems(c, f.id),
         {
-          label: '＋ Tạo folder con trong đây',
+          label: t.sidebar.addSubFolder,
           onClick: () => {
             addFolder(c.id, 'New Folder', f.id);
             setColOpen(c.id, true);
@@ -1044,9 +1045,9 @@ export default function Sidebar({ onCollapse, onGoFlow }: { onCollapse: () => vo
           },
         },
         {
-          label: '🗑 Xóa folder (requests chuyển ra ngoài)', danger: true,
+          label: t.sidebar.deleteFolder, danger: true,
           onClick: () => {
-            if (confirm(`Xóa folder "${f.name}"? Requests bên trong sẽ chuyển ra ngoài.`)) {
+            if (confirm(t.sidebar.deleteFolderConfirm.replace('{name}', f.name))) {
               deleteFolder(c.id, f.id);
             }
           },
@@ -1057,33 +1058,33 @@ export default function Sidebar({ onCollapse, onGoFlow }: { onCollapse: () => vo
     const usingFlows = flows.filter((f) => f.steps.some((st) => st.collectionId === c.id));
     return [
       ...usingFlows.map((f) => ({
-        label: `▶ Chạy flow: ${f.name}`,
+        label: t.sidebar.runFlowNamed.replace('{name}', f.name),
         onClick: () => {
           requestFlowRun(f.id);
           onGoFlow?.();
         },
       } as MenuItem)),
-      { label: '💾 Lưu request hiện tại vào đây', onClick: () => { const saved = current.id && requests[current.id] ? saveRequest(current) : saveRequest(current, c.id); if (saved) { set({ id: saved.id, origin: undefined }); markClean(); } } },
-      { label: '📁 Tạo folder mới', onClick: () => { setFolderName(''); setAddingFolderFor(c.id); } },
-      { label: '📤 Xuất collection ra JSON (Postman)', onClick: () => exportCol(c) },
-      { label: '🌿 Xuất Git-friendly (Plain-text YAML / ZIP)', onClick: () => exportGitCol(c) },
+      { label: t.sidebar.saveCurrentReqHere, onClick: () => { const saved = current.id && requests[current.id] ? saveRequest(current) : saveRequest(current, c.id); if (saved) { set({ id: saved.id, origin: undefined }); markClean(); } } },
+      { label: t.sidebar.newFolder, onClick: () => { setFolderName(''); setAddingFolderFor(c.id); } },
+      { label: t.sidebar.exportColJsonPostman, onClick: () => exportCol(c) },
+      { label: t.sidebar.exportGitFriendly, onClick: () => exportGitCol(c) },
       {
-        label: '⚡ Tạo biến từ request trong collection…',
+        label: t.sidebar.extractVarsCol,
         onClick: () => setExtract({ colId: c.id }),
       },
       ...docsItems(c),
       {
         label:
           (c.preRequest ?? '').trim() || (c.tests ?? '').trim() || (c.teardown ?? '').trim()
-            ? '📜 Script collection (có)'
-            : '📜 Script collection…',
+            ? t.sidebar.scriptColHas
+            : t.sidebar.scriptCol,
         onClick: () => setScriptEdit({ colId: c.id }),
       },
-      { label: '✎ Đổi tên collection', onClick: () => { setRenamingId(c.id); setRenamingText(c.name); } },
+      { label: t.sidebar.renameCollection, onClick: () => { setRenamingId(c.id); setRenamingText(c.name); } },
       {
-        label: '🗑 Xóa collection (kèm requests)', danger: true,
+        label: t.sidebar.deleteCollection, danger: true,
         onClick: () => {
-          if (confirm(`Xóa collection "${c.name}" và mọi request bên trong?`)) {
+          if (confirm(t.sidebar.deleteColConfirm.replace('{name}', c.name))) {
             deleteCollection(c.id);
           }
         },
@@ -1098,7 +1099,7 @@ export default function Sidebar({ onCollapse, onGoFlow }: { onCollapse: () => vo
           onClick: () => moveCollection(c.id, d.id),
         })),
       ...(curDir
-        ? [{ label: '→ Ngoài thư mục', onClick: () => moveCollection(c.id, null) } as MenuItem]
+        ? [{ label: t.sidebar.outsideFolder, onClick: () => moveCollection(c.id, null) } as MenuItem]
         : []),
     ];
   }
@@ -1441,13 +1442,13 @@ export default function Sidebar({ onCollapse, onGoFlow }: { onCollapse: () => vo
         {addingDir && (
           <div className="mb-2">
             <p className="text-[11px] text-slate-400 mb-1">
-              Thư mục mới trong: <b>{addingDir.parentId ? dirPath(addingDir.parentId) : 'Gốc'}</b>
+              {t.sidebar.newDirIn.replace('{target}', addingDir.parentId ? dirPath(addingDir.parentId) : t.sidebar.root)}
             </p>
             <div className="flex gap-1">
             <input
               autoFocus
               className="flex-1 min-w-0 bg-slate-900 border border-slate-600 rounded px-2 py-1 text-xs"
-              placeholder="Tên thư mục..."
+              placeholder={t.sidebar.newDirPlaceholder}
               value={dirName}
               onChange={(e) => setDirName(e.target.value)}
               onKeyDown={(e) => {
@@ -1459,12 +1460,12 @@ export default function Sidebar({ onCollapse, onGoFlow }: { onCollapse: () => vo
               OK
             </button>
             <button onClick={() => setAddingDir(null)} className="bg-slate-800 hover:bg-slate-700 rounded px-2 text-xs">
-              Hủy
+              {t.common.cancel}
             </button>
             </div>
           </div>
         )}
-        {collections.length === 0 && <p className="text-slate-500">Chưa có. Hãy tạo hoặc Import.</p>}
+        {collections.length === 0 && <p className="text-slate-500">{t.sidebar.emptyCollections}</p>}
         {filter.active && filter.colVisible.size === 0 && collections.length > 0 && (
           <p className="text-[11px] text-slate-500 italic py-1">
             {t.sidebar.filterEmpty}: <b className="not-italic text-slate-400">{treeQuery.trim()}</b>
@@ -1603,7 +1604,7 @@ export default function Sidebar({ onCollapse, onGoFlow }: { onCollapse: () => vo
                 <input
                   autoFocus
                   className="flex-1 min-w-0 bg-slate-900 border border-slate-600 rounded px-1.5 py-1 text-xs"
-                  placeholder="Tên folder..."
+                  placeholder={t.sidebar.newFolderPlaceholder}
                   value={folderName}
                   onChange={(e) => setFolderName(e.target.value)}
                   onKeyDown={(e) => {
@@ -1674,7 +1675,7 @@ export default function Sidebar({ onCollapse, onGoFlow }: { onCollapse: () => vo
       {sideTab === 'his' && (
       <div className="flex flex-col gap-2">
         <div className="flex justify-between items-center mb-0.5">
-          <h3 className="font-semibold text-xs text-slate-200">Lịch sử ({history.length})</h3>
+          <h3 className="font-semibold text-xs text-slate-200">{t.sidebar.history} ({history.length})</h3>
           <div className="flex items-center gap-1.5">
             {selectedForDiff.length === 2 && (
               <button
@@ -1687,20 +1688,20 @@ export default function Sidebar({ onCollapse, onGoFlow }: { onCollapse: () => vo
                   }
                 }}
                 className="px-2 py-0.5 rounded bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-bold shadow flex items-center gap-1 transition-all animate-pulse"
-                title="So sánh Response & Request giữa 2 lần chạy đã chọn"
+                title={t.sidebar.diffCompareTooltip}
               >
                 <span>⚖️</span>
-                <span>So sánh Diff (2)</span>
+                <span>{t.sidebar.diffCompare}</span>
               </button>
             )}
             {selectedForDiff.length > 0 && selectedForDiff.length !== 2 && (
               <span className="text-[10px] text-amber-400 font-mono">
-                Chọn {2 - selectedForDiff.length} mục nữa
+                {t.sidebar.diffCompareSelectMore.replace('{count}', String(2 - selectedForDiff.length))}
               </span>
             )}
             {history.length > 0 && (
               <button onClick={clearHistory} className="text-[11px] text-slate-400 hover:text-red-300">
-                Xóa hết
+                {t.sidebar.clearAllHistory}
               </button>
             )}
           </div>
@@ -1711,7 +1712,7 @@ export default function Sidebar({ onCollapse, onGoFlow }: { onCollapse: () => vo
           <div className="relative">
             <input
               className="w-full bg-slate-900 border border-slate-700/80 rounded px-2.5 py-1 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-emerald-500"
-              placeholder="Tìm theo URL, method, status..."
+              placeholder={t.sidebar.searchHistoryPlaceholder}
               value={hisQuery}
               onChange={(e) => setHisQuery(e.target.value)}
             />
@@ -1745,12 +1746,12 @@ export default function Sidebar({ onCollapse, onGoFlow }: { onCollapse: () => vo
               </button>
             ))}
 
-            <span className="text-slate-500 ml-1.5 mr-0.5">Thời gian:</span>
+            <span className="text-slate-500 ml-1.5 mr-0.5">{t.response.time}:</span>
             {(
               [
-                ['all', 'Tất cả'],
-                ['1h', '1h'],
-                ['today', 'Hôm nay'],
+                ['all', t.sidebar.timeFilterAll],
+                ['1h', t.sidebar.timeFilter1h],
+                ['today', t.sidebar.timeFilterToday],
               ] as const
             ).map(([tKey, tLabel]) => (
               <button
