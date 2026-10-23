@@ -31,6 +31,8 @@ import { engineRunning } from '../lib/scheduleEngine';
 import { getDocTopic, listDocTopics, searchDocs } from '../lib/docs/app-guide';
 import { useTranslation } from '../stores/language';
 import { MarkdownMessage } from './MarkdownMessage';
+import { matchLocalDocsQuery } from '../lib/ai/local-docs-router';
+import { WEBLLM_MODELS } from '../lib/ai/webllm-models';
 import type { ApiRequest, ApiResponse, HttpMethod, KeyValue } from '../types/api';
 
 /** Mục lục mẫu script — nhét vào prompt để model biết đường gọi get_script_snippet, không phải copy cả code. */
@@ -277,7 +279,15 @@ export default function AiAssistant({
   onClose?: () => void;
 }) {
   const { t, lang } = useTranslation();
-  const { aiChain, setAiChain, bumpAiRr, aiStrategy, setAiStrategy, aiAutoVerify, setAiAutoVerify, aiStats, recordAiUsage, clearAiStats, aiChat, pushAiChat, aiContents, setAiContents, clearAiChat } = useAppStore();
+  const {
+    aiChain, setAiChain, bumpAiRr, aiStrategy, setAiStrategy,
+    aiAutoVerify, setAiAutoVerify, aiLocalDocsInspector, setAiLocalDocsInspector,
+    aiWebLlmEnabled, setAiWebLlmEnabled, aiWebLlmModel, setAiWebLlmModel,
+    aiStats, recordAiUsage, clearAiStats, aiChat, pushAiChat, aiContents, setAiContents, clearAiChat,
+  } = useAppStore();
+  const [webLlmProgress, setWebLlmProgress] = useState<string>('');
+  const [webLlmLoading, setWebLlmLoading] = useState(false);
+  const lastContextRequestIdRef = useRef<string | undefined>(undefined);
   // Khung chain xếp gọn được — có provider dùng được thì mặc định gọn để chat chiếm hết chỗ
   const [showKeys, setShowKeys] = useState(() => orderChain(useAppStore.getState().aiChain, 0, useAppStore.getState().aiStrategy).length === 0);
   // Seed 1 lần từ key Gemini cũ (aiKey/aiKeyBackup) sang chain mới để không mất cấu hình
@@ -1485,6 +1495,25 @@ export default function AiAssistant({
     const text = input.trim();
     if (!text || busy) return;
     const live = useAppStore.getState();
+
+    // ⚡ Ưu tiên 1: Local Docs Inspector & Search (0ms, 0 token)
+    if (live.aiLocalDocsInspector) {
+      const localMatch = matchLocalDocsQuery(text, live.requests, live.collections, lastContextRequestIdRef.current);
+      if (localMatch.matched && localMatch.content) {
+        if (localMatch.requestId) {
+          lastContextRequestIdRef.current = localMatch.requestId;
+        }
+        setInput('');
+        push({ role: 'user', text });
+        push({ role: 'model', text: localMatch.content });
+        // Đồng bộ vào context memory để lượt tiếp theo có thể hỏi nối tiếp
+        contentsRef.current.push({ role: 'user', parts: [{ text }] });
+        contentsRef.current.push({ role: 'model', parts: [{ text: localMatch.content }] });
+        setAiContents(contentsRef.current);
+        return;
+      }
+    }
+
     if (orderChain(live.aiChain, live.aiRrIndex, live.aiStrategy).length === 0) {
       setShowKeys(true);
       push({ role: 'model', text: t.ai.noProviderConfigured });
@@ -1779,6 +1808,56 @@ export default function AiAssistant({
                 <input type="checkbox" checked={aiAutoVerify} onChange={(ev) => setAiAutoVerify(ev.target.checked)} className="rounded text-cyan-500 focus:ring-0" />
                 <span>{t.ai.autoVerify}</span>
               </label>
+              <label
+                className="flex items-center gap-2 cursor-pointer text-slate-300 hover:text-white pt-1 border-t border-slate-800/60"
+                title={t.ai.localDocsInspectorTitle}
+              >
+                <input type="checkbox" checked={aiLocalDocsInspector} onChange={(ev) => setAiLocalDocsInspector(ev.target.checked)} className="rounded text-cyan-500 focus:ring-0" />
+                <span>{t.ai.localDocsInspector}</span>
+              </label>
+
+              {/* Ưu tiên 2: WebLLM In-App Local */}
+              <div className="pt-2 border-t border-slate-800/60 flex flex-col gap-2">
+                <label
+                  className="flex items-center gap-2 cursor-pointer text-slate-300 hover:text-white"
+                  title={t.ai.webLlmEnabledTitle}
+                >
+                  <input
+                    type="checkbox"
+                    checked={aiWebLlmEnabled}
+                    onChange={(ev) => setAiWebLlmEnabled(ev.target.checked)}
+                    className="rounded text-cyan-500 focus:ring-0"
+                  />
+                  <span>{t.ai.webLlmEnabled}</span>
+                </label>
+
+                {aiWebLlmEnabled && (
+                  <div className="ml-5 p-2 rounded bg-slate-950/80 border border-slate-800 flex flex-col gap-2 text-xs">
+                    <div className="flex flex-col gap-1">
+                      <span className="text-slate-400 font-medium">{t.ai.webLlmModelLabel}</span>
+                      <select
+                        value={aiWebLlmModel}
+                        onChange={(ev) => setAiWebLlmModel(ev.target.value)}
+                        className="bg-slate-900 border border-slate-700 rounded px-2 py-1 text-slate-200 outline-none text-xs"
+                      >
+                        {WEBLLM_MODELS.map((m) => (
+                          <option key={m.id} value={m.id}>
+                            {m.name} ({m.size})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="flex items-center justify-between gap-2 pt-1 border-t border-slate-800/60 text-[11px]">
+                      <span className="text-slate-400">
+                        {webLlmLoading ? webLlmProgress || t.ai.webLlmDownloading : (
+                          <span className="text-emerald-400">🛡️ 100% Offline • WebGPU Cache</span>
+                        )}
+                      </span>
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
             {aiChain.map((e, i) => {
               const def = providerDef(e.providerId) ?? AI_PROVIDERS[0];

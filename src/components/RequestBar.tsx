@@ -29,7 +29,7 @@ export default function RequestBar() {
   const { current, set, dirty, markClean } = useRequestStore();
   const {
     environments, activeEnvId, globals, requests, collections, saveRequest, pushHistory,
-    setResponse, setSendError, setTestRun, sending, setSending,
+    setResponse, setSendError, setTestRun, sending, setSending, addResponseExample,
   } = useAppStore();
   const [savedFlash, setSavedFlash] = useState('');
   const [saveColId, setSaveColId] = useState('');
@@ -347,6 +347,21 @@ export default function RequestBar() {
       if (chain.tests.length > 0) {
         const outcome = await runTestsChain(chain.tests, res, varCtx());
         setTestRun(outcome);
+      }
+
+      // Tự động lưu ví dụ response (200, 400, 401, 500...) vào request nếu chưa có
+      if (current.id && requests[current.id] && !res.isStream && res.bodyKind !== 'binary') {
+        const bodyText = (res.body ?? '').trim();
+        // Giới hạn ví dụ tối đa 30KB và che secret nhạy cảm
+        const safeBody = bodyText.length > 30000 ? bodyText.slice(0, 30000) + '\n...[truncated]' : bodyText;
+        addResponseExample(current.id, {
+          id: uid('exp'),
+          status: res.status,
+          statusText: res.statusText,
+          body: safeBody,
+          savedAt: Date.now(),
+          timeMs: res.timeMs,
+        });
       }
 
       pushHistory({

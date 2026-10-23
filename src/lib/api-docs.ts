@@ -440,6 +440,22 @@ function parseFields(body: string): FlatField[] {
 }
 
 function pickSample(samples: DocsSample[] | undefined, req: ApiRequest, status: 'ok' | 'unauthorized'): DocsSample | undefined {
+  // Ưu tiên lấy từ ví dụ response đã lưu trực tiếp trong request (req.examples)
+  if (req.examples && req.examples.length > 0) {
+    const wanted = status === 'ok' ? (s: number) => s >= 200 && s < 400 : (s: number) => s === 401 || s === 403;
+    const match = [...req.examples].sort((a, b) => b.savedAt - a.savedAt).find((e) => wanted(e.status));
+    if (match) {
+      return {
+        requestId: req.id,
+        method: req.method,
+        url: req.url,
+        status: match.status,
+        body: match.body,
+        timeMs: match.timeMs,
+      };
+    }
+  }
+
   const mine = (samples ?? []).filter((s) => {
     if (s.requestId && req.id) return s.requestId === req.id;
     if (!s.url) return false;
@@ -585,6 +601,12 @@ export function renderRequestDocs(
 
   const un = pickSample(opts.samples, req, 'unauthorized');
   if (un) lines.push(`**${l.response401}**`, '', sampleBlock(un.body, l), '');
+
+  // Hiển thị các ví dụ lỗi khác (ví dụ 400 Bad Request, 500 Internal Error...) đã được tự động lưu
+  const otherErrors = (req.examples ?? []).filter((e) => e.status >= 400 && e.status !== 401 && e.status !== 403);
+  for (const err of otherErrors) {
+    lines.push(`**${opts.lang === 'en' ? 'Response Error' : 'Phản hồi lỗi'} ${err.status}${err.statusText ? ` (${err.statusText})` : ''}**`, '', sampleBlock(err.body, l), '');
+  }
 
   const kt = keyTestSection(req, opts.testRun, l, opts.lang ?? 'vi');
   if (kt) lines.push(kt);

@@ -121,6 +121,8 @@ export interface ApiRequest {
   /** Nguồn gốc: 'imported' = từ file import vào (chạy script phải hỏi trước); tự tạo hoặc đã mở-ra-lưu = local */
   origin?: 'local' | 'imported';
   description?: string;
+  /** Danh sách ví dụ response (thành công 200, lỗi 400, 401, 500...) tự động lưu khi bấm Send để làm tài liệu */
+  examples?: ResponseExample[];
   /** Snapshot baseline lưu lại để so sánh diff response khi kiểm thử regression/staging */
   snapshot?: {
     status: number;
@@ -129,6 +131,16 @@ export interface ApiRequest {
     savedAt: number;
     envName?: string;
   };
+}
+
+export interface ResponseExample {
+  id: string;
+  status: number;
+  statusText?: string;
+  body: string;
+  headers?: Record<string, string>;
+  savedAt: number;
+  timeMs?: number;
 }
 
 /** Bảng kiểm tra gì trong response. */

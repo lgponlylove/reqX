@@ -289,7 +289,7 @@ export default function Sidebar({ onCollapse, onGoFlow }: { onCollapse: () => vo
     addCollection, renameCollection, deleteCollection, removeRequestFromCollection,
     duplicateRequest,
     addDir, renameDir, deleteDir, moveCollection, moveDir,
-    addFolder, renameFolder, deleteFolder, moveRequest, moveRequestToCollection,
+    addFolder, renameFolder, deleteFolder, sortFolderRequests, sortCollectionRequests, moveRequest, moveRequestToCollection,
     setCollectionScripts, setFolderScripts,
     saveRequest,
     removeHistoryItem, clearHistory, importData,
@@ -1030,6 +1030,8 @@ export default function Sidebar({ onCollapse, onGoFlow }: { onCollapse: () => vo
       if (!f) return [];
       return [
         { label: t.sidebar.renameFolder, onClick: () => { setRenamingFolder(f.id); setRenamingFolderText(f.name); } },
+        { label: t.sidebar.sortRequestsAsc, onClick: () => sortFolderRequests(c.id, f.id, 'asc') },
+        { label: t.sidebar.sortRequestsDesc, onClick: () => sortFolderRequests(c.id, f.id, 'desc') },
         {
           label: (f.preRequest ?? '').trim() || (f.tests ?? '').trim() ? t.sidebar.scriptFolderHas : t.sidebar.scriptFolder,
           onClick: () => setScriptEdit({ colId: c.id, folderId: f.id }),
@@ -1069,6 +1071,8 @@ export default function Sidebar({ onCollapse, onGoFlow }: { onCollapse: () => vo
       } as MenuItem)),
       { label: t.sidebar.saveCurrentReqHere, onClick: () => { const saved = current.id && requests[current.id] ? saveRequest(current) : saveRequest(current, c.id); if (saved) { set({ id: saved.id, origin: undefined }); markClean(); } } },
       { label: t.sidebar.newFolder, onClick: () => { setFolderName(''); setAddingFolderFor(c.id); } },
+      { label: t.sidebar.sortRequestsAsc, onClick: () => sortCollectionRequests(c.id, 'asc') },
+      { label: t.sidebar.sortRequestsDesc, onClick: () => sortCollectionRequests(c.id, 'desc') },
       { label: t.sidebar.exportColJsonPostman, onClick: () => exportCol(c) },
       { label: t.sidebar.exportGitFriendly, onClick: () => exportGitCol(c) },
       {

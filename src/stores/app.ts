@@ -87,6 +87,10 @@ interface AppState {
   addFolder: (collectionId: string, name: string, parentFolderId?: string) => void;
   renameFolder: (collectionId: string, folderId: string, name: string) => void;
   deleteFolder: (collectionId: string, folderId: string) => void;
+  /** Sắp xếp thứ tự các request trong folder theo tên (A-Z hoặc Z-A). */
+  sortFolderRequests: (collectionId: string, folderId: string, direction?: 'asc' | 'desc') => void;
+  /** Sắp xếp thứ tự các request trong collection theo tên (A-Z hoặc Z-A). */
+  sortCollectionRequests: (collectionId: string, direction?: 'asc' | 'desc') => void;
   /** Script cấp collection (chạy trước/sau mọi request trong collection + script dọn dẹp cuối đợt). */
   setCollectionScripts: (collectionId: string, patch: { preRequest?: string; tests?: string; teardown?: string }) => void;
   /** Script cấp folder (kế thừa xuống request trong folder). */
@@ -99,6 +103,10 @@ interface AppState {
   /** Lưu request: có gốc trong store thì ghi đè tại chỗ (giữ nguyên folder/collection);
    * request mới thì tạo vào collection chỉ định (mặc định collection đầu). Trả null nếu không lưu được. */
   saveRequest: (req: ApiRequest, collectionId?: string) => ApiRequest | null;
+  /** Tự động lưu ví dụ response (200, 400, 500...) vào request nếu mã status đó chưa có */
+  addResponseExample: (requestId: string, example: import('../types/api').ResponseExample) => boolean;
+  /** Xóa một ví dụ response */
+  removeResponseExample: (requestId: string, exampleId: string) => void;
   addEnvironment: (name: string) => void;
   renameEnvironment: (id: string, name: string) => void;
   deleteEnvironment: (id: string) => void;
@@ -159,6 +167,14 @@ interface AppState {
   /** AI vừa ghi script thì app tự gửi 1 request để chứng minh script chạy được (mặc định BẬT) */
   aiAutoVerify: boolean;
   setAiAutoVerify: (v: boolean) => void;
+  /** Ưu tiên 1: Tự động tra cứu và trả lời các câu hỏi về API/Param/Schema/Lỗi hoàn toàn Local (0ms, 0 token) */
+  aiLocalDocsInspector: boolean;
+  setAiLocalDocsInspector: (v: boolean) => void;
+  /** Ưu tiên 2: Sử dụng WebLLM (In-app AI) chạy model cục bộ bằng WebGPU */
+  aiWebLlmEnabled: boolean;
+  setAiWebLlmEnabled: (v: boolean) => void;
+  aiWebLlmModel: string;
+  setAiWebLlmModel: (m: string) => void;
   /** Thống kê tokens theo entry chain (để ước tính chi phí nấc paid) */
   aiStats: Record<string, AiEntryStats>;
   recordAiUsage: (id: string, u: AiUsage, ok: boolean) => void;
@@ -216,6 +232,9 @@ export const useAppStore = create<AppState>()(
   aiRrIndex: 0,
   aiStrategy: 'save-cost',
   aiAutoVerify: true,
+  aiLocalDocsInspector: true,
+  aiWebLlmEnabled: false,
+  aiWebLlmModel: 'Qwen2.5-0.5B-Instruct-q4f16_1-MLC',
   aiStats: {},
   aiChat: [],
   aiContents: [],
@@ -445,6 +464,49 @@ export const useAppStore = create<AppState>()(
       }),
     })),
 
+  sortFolderRequests: (collectionId, folderId, direction = 'asc') =>
+    set((s) => ({
+      collections: s.collections.map((c) => {
+        if (c.id !== collectionId) return c;
+        return {
+          ...c,
+          folders: c.folders.map((f) => {
+            if (f.id !== folderId) return f;
+            const sortedReqs = [...f.requestIds].sort((aId, bId) => {
+              const nameA = (s.requests[aId]?.name || s.requests[aId]?.url || '').trim();
+              const nameB = (s.requests[bId]?.name || s.requests[bId]?.url || '').trim();
+              const cmp = nameA.localeCompare(nameB, undefined, { numeric: true, sensitivity: 'base' });
+              return direction === 'desc' ? -cmp : cmp;
+            });
+            return { ...f, requestIds: sortedReqs };
+          }),
+        };
+      }),
+    })),
+
+  sortCollectionRequests: (collectionId, direction = 'asc') =>
+    set((s) => ({
+      collections: s.collections.map((c) => {
+        if (c.id !== collectionId) return c;
+        const sortedRoot = [...c.rootRequestIds].sort((aId, bId) => {
+          const nameA = (s.requests[aId]?.name || s.requests[aId]?.url || '').trim();
+          const nameB = (s.requests[bId]?.name || s.requests[bId]?.url || '').trim();
+          const cmp = nameA.localeCompare(nameB, undefined, { numeric: true, sensitivity: 'base' });
+          return direction === 'desc' ? -cmp : cmp;
+        });
+        const sortedFolders = c.folders.map((f) => {
+          const sortedReqs = [...f.requestIds].sort((aId, bId) => {
+            const nameA = (s.requests[aId]?.name || s.requests[aId]?.url || '').trim();
+            const nameB = (s.requests[bId]?.name || s.requests[bId]?.url || '').trim();
+            const cmp = nameA.localeCompare(nameB, undefined, { numeric: true, sensitivity: 'base' });
+            return direction === 'desc' ? -cmp : cmp;
+          });
+          return { ...f, requestIds: sortedReqs };
+        });
+        return { ...c, rootRequestIds: sortedRoot, folders: sortedFolders };
+      }),
+    })),
+
   setCollectionScripts: (collectionId, patch) =>
     set((s) => ({
       collections: s.collections.map((c) => (c.id !== collectionId ? c : { ...c, ...patch })),
@@ -529,6 +591,36 @@ export const useAppStore = create<AppState>()(
       ),
     }));
     return saved;
+  },
+
+  addResponseExample: (requestId, example) => {
+    const s = get();
+    const req = s.requests[requestId];
+    if (!req) return false;
+    const existing = req.examples ?? [];
+    // Nếu đã có ví dụ cho mã status này rồi (ví dụ 200, 400, 401...) thì bỏ qua
+    if (existing.some((e) => e.status === example.status)) {
+      return false;
+    }
+    const updatedReq: ApiRequest = {
+      ...req,
+      examples: [...existing, example],
+      updatedAt: Date.now(),
+    };
+    set({ requests: { ...s.requests, [requestId]: updatedReq } });
+    return true;
+  },
+
+  removeResponseExample: (requestId, exampleId) => {
+    const s = get();
+    const req = s.requests[requestId];
+    if (!req || !req.examples) return;
+    const updatedReq: ApiRequest = {
+      ...req,
+      examples: req.examples.filter((e) => e.id !== exampleId),
+      updatedAt: Date.now(),
+    };
+    set({ requests: { ...s.requests, [requestId]: updatedReq } });
   },
 
   addEnvironment: (name) =>
@@ -769,6 +861,9 @@ export const useAppStore = create<AppState>()(
   bumpAiRr: () => set((s) => ({ aiRrIndex: s.aiRrIndex + 1 })),
   setAiStrategy: (s) => set({ aiStrategy: s }),
   setAiAutoVerify: (v) => set({ aiAutoVerify: v }),
+  setAiLocalDocsInspector: (v) => set({ aiLocalDocsInspector: v }),
+  setAiWebLlmEnabled: (v) => set({ aiWebLlmEnabled: v }),
+  setAiWebLlmModel: (m) => set({ aiWebLlmModel: m }),
   recordAiUsage: (id, u, ok) =>
     set((s) => {
       const prev = s.aiStats[id] ?? { calls: 0, fails: 0, prompt: 0, completion: 0 };
@@ -955,6 +1050,9 @@ export const useAppStore = create<AppState>()(
         aiRrIndex: s.aiRrIndex,
         aiStrategy: s.aiStrategy,
         aiAutoVerify: s.aiAutoVerify,
+        aiLocalDocsInspector: s.aiLocalDocsInspector,
+        aiWebLlmEnabled: s.aiWebLlmEnabled,
+        aiWebLlmModel: s.aiWebLlmModel,
         aiStats: s.aiStats,
         aiChat: s.aiChat.slice(-100),
         aiContents: s.aiContents.slice(-30),
