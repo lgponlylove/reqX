@@ -412,6 +412,79 @@ Trợ lý AI có thể tự động gọi các tool nội bộ để:
 | **\`Esc\`** | Đóng hộp thoại Modal / Command Palette đang hiển thị |
 `,
   },
+  {
+    id: 'tree-and-git-workspace',
+    title: 'Cây Thư Mục Đa Cấp & Đồng Bộ Git Workspace',
+    summary: 'Quản lý Microservices bằng cây phân cấp (Tree Structure Modal) và đồng bộ nhóm qua Git repo nội bộ (reqx_workspace).',
+    keywords: ['tree', 'cay thu muc', 'directory', 'git', 'workspace', 'microservices', 'dong bo', 'conflict', 'reqx_workspace'],
+    content: `# Cây Thư Mục Đa Cấp & Đồng Bộ Git Workspace
+
+ReqX giải quyết dứt điểm điểm yếu lớn nhất của Postman: danh sách Collection bị trải phẳng gây rối mắt khi có hàng chục Microservices.
+
+---
+
+## 1. Cây Thư Mục Đa Cấp (Directory Tree):
+- Cho phép tạo các **Thư mục cha (Directory)** ở ngoài cùng để gom nhóm các Collection liên quan (ví dụ: \`[Dự án ERP]\` chứa các Collection con: \`Inventory API\`, \`Billing API\`, \`Auth API\`).
+- **Tree Structure Modal**: Bấm biểu tượng sơ đồ cây trên Sidebar để mở bảng điều hướng toàn cảnh \`Thư mục -> Collection -> Folder -> Request\`. Cho phép kéo thả sắp xếp lại vị trí nhanh chóng.
+
+---
+
+## 2. Đồng Bộ Git Workspace (\`reqx_workspace\`):
+- Thay vì bắt buộc trả phí hàng tháng để dùng cloud của Postman, ReqX hỗ trợ tính năng **Export Git Workspace**:
+  - Lưu toàn bộ cấu trúc thành các file JSON phân tách theo từng folder và collection trên ổ cứng.
+  - Bạn chỉ cần commit thư mục này vào Git repo của team (\`git commit -m "update api docs"\`).
+  - Khi đồng nghiệp pull về, họ chỉ cần bấm **Import Git Workspace** là toàn bộ dữ liệu tự nạp vào app mà **không bao giờ bị xung đột merge file JSON khổng lồ**.
+`,
+  },
+  {
+    id: 'api-docs-and-examples',
+    title: 'Xuất Tài Liệu API & Bắt Response Examples Tự Động',
+    summary: 'Tự động bắt response 200/400/500 làm tài liệu sống và xuất tài liệu HTML tra cứu trực quan hoặc Markdown chuẩn Git.',
+    keywords: ['docs', 'tai lieu', 'export', 'html', 'markdown', 'examples', '200', '400', '500', 'status', 'swagger'],
+    content: `# Xuất Tài Liệu API & Bắt Response Examples Tự Động
+
+ReqX biến toàn bộ quá trình kiểm thử API thành tài liệu sống chuẩn chỉ mà không cần bạn phải viết tài liệu thủ công.
+
+---
+
+## 1. Tự Động Bắt Response Examples (200, 400, 500):
+- Mỗi lần bạn bấm **Send** và nhận được phản hồi từ server, ReqX tự động ghi nhận và lưu trữ các mẫu response tiêu biểu:
+  - Thành công: \`200 OK\`, \`201 Created\`.
+  - Lỗi Client: \`400 Bad Request\`, \`401 Unauthorized\`, \`404 Not Found\`.
+  - Lỗi Server: \`500 Internal Server Error\`.
+- Các response này được ghim trực tiếp vào phần tài liệu tham khảo của API để đồng nghiệp hoặc Frontend dev xem mẫu trả về.
+
+---
+
+## 2. Xuất Tài Liệu 1-Click (HTML / Markdown):
+- Chuột phải vào bất kỳ Collection hoặc Folder nào $\rightarrow$ Chọn **Xuất tài liệu (HTML)** hoặc **Xuất tài liệu (Markdown)**:
+  - **Bản HTML:** Trang web tra cứu độc lập tuyệt đẹp, có thanh tìm kiếm nhanh, badge method màu sắc, tab xem Body/Headers và nút In/Lưu PDF.
+  - **Bản Markdown:** Định dạng \`.md\` chuẩn GitHub để commit thẳng vào repo source code.
+`,
+  },
+  {
+    id: 'stress-test-and-scheduler',
+    title: 'Kiểm Thử Hiệu Năng (Stress Test) & Lập Lịch Định Kỳ (Scheduler)',
+    summary: 'Kiểm thử tải đồng thời (RPS, concurrency, latency diff) và đặt lịch chạy tự động kiểm tra sức khỏe API nền.',
+    keywords: ['stress', 'stress test', 'tai', 'load test', 'scheduler', 'dinh ky', 'lap lich', 'concurrency', 'rps', 'cron'],
+    content: `# Kiểm Thử Hiệu Năng & Lập Lịch Chạy Định Kỳ
+
+---
+
+## 1. Stress Testing (Kiểm Thử Chịu Tải):
+- Tại bất kỳ request nào, bấm vào menu công cụ chọn **Stress Test**:
+  - Tùy chỉnh số lượng request đồng thời (**Concurrency**).
+  - Tùy chỉnh tổng số lượt gửi (**Iterations**).
+  - Biểu đồ thời gian thực hiển thị: Tỉ lệ thành công, mã trạng thái lỗi, thời gian phản hồi trung bình (Avg), nhanh nhất (Min), chậm nhất (Max) và độ trễ P95/P99.
+
+---
+
+## 2. Scheduler Engine (Chạy Định Kỳ Ngầm):
+- Tab **Runner** tích hợp sẵn trình lập lịch **Scheduler**:
+  - Đặt lịch chạy lặp lại sau mỗi N phút (ví dụ: cứ mỗi 15 phút chạy kiểm tra sức khỏe luồng API thanh toán).
+  - Khi có lỗi, app sẽ gửi thông báo hệ thống (**Desktop Notification**) ngay trên màn hình để bạn xử lý kịp thời.
+`,
+  },
 ];
 
 /**
