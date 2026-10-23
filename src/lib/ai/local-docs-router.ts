@@ -1,5 +1,6 @@
 import type { ApiRequest, Collection } from '../../types/api';
 import { toCurl } from '../codegen';
+import { DOC_TOPICS, getDocTopic, searchDocs } from '../docs/app-guide';
 
 export interface LocalDocsMatch {
   matched: boolean;
@@ -23,7 +24,7 @@ export interface LocalDocsMatch {
  */
 const LLM_REQUIRED_PATTERNS = [
   /viết\s+(script|code|test|hàm|pre[- ]?request|kiểm thử)/i,
-  /tạo\s+(script|test|flow|mock\s+data|dữ liệu\s+giả)/i,
+  /tạo\s+(script|test|mock\s+data|dữ liệu\s+giả)/i,
   /(hướng dẫn|cách)\s+viết/i,
   /(so sánh|phân tích|đánh giá|tại sao|vì sao|nguyên nhân|giải thích\s+code)/i,
   /(check|kiểm tra|validate)\s+(access_?token|jwt|hmac|signature)/i,
@@ -32,11 +33,70 @@ const LLM_REQUIRED_PATTERNS = [
 ];
 
 /**
+ * Kiểm tra xem người dùng có đang hỏi về cẩm nang / hướng dẫn tính năng của ReqX hay không.
+ * Ví dụ: "chức năng của flow", "flow làm gì", "tính năng runner", "mock server là gì", "phím tắt"
+ */
+function matchAppFeatureGuide(query: string): LocalDocsMatch | null {
+  const q = query.trim().toLowerCase();
+
+  // Nhận diện mẫu câu hỏi cẩm nang tính năng
+  const isFeatureQuery =
+    /(chức năng|tính năng|hướng dẫn|cách dùng|là gì|làm gì|để làm gì|sử dụng thế nào|phím tắt|shortcuts?)/i.test(q) ||
+    /^(flow|flows|runner|mock|mock[- ]?server|environment|môi trường|cli|cyberdock|builder|websocket|grpc)\b/i.test(q);
+
+  if (!isFeatureQuery) return null;
+
+  // Thử khớp theo các topic cụ thể
+  let matchedTopic = undefined;
+
+  if (/\b(flow|flows|luồng|workflow|canvas)\b/i.test(q)) {
+    matchedTopic = getDocTopic('flows');
+  } else if (/\b(runner|chạy tự động|bulk|data file|csv runner)\b/i.test(q)) {
+    matchedTopic = getDocTopic('runner-and-data');
+  } else if (/\b(mock|giả lập|mock server)\b/i.test(q)) {
+    matchedTopic = getDocTopic('mock-server');
+  } else if (/\b(phím tắt|shortcut|hotkey|bàn phím)\b/i.test(q)) {
+    matchedTopic = getDocTopic('shortcuts');
+  } else if (/\b(cli|command line|dòng lệnh|terminal)\b/i.test(q)) {
+    matchedTopic = getDocTopic('cli');
+  } else if (/\b(môi trường|environment|biến môi trường|env)\b/i.test(q)) {
+    matchedTopic = getDocTopic('environments');
+  } else if (/\b(script|sandbox|pre[- ]?request|tests|pm\.)\b/i.test(q)) {
+    matchedTopic = getDocTopic('scripts-sandbox');
+  } else if (/\b(websocket|grpc|protocol|giao thức)\b/i.test(q)) {
+    matchedTopic = getDocTopic('protocols');
+  } else if (/\b(ai|postbot|trợ lý|trợ lý ai)\b/i.test(q)) {
+    matchedTopic = getDocTopic('ai-assistant');
+  } else if (/\b(builder|gửi request|soạn thảo api)\b/i.test(q)) {
+    matchedTopic = getDocTopic('builder-requests');
+  } else if (/\b(giao diện|cyberdock|overview|tổng quan)\b/i.test(q)) {
+    matchedTopic = getDocTopic('overview');
+  } else {
+    // Tìm kiếm mờ trong toàn bộ cẩm nang
+    const searchRes = searchDocs(q.replace(/(chức năng|tính năng|hướng dẫn|cách dùng|là gì|làm gì|của|ở đâu)/gi, '').trim());
+    if (searchRes.length > 0) {
+      matchedTopic = searchRes[0];
+    }
+  }
+
+  if (matchedTopic) {
+    return {
+      matched: true,
+      title: matchedTopic.title,
+      content: `⚡ **Tài liệu hướng dẫn ReqX (0ms • 0 token)** — **${matchedTopic.title}**\n\n${matchedTopic.content}`,
+    };
+  }
+
+  return null;
+}
+
+/**
  * Nhận diện ý định tra cứu tài liệu Local:
- * 1. Tra cứu cURL
- * 2. Tra cứu mã lỗi / response ví dụ
- * 3. Tra cứu Body / Params / Headers
- * 4. Tra cứu danh sách API hoặc thông tin tổng quan của 1 API
+ * 1. Cẩm nang tính năng ReqX (Flows, Runner, Mock, CLI, Phím tắt...)
+ * 2. Tra cứu cURL
+ * 3. Tra cứu mã lỗi / response ví dụ
+ * 4. Tra cứu Body / Params / Headers
+ * 5. Tra cứu danh sách API hoặc thông tin tổng quan của 1 API
  */
 export function matchLocalDocsQuery(
   rawQuery: string,
@@ -52,6 +112,12 @@ export function matchLocalDocsQuery(
     if (pattern.test(query)) {
       return { matched: false };
     }
+  }
+
+  // 2. Tra cứu Cẩm nang hướng dẫn tính năng ReqX (Không phụ thuộc requests list)
+  const guideMatch = matchAppFeatureGuide(query);
+  if (guideMatch) {
+    return guideMatch;
   }
 
   const reqList = Object.values(requests);

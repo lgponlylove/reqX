@@ -1528,10 +1528,15 @@ export default function AiAssistant({
         setWebLlmProgress('Đang tải/nạp model WebGPU...');
         setStreamingText('');
 
+        // Đối với WebLLM In-App: giới hạn 6 tin nhắn gần nhất và rút gọn System Prompt
+        // để không làm tràn context window của model local siêu nhẹ (ví dụ Qwen2.5-0.5B, SmolLM2-360M)
+        const recentContents = contentsRef.current.slice(-6);
+        const compactSystem = `Bạn là trợ lý ReqX (API Client giống Postman). Trả lời ngắn gọn, chuẩn xác bằng tiếng Việt.`;
+
         const res = await webLlmChat({
           modelId: live.aiWebLlmModel,
-          system: SYSTEM,
-          contents: contentsRef.current,
+          system: compactSystem,
+          contents: recentContents,
           onProgress: (p) => {
             const percent = Math.round(p.progress * 100);
             setWebLlmProgress(`Đang tải model: ${percent}% (${p.text})`);

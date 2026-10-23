@@ -83,4 +83,23 @@ describe('Local Docs Inspector Router', () => {
     const res3 = matchLocalDocsQuery('Tạo mock data cho Đăng nhập Auth', requests, collections);
     expect(res3.matched).toBe(false);
   });
+
+  it('matches app feature guide locally (e.g. flow, runner, mock server, shortcuts) without any requests or LLM', () => {
+    const resFlow = matchLocalDocsQuery('chức năng của flow làm gì', {}, []);
+    expect(resFlow.matched).toBe(true);
+    expect(resFlow.title).toContain('Flow');
+    expect(resFlow.content).toContain('Smart Flows Canvas');
+
+    const resRunner = matchLocalDocsQuery('tính năng runner là gì', {}, []);
+    expect(resRunner.matched).toBe(true);
+    expect(resRunner.content).toContain('Runner');
+
+    const resMock = matchLocalDocsQuery('mock server để làm gì', {}, []);
+    expect(resMock.matched).toBe(true);
+    expect(resMock.content).toContain('Mock Server');
+
+    const resShortcuts = matchLocalDocsQuery('danh sách phím tắt', {}, []);
+    expect(resShortcuts.matched).toBe(true);
+    expect(resShortcuts.content).toContain('Ctrl + Enter');
+  });
 });
