@@ -61,9 +61,8 @@ export function defaultSubTabFor(req?: ApiRequest): ReqSubTab {
   const hasBodyMethod = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method);
   const hasBodyContent = Boolean(
     req.body ||
-    (req.formData && req.formData.length > 0) ||
-    (req.urlEncoded && req.urlEncoded.length > 0) ||
-    req.graphql
+    req.graphql ||
+    (req.bodyType && req.bodyType !== 'none')
   );
   if (hasBodyMethod || hasBodyContent) {
     return 'body';
