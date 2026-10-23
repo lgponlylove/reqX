@@ -33,6 +33,7 @@ import { useTranslation } from '../stores/language';
 import { MarkdownMessage } from './MarkdownMessage';
 import { matchLocalDocsQuery } from '../lib/ai/local-docs-router';
 import { WEBLLM_MODELS } from '../lib/ai/webllm-models';
+import { webLlmChat, isWebGpuSupported } from '../lib/ai/webllm-service';
 import type { ApiRequest, ApiResponse, HttpMethod, KeyValue } from '../types/api';
 
 /** Mục lục mẫu script — nhét vào prompt để model biết đường gọi get_script_snippet, không phải copy cả code. */
@@ -1511,6 +1512,54 @@ export default function AiAssistant({
         contentsRef.current.push({ role: 'model', parts: [{ text: localMatch.content }] });
         setAiContents(contentsRef.current);
         return;
+      }
+    }
+
+    // 🧠 Ưu tiên 2: WebLLM In-App Local (Chạy WebGPU trong máy)
+    if (live.aiWebLlmEnabled) {
+      setInput('');
+      push({ role: 'user', text });
+      contentsRef.current.push({ role: 'user', parts: [{ text }] });
+      contentsRef.current = sanitizeContents(contentsRef.current);
+      setBusy(true);
+
+      try {
+        setWebLlmLoading(true);
+        setWebLlmProgress('Đang tải/nạp model WebGPU...');
+        setStreamingText('');
+
+        const res = await webLlmChat({
+          modelId: live.aiWebLlmModel,
+          system: SYSTEM,
+          contents: contentsRef.current,
+          onProgress: (p) => {
+            const percent = Math.round(p.progress * 100);
+            setWebLlmProgress(`Đang tải model: ${percent}% (${p.text})`);
+          },
+          onDelta: (delta) => {
+            setStreamingText((prev) => (prev ?? '') + delta);
+            scrollDown();
+          },
+        });
+
+        setStreamingText(null);
+        setWebLlmLoading(false);
+        setWebLlmProgress('');
+        push({ role: 'model', text: res.text });
+        contentsRef.current.push({ role: 'model', parts: [{ text: res.text }] });
+        setAiContents(contentsRef.current);
+        setBusy(false);
+        return;
+      } catch (err) {
+        console.warn('[WebLLM] Lỗi chạy model in-app, tự động chuyển sang Cloud Chain:', err);
+        setStreamingText(null);
+        setWebLlmLoading(false);
+        setWebLlmProgress('');
+        push({
+          role: 'tool',
+          text: `⚠️ WebLLM Local gặp sự cố (${err instanceof Error ? err.message : String(err)}) → Chuyển tiếp sang Cloud AI Chain…`,
+        });
+        // Không return -> tiếp tục chạy xuống Cloud AI Chain bên dưới
       }
     }
 
