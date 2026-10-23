@@ -55,14 +55,31 @@ function fresh(): ApiRequest {
   return { ...DEFAULT_REQUEST, id: uid('req'), updatedAt: Date.now() };
 }
 
-function newTab(request?: ApiRequest, dirty = false): ReqTab {
-  const req = request ? { ...request } : fresh();
-  return { id: uid('tab'), request: req, dirty };
+export function defaultSubTabFor(req?: ApiRequest): ReqSubTab {
+  if (!req) return 'params';
+  // Các phương thức thường xuyên làm việc với Payload / Body hoặc request có sẵn dữ liệu body
+  const hasBodyMethod = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method);
+  const hasBodyContent = Boolean(
+    req.body ||
+    (req.formData && req.formData.length > 0) ||
+    (req.urlEncoded && req.urlEncoded.length > 0) ||
+    req.graphql
+  );
+  if (hasBodyMethod || hasBodyContent) {
+    return 'body';
+  }
+  return 'params';
 }
 
-/** Bảng con đang mở của tab hoạt động — tab cũ (trước khi thêm tính năng) chưa có subTab thì về Params. */
+function newTab(request?: ApiRequest, dirty = false): ReqTab {
+  const req = request ? { ...request } : fresh();
+  return { id: uid('tab'), request: req, dirty, subTab: defaultSubTabFor(req) };
+}
+
+/** Bảng con đang mở của tab hoạt động — nếu chưa chọn riêng thì mặc định mở sẵn Body cho POST/PUT/PATCH hoặc request có body. */
 export function activeSubTab(s: { tabs: ReqTab[]; activeId: string }): ReqSubTab {
-  return s.tabs.find((t) => t.id === s.activeId)?.subTab ?? 'params';
+  const tab = s.tabs.find((t) => t.id === s.activeId);
+  return tab?.subTab ?? defaultSubTabFor(tab?.request);
 }
 
 /** Tab có phải tab trắng chưa đụng gì không (để tái dùng khi load)? */
@@ -135,7 +152,7 @@ export const useRequestStore = create<RequestState>()(
           const active = s.tabs.find((t) => t.id === s.activeId);
           // Tái dùng tab trắng tinh để khỏi đẻ tab rác
           if (active && isPristine(active)) {
-            const t = { ...active, request: { ...req }, dirty: false };
+            const t = { ...active, request: { ...req }, dirty: false, subTab: defaultSubTabFor(req) };
             return {
               tabs: s.tabs.map((x) => (x.id === t.id ? t : x)),
               current: t.request,

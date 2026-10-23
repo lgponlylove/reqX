@@ -70,6 +70,34 @@ describe('sub-tab lưu riêng theo từng request tab', () => {
     expect(activeSubTab(useRequestStore.getState())).toBe('auth');
   });
 
+  it('mở request có method POST/PUT hoặc có sẵn body → tự động mở sẵn focus tab Body', () => {
+    const postReq: ApiRequest = {
+      ...DEFAULT_REQUEST,
+      id: 'req-post',
+      name: 'Create Item',
+      method: 'POST',
+      url: 'http://api.test/items',
+      bodyType: 'json',
+      body: '{"name":"test"}',
+      updatedAt: 1,
+    };
+    useRequestStore.getState().openTab(postReq);
+    expect(activeSubTab(useRequestStore.getState())).toBe('body');
+
+    const getReqWithBody: ApiRequest = {
+      ...DEFAULT_REQUEST,
+      id: 'req-get-body',
+      name: 'Search Item',
+      method: 'GET',
+      url: 'http://api.test/search',
+      bodyType: 'raw',
+      body: 'custom payload',
+      updatedAt: 1,
+    };
+    useRequestStore.getState().openTab(getReqWithBody);
+    expect(activeSubTab(useRequestStore.getState())).toBe('body');
+  });
+
   it('subTab xuống đĩa cùng persist (reload app không mất bảng đang mở)', () => {
     useRequestStore.getState().setSubTab('pre');
     const raw = localStorage.getItem('postman-clone-request-v1') ?? '';
