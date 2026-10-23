@@ -2,6 +2,14 @@
 
 Dự án theo SemVer, bản mới nhất nằm trên cùng. Ngày ghi theo định dạng dd/MM/yyyy.
 
+## [0.2.8] — 23/10/2026
+
+**Tích hợp AI 100% Offline & Local-First:**
+- **Ưu tiên 1 (Local Docs Inspector & Search):** Tự động phân loại ý định tra cứu (Body, Headers, Params, Mã lỗi, cURL, danh sách API) và trả lời tức thì (< 10ms) trực tiếp từ dữ liệu máy, không tốn token, bảo mật 100%.
+- **Ưu tiên 2 (WebLLM In-App Local):** Tích hợp thư viện `@mlc-ai/web-llm` chạy các mô hình AI mã nguồn mở (`Qwen2.5-0.5B`, `SmolLM2-360M`, `Llama-3.2-1B`) trực tiếp trong máy qua WebGPU.
+- **Tự động lưu Response mẫu:** Tự động bắt và lưu các ví dụ phản hồi (200, 400, 401, 500...) vào request khi bấm Send để tự động làm giàu tài liệu API.
+- **Sắp xếp thứ tự Request:** Bổ sung menu sắp xếp tên Request A-Z và Z-A trong từng thư mục và collection.
+
 ## [0.2.7] — 20/10/2026 *(chưa phát hành — chưa build `.exe`, chưa tag)*
 
 Batch 4 tính năng cho QA/QC/DEV/BA (chốt từ bảng ứng viên: #1, #3, #4, #7) + sửa chiều cao ô soạn thảo. Nhãn version đã nâng 0.2.6 → **0.2.7** ở cả 5 chỗ: `package.json`, `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml`, bản ghi `reqx` trong `src-tauri/Cargo.lock`, `APP_VERSION` (`src/lib/update-check.ts`).
