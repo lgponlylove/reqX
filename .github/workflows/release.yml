@@ -62,6 +62,6 @@ jobs:
           releaseDraft: false
           prerelease: false
           owner: lgponlylove
-          repo: reqX-releases
-          releaseCommitish: main
+          repo: reqX
+          releaseCommitish: master
           args: ${{ matrix.args }}

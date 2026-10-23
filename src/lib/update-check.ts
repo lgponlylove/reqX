@@ -12,11 +12,11 @@ import { isTauri } from './http-client';
 export const APP_VERSION = '0.2.8';
 
 export const UPDATE_FEED_URLS = [
-  'https://raw.githubusercontent.com/lgponlylove/reqX-releases/refs/heads/main/latest.json',
-  'https://raw.githubusercontent.com/lgponlylove/reqX-releases/main/latest.json',
-  'https://raw.githubusercontent.com/lgponlylove/reqX-releases/master/latest.json',
+  'https://raw.githubusercontent.com/lgponlylove/reqX/refs/heads/master/latest.json',
   'https://raw.githubusercontent.com/lgponlylove/reqX/master/latest.json',
   'https://raw.githubusercontent.com/lgponlylove/reqX/main/latest.json',
+  'https://raw.githubusercontent.com/lgponlylove/reqX-releases/refs/heads/main/latest.json',
+  'https://raw.githubusercontent.com/lgponlylove/reqX-releases/main/latest.json',
 ];
 export const UPDATE_FEED_URL = UPDATE_FEED_URLS[0];
 
@@ -137,9 +137,9 @@ export async function checkNativeUpdate(): Promise<UpdateInfo | null> {
       const tag = `v${update.version}`;
       return {
         latest: update.version,
-        url: `https://github.com/lgponlylove/reqX-releases/releases/tag/${tag}`,
+        url: `https://github.com/lgponlylove/reqX/releases/tag/${tag}`,
         notes: update.body || '',
-        downloadUrl: `https://github.com/lgponlylove/reqX-releases/releases/tag/${tag}`,
+        downloadUrl: `https://github.com/lgponlylove/reqX/releases/tag/${tag}`,
         isNative: true,
       };
     }
@@ -227,13 +227,13 @@ export async function checkForUpdate(force = false): Promise<UpdateInfo | null> 
     const j = (await res.json()) as Partial<UpdateInfo> & { assets?: FeedAssets };
     if (!j.latest || !isNewer(j.latest, APP_VERSION)) return null;
     const tag = `v${j.latest}`;
-    const fallbackUrl = j.url || `https://github.com/lgponlylove/reqX-releases/releases/tag/${tag}`;
+    const fallbackUrl = j.url || `https://github.com/lgponlylove/reqX/releases/tag/${tag}`;
     const file = j.assets ? pickAsset(currentOs(), j.assets) : null;
     const info: UpdateInfo = {
       latest: j.latest,
       url: fallbackUrl,
       notes: j.notes || '',
-      downloadUrl: file ? `https://github.com/lgponlylove/reqX-releases/releases/download/${tag}/${file}` : fallbackUrl,
+      downloadUrl: file ? `https://github.com/lgponlylove/reqX/releases/download/${tag}/${file}` : fallbackUrl,
       isNative: false,
     };
     const prev = readCache();
