@@ -286,47 +286,76 @@ Ngoài REST HTTP truyền thống, ReqX hỗ trợ toàn diện các giao thức
   },
   {
     id: 'cli',
-    title: 'ReqX CLI — Chạy Kiểm Thử Từ Dòng Lệnh Terminal',
-    summary: 'Chạy collection từ terminal không cần mở app, cờ dòng lệnh, tích hợp CI/CD GitHub Actions.',
-    keywords: ['cli', 'terminal', 'reqx', 'node', 'ci', 'cd', 'github actions', 'headless', 'bash'],
-    content: `# ReqX CLI — Chạy Collection Từ Dòng Lệnh Terminal
+    title: 'ReqX CLI — Chạy Kiểm Thử Từ Dòng Lệnh & CI/CD (Thay thế Newman)',
+    summary: 'Công cụ CLI độc lập thay thế Newman của Postman: chạy collection headless, xuất báo cáo JUnit/HTML, quét lộ secret (lint), và tự sinh pipeline CI/CD.',
+    keywords: ['cli', 'terminal', 'reqx', 'node', 'ci', 'cd', 'github actions', 'headless', 'bash', 'newman', 'devops', 'jenkins', 'gitlab', 'lint', 'secret'],
+    content: `# ReqX CLI — Công Cụ Kiểm Thử Dòng Lệnh Thay Thế Newman
 
-ReqX cung cấp công cụ dòng lệnh (CLI) độc lập sử dụng chung engine kiểm thử với app, giúp bạn chạy tự động hóa trên máy trạm hoặc trong pipeline CI/CD (GitHub Actions, GitLab CI, Jenkins).
+ReqX cung cấp công cụ dòng lệnh (Headless CLI) siêu nhẹ (~600KB) thay thế hoàn toàn cho \`newman\` của Postman, giúp kỹ sư DevOps và QA chạy tự động hóa hàng loạt API trên máy trạm hoặc nhúng thẳng vào pipeline CI/CD (**GitHub Actions**, **GitLab CI**, **Jenkins**, **Docker**) mà không cần mở giao diện đồ họa.
 
-## 1. Cài đặt & Build CLI:
-Tại thư mục dự án, chạy lệnh build bundle CLI (chạy bằng Node.js thông thường):
-\`\`\`powershell
-npm run build:cli
-\`\`\`
-File bundle sau khi build sẽ nằm tại \`dist-cli/reqx.mjs\`.
+---
 
-## 2. Cú pháp chạy lệnh:
-\`\`\`powershell
-node dist-cli/reqx.mjs run <file_collection.json> [options]
+## 1. Khởi tạo & Sử dụng nhanh:
+File bundle CLI nằm sẵn tại \`dist-cli/reqx.mjs\`. Bạn có thể chạy ngay bằng Node.js:
+\`\`\`bash
+# Xem trợ giúp và danh sách cờ lệnh
+node dist-cli/reqx.mjs --help
 \`\`\`
 
-## 3. Các cờ lệnh (Options) quan trọng:
-- \`--env <file.json>\`: Nạp file biến môi trường (hỗ trợ cả format Postman lẫn ReqX).
-- \`--global <file.json>\`: Nạp file biến toàn cục.
-- \`--var KEY=VALUE\`: Ghi đè biến đơn lẻ với độ ưu tiên cao nhất.
-- \`--collection "<ten>"\`: Chỉ chạy collection chỉ định trong file gộp.
-- \`--data <file.csv/json>\`: Nạp file dữ liệu chạy nhiều lần lặp (Data-driven testing).
-- \`--iteration-count <n>\`: Số lần lặp lại kịch bản.
-- \`--delay <ms>\`: Thời gian nghỉ giữa các request.
+---
+
+## 2. Các lệnh cốt lõi (Commands):
+
+### 🚀 Lệnh 1: \`reqx run\` — Chạy tự động Collection
+Chạy toàn bộ API trong file collection, nạp biến môi trường và xuất báo cáo:
+\`\`\`bash
+node dist-cli/reqx.mjs run my-collection.json --env staging.json --reporter junit,html --out ./test-results
+\`\`\`
+
+**Các cờ lệnh (Options) hữu ích:**
+- \`--env <file>\`: Nạp file biến môi trường (hỗ trợ cả định dạng Postman Environment lẫn ReqX).
+- \`--global <file>\`: Nạp file biến dùng chung.
+- \`--var KEY=VALUE\`: Ghi đè hoặc bổ sung biến trực tiếp từ terminal (ưu tiên cao nhất).
+- \`--data <file.csv/json>\`: Nạp dữ liệu chạy lặp (Data-Driven Testing). Mỗi dòng dữ liệu là một iteration.
+- \`--iteration-count <n>\`: Số lần lặp kịch bản.
+- \`--reporter <types>\`: Xuất báo cáo tự động: \`junit\` (cho CI/CD), \`html\` (giao diện xem báo cáo đẹp), \`json\`, \`csv\`.
+- \`--bail\`: Dừng ngay lập tức khi phát hiện có request hoặc assertion thất bại.
 - \`--timeout <ms>\`: Thời gian chờ tối đa mỗi request (mặc định 30000ms).
-- \`--bail\`: Dừng ngay lập tức nếu có bất kỳ request hay test case nào thất bại.
-- \`--reporter <danh_sach>\`: Chọn định dạng xuất báo cáo: \`html\`, \`junit\`, \`json\`, \`csv\`.
-- \`--out <dir>\`: Thư mục chứa file báo cáo kết quả (mặc định: \`reqx-report/\`).
+- \`--delay <ms>\`: Độ trễ nghỉ giữa các request.
+- \`--allow-scripts\`: Cho phép thực thi script JS trong file import.
 
-## 4. Ví dụ chạy thực tế:
-\`\`\`powershell
-node dist-cli/reqx.mjs run my-collection.json --env dev-env.json --reporter html,junit --out ./reports
+---
+
+### 🛡️ Lệnh 2: \`reqx env lint\` — Soát lỗi biến & Chống lộ Secret Token
+Trước khi chạy hoặc commit file biến lên Git, lệnh này sẽ phân tích cú pháp để phát hiện:
+- Biến được gọi trong request \`{{token}}\` nhưng chưa được khai báo trong file môi trường.
+- Phát hiện **Secret Token / Mật khẩu thật** bị ghi lộ liễu trực tiếp trong file JSON.
+\`\`\`bash
+node dist-cli/reqx.mjs env lint my-collection.json --env staging.json
+\`\`\`
+*(Exit Code = 1 nếu phát hiện lỗi thiếu biến để chặn deploy ẩu).*
+
+---
+
+### ⚡ Lệnh 3: \`reqx ci init\` — Tự động sinh file Pipeline CI/CD mẫu
+Không cần mất công tra cứu cú pháp YAML, ReqX CLI tự sinh cấu hình CI/CD hoàn chỉnh chỉ với 1 lệnh:
+\`\`\`bash
+# Sinh pipeline cho GitHub Actions (.github/workflows/reqx-ci.yml)
+node dist-cli/reqx.mjs ci init --provider github
+
+# Sinh pipeline cho GitLab CI (.gitlab-ci.yml)
+node dist-cli/reqx.mjs ci init --provider gitlab
+
+# Sinh Jenkinsfile cho Jenkins
+node dist-cli/reqx.mjs ci init --provider jenkins
 \`\`\`
 
-## 5. Mã thoát (Exit Codes) cho CI/CD:
-- \`0\`: Thành công (tất cả các request và assertions đều PASS).
-- \`1\`: Thất bại (có request lỗi HTTP ngoài 2xx hoặc assertion FAIL).
-- \`2\`: Lỗi hệ thống (thiếu file, cú pháp sai, tham số không hợp lệ).
+---
+
+## 3. Mã thoát (Exit Codes) chuẩn cho DevOps:
+- \`0\`: Tất cả các request và assertions đều **PASS** $\rightarrow$ Cho phép Deploy code.
+- \`1\`: Có ít nhất 1 request bị lỗi HTTP hoặc assertion **FAIL** $\rightarrow$ CI/CD lập tức chặn deployment.
+- \`2\`: Lỗi hệ thống (sai cú pháp file, đường dẫn không tồn tại).
 `,
   },
   {

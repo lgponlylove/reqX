@@ -68,6 +68,15 @@ Postman forces all your collections into one flat, unending sidebar list. In ent
 - **1-Click Documentation Export:** Generate polished, standalone HTML documentation (interactive search, dark mode, color-coded badges) or Git-ready Markdown files with a single click.
 - **Hybrid AI Architecture:** Run 100% locally with in-app **WebLLM** (GPU-accelerated Qwen2.5/SmolLM2) or connect to your own Gemini, Groq, Mistral, or Ollama endpoints with automated self-verifying test generation.
 
+### 5. 💻 Built-in Headless CLI (The Newman Alternative for CI/CD)
+ReqX ships with a dedicated, lightweight (~600KB) command-line interface designed for automated DevOps pipelines (GitHub Actions, GitLab CI, Jenkins, Docker) without needing a GUI:
+- **Run Collections Headless:**
+  ```bash
+  node dist-cli/reqx.mjs run collection.json --env staging.json --reporter junit,html --bail
+  ```
+- **Pre-flight Variable & Secret Linter (`reqx env lint`):** Catch missing variables and prevent accidental leaking of real secrets before committing to Git.
+- **1-Click CI Pipeline Scaffolding (`reqx ci init`):** Automatically generates ready-to-run pipeline files (`.github/workflows/reqx-ci.yml`, `.gitlab-ci.yml`, or `Jenkinsfile`).
+
 ---
 
 ## 📸 Screenshots
