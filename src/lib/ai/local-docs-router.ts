@@ -41,7 +41,7 @@ function matchAppFeatureGuide(query: string): LocalDocsMatch | null {
 
   // Nhận diện mẫu câu hỏi cẩm nang tính năng
   const isFeatureQuery =
-    /(chức năng|tính năng|hướng dẫn|cách dùng|là gì|làm gì|để làm gì|sử dụng thế nào|phím tắt|shortcuts?)/i.test(q) ||
+    /(chức năng|tính năng|hướng dẫn|cách dùng|là gì|làm gì|để làm gì|sử dụng thế nào|phím tắt|shortcuts?|giới thiệu|app làm được gì|reqx làm được gì)/i.test(q) ||
     /^(flow|flows|runner|mock|mock[- ]?server|environment|môi trường|cli|cyberdock|builder|websocket|grpc)\b/i.test(q);
 
   if (!isFeatureQuery) return null;
@@ -49,7 +49,10 @@ function matchAppFeatureGuide(query: string): LocalDocsMatch | null {
   // Thử khớp theo các topic cụ thể
   let matchedTopic = undefined;
 
-  if (/\b(flow|flows|luồng|workflow|canvas)\b/i.test(q)) {
+  // Nếu là câu hỏi tổng quan giới thiệu app
+  if (/(giới thiệu|app làm được gì|tổng quan|tất cả tính năng|các chức năng|reqx là gì)/i.test(q) && !/(cụ thể|chi tiết)/i.test(q)) {
+    matchedTopic = getDocTopic('overview');
+  } else if (/\b(flow|flows|luồng|workflow|canvas)\b/i.test(q)) {
     matchedTopic = getDocTopic('flows');
   } else if (/\b(runner|chạy tự động|bulk|data file|csv runner)\b/i.test(q)) {
     matchedTopic = getDocTopic('runner-and-data');
@@ -57,13 +60,19 @@ function matchAppFeatureGuide(query: string): LocalDocsMatch | null {
     matchedTopic = getDocTopic('mock-server');
   } else if (/\b(phím tắt|shortcut|hotkey|bàn phím)\b/i.test(q)) {
     matchedTopic = getDocTopic('shortcuts');
-  } else if (/\b(cli|command line|dòng lệnh|terminal)\b/i.test(q)) {
+  } else if (/\b(cli|command line|dòng lệnh|terminal|newman)\b/i.test(q)) {
     matchedTopic = getDocTopic('cli');
+  } else if (/\b(cây|tree|thư mục|directory|git workspace|microservices)\b/i.test(q)) {
+    matchedTopic = getDocTopic('tree-and-git-workspace');
+  } else if (/\b(tài liệu|export|xuất docs|html|markdown|response ví dụ|example)\b/i.test(q)) {
+    matchedTopic = getDocTopic('api-docs-and-examples');
+  } else if (/\b(stress|tải|hiệu năng|scheduler|định kỳ|cron)\b/i.test(q)) {
+    matchedTopic = getDocTopic('stress-test-and-scheduler');
   } else if (/\b(môi trường|environment|biến môi trường|env)\b/i.test(q)) {
     matchedTopic = getDocTopic('environments');
   } else if (/\b(script|sandbox|pre[- ]?request|tests|pm\.)\b/i.test(q)) {
     matchedTopic = getDocTopic('scripts-sandbox');
-  } else if (/\b(websocket|grpc|protocol|giao thức)\b/i.test(q)) {
+  } else if (/\b(websocket|grpc|protocol|giao thức|sse)\b/i.test(q)) {
     matchedTopic = getDocTopic('protocols');
   } else if (/\b(ai|postbot|trợ lý|trợ lý ai)\b/i.test(q)) {
     matchedTopic = getDocTopic('ai-assistant');
@@ -72,10 +81,15 @@ function matchAppFeatureGuide(query: string): LocalDocsMatch | null {
   } else if (/\b(giao diện|cyberdock|overview|tổng quan)\b/i.test(q)) {
     matchedTopic = getDocTopic('overview');
   } else {
-    // Tìm kiếm mờ trong toàn bộ cẩm nang
-    const searchRes = searchDocs(q.replace(/(chức năng|tính năng|hướng dẫn|cách dùng|là gì|làm gì|của|ở đâu)/gi, '').trim());
-    if (searchRes.length > 0) {
-      matchedTopic = searchRes[0];
+    // Nếu hỏi chung chung chi tiết các chức năng -> Trả về danh mục tổng thể
+    if (/(chi tiết các chức năng|tất cả chức năng|toàn bộ tính năng)/i.test(q)) {
+      matchedTopic = getDocTopic('overview');
+    } else {
+      // Tìm kiếm mờ trong toàn bộ cẩm nang
+      const searchRes = searchDocs(q.replace(/(chức năng|tính năng|hướng dẫn|cách dùng|là gì|làm gì|của|ở đâu|hơn|giúp tôi|chi tiết)/gi, '').trim());
+      if (searchRes.length > 0) {
+        matchedTopic = searchRes[0];
+      }
     }
   }
 

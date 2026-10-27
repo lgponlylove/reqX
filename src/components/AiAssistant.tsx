@@ -1528,10 +1528,19 @@ export default function AiAssistant({
         setWebLlmProgress('Đang tải/nạp model WebGPU...');
         setStreamingText('');
 
-        // Đối với WebLLM In-App: giới hạn 6 tin nhắn gần nhất và rút gọn System Prompt
-        // để không làm tràn context window của model local siêu nhẹ (ví dụ Qwen2.5-0.5B, SmolLM2-360M)
+        // Đối với WebLLM In-App: giới hạn 6 tin nhắn gần nhất và cung cấp System Prompt chuẩn xác
+        // để model local siêu nhẹ (ví dụ Qwen2.5-0.5B, SmolLM2-360M) không bị "ảo giác" bịa đặt tính năng không có thật
         const recentContents = contentsRef.current.slice(-6);
-        const compactSystem = `Bạn là trợ lý ReqX (API Client giống Postman). Trả lời ngắn gọn, chuẩn xác bằng tiếng Việt.`;
+        const compactSystem = `Bạn là trợ lý AI trong ứng dụng ReqX. ReqX là ứng dụng kiểm thử API offline (giống Postman nhưng chạy bằng Rust/Tauri siêu nhẹ).
+Các tính năng cốt lõi của ReqX gồm:
+1. Builder: Soạn thảo, gửi request HTTP (GET, POST...), WebSocket, gRPC, SSE.
+2. Runner: Chạy tự động hàng loạt API, nạp file dữ liệu CSV/JSON để test bulk.
+3. Smart Flows: Kéo thả luồng kết nối nhiều API, truyền biến giữa các bước.
+4. Mock Server: Dựng server giả lập API trên localhost để test.
+5. Cây thư mục (Tree Structure) & Git Workspace: Gom nhóm API microservices và commit Git.
+6. Environment & Variables: Quản lý biến môi trường, tự động che secret token.
+7. Scripts: Pre-request & Tests bằng cú pháp pm.* tương thích Postman.
+Quy tắc: Trả lời ngắn gọn, chuẩn xác bằng tiếng Việt. Chỉ giải thích xoay quanh các tính năng kiểm thử API của ReqX, TUYỆT ĐỐI không bịa đặt các tính năng thương mại điện tử/bán hàng (như đơn hàng, phân phối, mở tin nhầm...).`;
 
         const res = await webLlmChat({
           modelId: live.aiWebLlmModel,
