@@ -1,4 +1,4 @@
-import type { ApiRequest, Collection } from '../../types/api';
+import type { ApiRequest, Collection, Flow } from '../../types/api';
 import { toCurl } from '../codegen';
 import { DOC_TOPICS, getDocTopic, searchDocs } from '../docs/app-guide';
 
@@ -117,6 +117,7 @@ export function matchLocalDocsQuery(
   requests: Record<string, ApiRequest>,
   collections: Collection[],
   lastContextRequestId?: string,
+  flows?: Flow[],
 ): LocalDocsMatch {
   const query = rawQuery.trim();
   if (!query || query.length < 3) return { matched: false };
@@ -128,7 +129,34 @@ export function matchLocalDocsQuery(
     }
   }
 
-  // 2. Tra cứu Cẩm nang hướng dẫn tính năng ReqX (Không phụ thuộc requests list)
+  const lowerQuery = query.toLowerCase();
+
+  // 2. Tra cứu danh sách Flow thực tế trong ứng dụng (0ms, 0 token)
+  const isListFlowQuery = /(danh sách|liệt kê|có những|các|tìm)\s+(flow|luồng|workflow)/i.test(lowerQuery);
+  if (isListFlowQuery) {
+    const flowList = flows || [];
+    if (flowList.length === 0) {
+      return {
+        matched: true,
+        title: 'Danh sách Flow',
+        content: `⚡ **Local Docs Inspector (0ms)** — Hiện tại ứng dụng chưa có Flow nào được tạo.\n\nBạn có thể vào tab **Flow** trên thanh header hoặc nhờ AI: *"Tạo flow từ request Đăng nhập và Lấy thông tin"* để bắt đầu!`,
+      };
+    }
+    const lines = [
+      `⚡ **Local Docs Inspector (0ms)** — Danh sách các Flow hiện có trong Workspace (${flowList.length} flow):`,
+      '',
+      ...flowList.map((f, i) => `${i + 1}. **${f.name}** — ${f.steps.length} bước (steps)`),
+      '',
+      `_Bạn có thể bảo AI chạy flow: "Chạy flow ${flowList[0].name}" hoặc chuyển sang tab Flow để xem chi tiết._`,
+    ];
+    return {
+      matched: true,
+      title: 'Danh sách Flow',
+      content: lines.join('\n'),
+    };
+  }
+
+  // 3. Tra cứu Cẩm nang hướng dẫn tính năng ReqX (Không phụ thuộc requests list)
   const guideMatch = matchAppFeatureGuide(query);
   if (guideMatch) {
     return guideMatch;
@@ -136,8 +164,6 @@ export function matchLocalDocsQuery(
 
   const reqList = Object.values(requests);
   if (reqList.length === 0) return { matched: false };
-
-  const lowerQuery = query.toLowerCase();
 
   // Helper tìm request phù hợp nhất với câu hỏi
   let targetReq: ApiRequest | undefined;

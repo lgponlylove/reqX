@@ -1499,7 +1499,8 @@ export default function AiAssistant({
 
     // ⚡ Ưu tiên 1: Local Docs Inspector & Search (0ms, 0 token)
     if (live.aiLocalDocsInspector) {
-      const localMatch = matchLocalDocsQuery(text, live.requests, live.collections, lastContextRequestIdRef.current);
+      const currentFlows = useFlowStore.getState().flows;
+      const localMatch = matchLocalDocsQuery(text, live.requests, live.collections, lastContextRequestIdRef.current, currentFlows);
       if (localMatch.matched && localMatch.content) {
         if (localMatch.requestId) {
           lastContextRequestIdRef.current = localMatch.requestId;
@@ -1531,16 +1532,26 @@ export default function AiAssistant({
         // Đối với WebLLM In-App: giới hạn 6 tin nhắn gần nhất và cung cấp System Prompt chuẩn xác
         // để model local siêu nhẹ (ví dụ Qwen2.5-0.5B, SmolLM2-360M) không bị "ảo giác" bịa đặt tính năng không có thật
         const recentContents = contentsRef.current.slice(-6);
+        // Trích xuất ngữ cảnh tóm tắt của Workspace để nạp thẳng vào WebLLM
+        const currentFlowNames = useFlowStore.getState().flows.map((f) => f.name).join(', ') || 'Chưa có flow nào';
+        const currentCollectionNames = live.collections.map((c) => c.name).join(', ') || 'Chưa có collection nào';
+
         const compactSystem = `Bạn là trợ lý AI trong ứng dụng ReqX. ReqX là ứng dụng kiểm thử API offline (giống Postman nhưng chạy bằng Rust/Tauri siêu nhẹ).
-Các tính năng cốt lõi của ReqX gồm:
-1. Builder: Soạn thảo, gửi request HTTP (GET, POST...), WebSocket, gRPC, SSE.
-2. Runner: Chạy tự động hàng loạt API, nạp file dữ liệu CSV/JSON để test bulk.
-3. Smart Flows: Kéo thả luồng kết nối nhiều API, truyền biến giữa các bước.
-4. Mock Server: Dựng server giả lập API trên localhost để test.
-5. Cây thư mục (Tree Structure) & Git Workspace: Gom nhóm API microservices và commit Git.
-6. Environment & Variables: Quản lý biến môi trường, tự động che secret token.
-7. Scripts: Pre-request & Tests bằng cú pháp pm.* tương thích Postman.
-Quy tắc: Trả lời ngắn gọn, chuẩn xác bằng tiếng Việt. Chỉ giải thích xoay quanh các tính năng kiểm thử API của ReqX, TUYỆT ĐỐI không bịa đặt các tính năng thương mại điện tử/bán hàng (như đơn hàng, phân phối, mở tin nhầm...).`;
+Ngữ cảnh Workspace hiện tại:
+- Danh sách Flow hiện có: [${currentFlowNames}]
+- Danh sách Collection hiện có: [${currentCollectionNames}]
+
+Các tính năng cốt lõi của ReqX:
+1. Builder: Soạn thảo, gửi request HTTP, WebSocket, gRPC, SSE.
+2. Runner: Chạy tự động hàng loạt API, nạp file CSV/JSON test bulk.
+3. Smart Flows: Kéo thả luồng kết nối nhiều API.
+4. Mock Server: Dựng server giả lập API trên localhost.
+5. Cây thư mục (Tree Structure) & Git Workspace: Gom nhóm API và commit Git.
+
+Quy tắc BẮT BUỘC:
+- Trả lời 100% bằng TIẾNG VIỆT, tuyệt đối không trả lời bằng tiếng Anh.
+- Khi người dùng hỏi danh sách flow hoặc collection, hãy liệt kê chính xác từ [Ngữ cảnh Workspace hiện tại] ở trên.
+- Trả lời ngắn gọn, chuẩn xác. Tuyệt đối không bịa đặt các thuật ngữ ngoài lề.`;
 
         const res = await webLlmChat({
           modelId: live.aiWebLlmModel,
