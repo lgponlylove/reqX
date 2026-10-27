@@ -206,6 +206,10 @@ export interface AiEntryStats {
 export interface AiChatMsg {
   role: 'user' | 'model' | 'tool';
   text: string;
+  /** Nguồn gốc sinh ra câu trả lời: 'webllm' | 'cloud' | 'local_docs' */
+  source?: 'webllm' | 'cloud' | 'local_docs';
+  /** Câu lệnh gốc của user tương ứng với câu trả lời này */
+  originalPrompt?: string;
 }
 
 const seedEnv: Environment = {

@@ -1507,7 +1507,7 @@ export default function AiAssistant({
         }
         setInput('');
         push({ role: 'user', text });
-        push({ role: 'model', text: localMatch.content });
+        push({ role: 'model', text: localMatch.content, source: 'local_docs', originalPrompt: text });
         // Đồng bộ vào context memory để lượt tiếp theo có thể hỏi nối tiếp
         contentsRef.current.push({ role: 'user', parts: [{ text }] });
         contentsRef.current.push({ role: 'model', parts: [{ text: localMatch.content }] });
@@ -1576,7 +1576,7 @@ Quy tắc BẮT BUỘC:
         setStreamingText(null);
         setWebLlmLoading(false);
         setWebLlmProgress('');
-        push({ role: 'model', text: res.text });
+        push({ role: 'model', text: res.text, source: 'webllm', originalPrompt: text });
         contentsRef.current.push({ role: 'model', parts: [{ text: res.text }] });
         setAiContents(contentsRef.current);
         setBusy(false);
@@ -1804,12 +1804,12 @@ Quy tắc BẮT BUỘC:
         }
       }
 
-      push({ role: 'model', text: reply.trim() || 'Đã hoàn tất các thao tác trên. Vui lòng kiểm tra kết quả trong app hoặc gửi tiếp yêu cầu.' });
+      push({ role: 'model', text: reply.trim() || 'Đã hoàn tất các thao tác trên. Vui lòng kiểm tra kết quả trong app hoặc gửi tiếp yêu cầu.', source: 'cloud' });
     } catch (e) {
-      push({ role: 'model', text: `❌ ${e instanceof Error ? e.message : String(e)}` });
+      push({ role: 'model', text: `❌ ${e instanceof Error ? e.message : String(e)}`, source: 'cloud' });
       // Mọi nấc trong chain đều đã thử và lỗi
       if (isQuotaError(e))
-        push({ role: 'model', text: t.ai.allQuotaError });
+        push({ role: 'model', text: t.ai.allQuotaError, source: 'cloud' });
     } finally {
       setStreamingText(null);
       setBusy(false);
@@ -2239,6 +2239,7 @@ Quy tắc BẮT BUỘC:
           }
 
           if (m.role === 'model') {
+            const isLocalAnswer = m.source === 'webllm' || m.source === 'local_docs';
             return (
               <div
                 key={i}
@@ -2250,28 +2251,56 @@ Quy tắc BẮT BUỘC:
               >
                 <div className="flex items-center justify-between pb-1.5 mb-1.5 border-b border-slate-800/80 text-[11px] select-none">
                   <span className="flex items-center gap-1.5 text-cyan-400 font-medium">
-                    <span>✨</span> {t.ai.aiAssistant}
+                    <span>✨</span> {m.source === 'webllm' ? 'Trợ lý WebLLM (Offline)' : m.source === 'local_docs' ? 'Trợ lý Local Docs (0ms)' : t.ai.aiAssistant}
                   </span>
-                  <button
-                    onClick={() => void copyText(m.text, i)}
-                    title={copiedIdx === i ? t.ai.copied : t.ai.copyReply}
-                    className="p-1 px-1.5 rounded-md text-slate-400 hover:text-cyan-300 hover:bg-slate-800 transition-all flex items-center gap-1 text-[11px]"
-                  >
-                    {copiedIdx === i ? (
-                      <span className="flex items-center gap-1 text-emerald-400 font-medium">
-                        <svg viewBox="0 0 24 24" className="w-3.5 h-3.5 fill-none stroke-current" strokeWidth="2.5"><polyline points="20 6 9 17 4 12"/></svg>
-                        <span>{t.ai.copied}</span>
-                      </span>
-                    ) : (
-                      <span className="flex items-center gap-1 text-slate-400 hover:text-cyan-300">
-                        <svg viewBox="0 0 24 24" className="w-3.5 h-3.5 fill-none stroke-current" strokeWidth="2">
-                          <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
-                          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
-                        </svg>
-                        <span className="text-[10px]">{t.common.copy}</span>
-                      </span>
+                  <div className="flex items-center gap-1.5">
+                    {/* Nút bấm gọi Cloud LLM (Gemini/Groq) trả lời lại khi cần độ chính xác cao hơn */}
+                    {isLocalAnswer && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const question = m.originalPrompt || findPromptFor(i);
+                          if (question) {
+                            setInput(question);
+                            // Tắt tạm WebLLM cho lượt này để gửi thẳng lên Cloud
+                            const s = useAppStore.getState();
+                            const wasEnabled = s.aiWebLlmEnabled;
+                            if (wasEnabled) s.setAiWebLlmEnabled(false);
+                            setTimeout(() => {
+                              void send();
+                              if (wasEnabled) setTimeout(() => s.setAiWebLlmEnabled(true), 1500);
+                            }, 50);
+                          }
+                        }}
+                        disabled={busy}
+                        title="Hỏi lại câu này bằng Cloud LLM (Gemini / Groq) với đầy đủ công cụ để có câu trả lời sâu và chính xác hơn"
+                        className="px-2 py-0.5 rounded bg-cyan-950/90 hover:bg-cyan-900 text-cyan-300 border border-cyan-800/80 transition-all flex items-center gap-1 text-[10px] font-medium"
+                      >
+                        <span>🚀</span>
+                        <span>Hỏi lại bằng Cloud AI</span>
+                      </button>
                     )}
-                  </button>
+                    <button
+                      onClick={() => void copyText(m.text, i)}
+                      title={copiedIdx === i ? t.ai.copied : t.ai.copyReply}
+                      className="p-1 px-1.5 rounded-md text-slate-400 hover:text-cyan-300 hover:bg-slate-800 transition-all flex items-center gap-1 text-[11px]"
+                    >
+                      {copiedIdx === i ? (
+                        <span className="flex items-center gap-1 text-emerald-400 font-medium">
+                          <svg viewBox="0 0 24 24" className="w-3.5 h-3.5 fill-none stroke-current" strokeWidth="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+                          <span>{t.ai.copied}</span>
+                        </span>
+                      ) : (
+                        <span className="flex items-center gap-1 text-slate-400 hover:text-cyan-300">
+                          <svg viewBox="0 0 24 24" className="w-3.5 h-3.5 fill-none stroke-current" strokeWidth="2">
+                            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+                            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+                          </svg>
+                          <span className="text-[10px]">{t.common.copy}</span>
+                        </span>
+                      )}
+                    </button>
+                  </div>
                 </div>
                 <MarkdownMessage content={m.text} />
               </div>
