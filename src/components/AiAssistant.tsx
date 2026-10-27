@@ -2249,11 +2249,11 @@ Quy tắc BẮT BUỘC:
                 }}
                 className="group relative text-sm rounded-xl px-3 py-2 bg-slate-900/90 border border-slate-800 hover:border-slate-700 text-slate-200 self-start max-w-[95%] shadow-sm transition-colors select-text"
               >
-                <div className="flex items-center justify-between pb-1.5 mb-1.5 border-b border-slate-800/80 text-[11px] select-none">
-                  <span className="flex items-center gap-1.5 text-cyan-400 font-medium">
-                    <span>✨</span> {m.source === 'webllm' ? 'Trợ lý WebLLM (Offline)' : m.source === 'local_docs' ? 'Trợ lý Local Docs (0ms)' : t.ai.aiAssistant}
+                <div className="flex items-center justify-between pb-1 mb-1 border-b border-slate-800/80 text-[10px] select-none">
+                  <span className="flex items-center gap-1 text-cyan-400/90 font-medium">
+                    <span className="text-[10px]">✨</span> {m.source === 'webllm' ? 'WebLLM' : m.source === 'local_docs' ? 'Local Docs' : t.ai.aiAssistant}
                   </span>
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex items-center gap-1">
                     {/* Nút bấm gọi Cloud LLM (Gemini/Groq) trả lời lại khi cần độ chính xác cao hơn */}
                     {isLocalAnswer && (
                       <button
@@ -2274,7 +2274,7 @@ Quy tắc BẮT BUỘC:
                         }}
                         disabled={busy}
                         title="Hỏi lại câu này bằng Cloud LLM (Gemini / Groq) với đầy đủ công cụ để có câu trả lời sâu và chính xác hơn"
-                        className="px-2 py-0.5 rounded bg-cyan-950/90 hover:bg-cyan-900 text-cyan-300 border border-cyan-800/80 transition-all flex items-center gap-1 text-[10px] font-medium"
+                        className="px-1.5 py-0.5 rounded bg-cyan-950/90 hover:bg-cyan-900 text-cyan-300 border border-cyan-800/80 transition-all flex items-center gap-1 text-[9px] font-medium"
                       >
                         <span>🚀</span>
                         <span>Hỏi lại bằng Cloud AI</span>
@@ -2283,20 +2283,20 @@ Quy tắc BẮT BUỘC:
                     <button
                       onClick={() => void copyText(m.text, i)}
                       title={copiedIdx === i ? t.ai.copied : t.ai.copyReply}
-                      className="p-1 px-1.5 rounded-md text-slate-400 hover:text-cyan-300 hover:bg-slate-800 transition-all flex items-center gap-1 text-[11px]"
+                      className="p-0.5 px-1 rounded text-slate-400 hover:text-cyan-300 hover:bg-slate-800 transition-all flex items-center gap-1 text-[10px]"
                     >
                       {copiedIdx === i ? (
-                        <span className="flex items-center gap-1 text-emerald-400 font-medium">
-                          <svg viewBox="0 0 24 24" className="w-3.5 h-3.5 fill-none stroke-current" strokeWidth="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+                        <span className="flex items-center gap-0.5 text-emerald-400 font-medium">
+                          <svg viewBox="0 0 24 24" className="w-3 h-3 fill-none stroke-current" strokeWidth="2.5"><polyline points="20 6 9 17 4 12"/></svg>
                           <span>{t.ai.copied}</span>
                         </span>
                       ) : (
-                        <span className="flex items-center gap-1 text-slate-400 hover:text-cyan-300">
-                          <svg viewBox="0 0 24 24" className="w-3.5 h-3.5 fill-none stroke-current" strokeWidth="2">
+                        <span className="flex items-center gap-0.5 text-slate-400 hover:text-cyan-300">
+                          <svg viewBox="0 0 24 24" className="w-3 h-3 fill-none stroke-current" strokeWidth="2">
                             <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
                             <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
                           </svg>
-                          <span className="text-[10px]">{t.common.copy}</span>
+                          <span className="text-[9px]">{t.common.copy}</span>
                         </span>
                       )}
                     </button>
