@@ -2197,9 +2197,9 @@ Quy tắc: Trả lời ngắn gọn, chuẩn xác bằng tiếng Việt. Chỉ g
               <div
                 key={i}
                 onMouseEnter={() => setHoveredPrompt(m.text)}
-                className="group relative text-sm rounded-xl px-3 py-2 bg-slate-800 text-slate-100 self-end max-w-[90%] shadow-sm border border-slate-700/60"
+                className="group relative text-sm rounded-xl px-3 py-2 bg-slate-800 text-slate-100 self-end max-w-[90%] shadow-sm border border-slate-700/60 select-text"
               >
-                <div className="whitespace-pre-wrap break-words pr-6">{m.text}</div>
+                <div className="whitespace-pre-wrap break-words pr-6 select-text">{m.text}</div>
                 <button
                   onClick={() => void copyText(m.text, i)}
                   title={copiedIdx === i ? t.ai.copied : t.ai.copyChat}
@@ -2229,9 +2229,9 @@ Quy tắc: Trả lời ngắn gọn, chuẩn xác bằng tiếng Việt. Chỉ g
                   const p = findPromptFor(i);
                   if (p) setHoveredPrompt(p);
                 }}
-                className="group relative text-sm rounded-xl px-3 py-2 bg-slate-900/90 border border-slate-800 hover:border-slate-700 text-slate-200 self-start max-w-[95%] shadow-sm transition-colors"
+                className="group relative text-sm rounded-xl px-3 py-2 bg-slate-900/90 border border-slate-800 hover:border-slate-700 text-slate-200 self-start max-w-[95%] shadow-sm transition-colors select-text"
               >
-                <div className="flex items-center justify-between pb-1.5 mb-1.5 border-b border-slate-800/80 text-[11px]">
+                <div className="flex items-center justify-between pb-1.5 mb-1.5 border-b border-slate-800/80 text-[11px] select-none">
                   <span className="flex items-center gap-1.5 text-cyan-400 font-medium">
                     <span>✨</span> {t.ai.aiAssistant}
                   </span>

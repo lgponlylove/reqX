@@ -146,14 +146,15 @@ body {
   background-attachment: fixed;
 }
 
-/* Cho phép chọn / bôi đen text ở các trường nhập liệu, khối code, response, editor */
+/* Cho phép chọn / bôi đen text ở các trường nhập liệu, khối code, response, editor và khung chat AI */
 input,
 textarea,
 pre,
 code,
 [contenteditable="true"],
 .selectable,
-.select-text {
+.select-text,
+.select-auto {
   user-select: text;
   -webkit-user-select: text;
 }
