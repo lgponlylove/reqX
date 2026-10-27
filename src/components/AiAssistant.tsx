@@ -1492,13 +1492,13 @@ export default function AiAssistant({
     }
   };
 
-  const send = async () => {
-    const text = input.trim();
+  const send = async (customText?: string, forceCloud = false) => {
+    const text = (customText !== undefined ? customText : input).trim();
     if (!text || busy) return;
     const live = useAppStore.getState();
 
     // ⚡ Ưu tiên 1: Local Docs Inspector & Search (0ms, 0 token)
-    if (live.aiLocalDocsInspector) {
+    if (!forceCloud && live.aiLocalDocsInspector) {
       const currentFlows = useFlowStore.getState().flows;
       const localMatch = matchLocalDocsQuery(text, live.requests, live.collections, lastContextRequestIdRef.current, currentFlows);
       if (localMatch.matched && localMatch.content) {
@@ -1517,7 +1517,7 @@ export default function AiAssistant({
     }
 
     // 🧠 Ưu tiên 2: WebLLM In-App Local (Chạy WebGPU trong máy)
-    if (live.aiWebLlmEnabled) {
+    if (!forceCloud && live.aiWebLlmEnabled) {
       setInput('');
       push({ role: 'user', text });
       contentsRef.current.push({ role: 'user', parts: [{ text }] });
@@ -2261,15 +2261,7 @@ Quy tắc BẮT BUỘC:
                         onClick={() => {
                           const question = m.originalPrompt || findPromptFor(i);
                           if (question) {
-                            setInput(question);
-                            // Tắt tạm WebLLM cho lượt này để gửi thẳng lên Cloud
-                            const s = useAppStore.getState();
-                            const wasEnabled = s.aiWebLlmEnabled;
-                            if (wasEnabled) s.setAiWebLlmEnabled(false);
-                            setTimeout(() => {
-                              void send();
-                              if (wasEnabled) setTimeout(() => s.setAiWebLlmEnabled(true), 1500);
-                            }, 50);
+                            void send(question, true);
                           }
                         }}
                         disabled={busy}
