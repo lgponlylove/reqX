@@ -192,11 +192,11 @@ export default function ResponseViewer({ onCollapse }: { onCollapse?: () => void
   const failed = (testRun?.results.length ?? 0) - passed;
 
   /**
-   * Khung nội dung (pretty / visualizer / raw / preview / sse). `tall=true` là bản trong popup phóng to:
-   * lấp đầy khung thay vì bị chặn `max-h-96` như ô nhỏ.
+   * Khung nội dung (pretty / visualizer / raw / preview / sse).
+   * Lấp đầy khung cha (flex-1 min-h-0) thay vì bị chặn max-h-96 để không sinh double scrollbar.
    */
   const bodyPane = (tall: boolean) => {
-    const H = tall ? 'flex-1 min-h-0' : 'max-h-96';
+    const H = 'flex-1 min-h-0';
     return (
       <>
         {effectiveView === 'sse' && (
@@ -372,10 +372,9 @@ export default function ResponseViewer({ onCollapse }: { onCollapse?: () => void
   }
 
   return (
-    <div>
-      {/* Response Header with Metrics — MỘT dòng, dính đỉnh khi cuộn (pane cha là overflow-y-auto).
-          mb đổi thành pb để phần nền dính header lấp kín, không hở 1 dải cho nội dung lọt qua. */}
-      <div className="sticky top-0 z-20 flex flex-nowrap items-center gap-2 pb-2.5 border-b border-slate-800 bg-slate-900/95 dark:bg-[#0a121c]/95 backdrop-blur-md overflow-x-auto">
+    <div className="flex-1 min-h-0 flex flex-col">
+      {/* Response Header with Metrics — MỘT dòng, ẩn scrollbar ngang thô (dùng no-scrollbar) */}
+      <div className="sticky top-0 z-20 flex flex-nowrap items-center gap-2 pb-2 border-b border-slate-800 bg-slate-900/95 dark:bg-[#0a121c]/95 backdrop-blur-md overflow-x-auto no-scrollbar">
         <div className="flex items-center gap-2 shrink-0">
           <div className="flex items-center gap-1 pb-0.5 border-b-2 border-emerald-400">
             <h2 className="font-bold text-xs text-white whitespace-nowrap">Response</h2>

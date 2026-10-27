@@ -401,7 +401,7 @@ export default function App() {
                       <div
                         ref={respPaneRef}
                         style={respH === null ? undefined : { height: respH }}
-                        className={`${respH === null ? 'flex-1' : 'shrink-0'} min-h-0 overflow-y-auto pr-0.5`}
+                        className={`${respH === null ? 'flex-1' : 'shrink-0'} min-h-0 flex flex-col overflow-hidden pr-0.5`}
                       >
                         <ResponseViewer onCollapse={() => setRespOpen(false)} />
                       </div>

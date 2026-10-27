@@ -241,3 +241,13 @@ html.light *::-webkit-scrollbar-thumb:hover {
 html.light *::-webkit-scrollbar-corner {
   background: #f8fafc;
 }
+
+/* Tiện ích ẩn thanh cuộn mà vẫn cho phép cuộn */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
