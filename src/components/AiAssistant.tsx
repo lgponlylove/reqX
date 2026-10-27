@@ -1535,23 +1535,29 @@ export default function AiAssistant({
         // Trích xuất ngữ cảnh tóm tắt của Workspace để nạp thẳng vào WebLLM
         const currentFlowNames = useFlowStore.getState().flows.map((f) => f.name).join(', ') || 'Chưa có flow nào';
         const currentCollectionNames = live.collections.map((c) => c.name).join(', ') || 'Chưa có collection nào';
+        const activeTabReq = useRequestStore.getState().current;
+        const currentReqContext = activeTabReq
+          ? `Request đang mở trong Builder: [${activeTabReq.method} ${activeTabReq.name || activeTabReq.url}]`
+          : 'Không có request nào đang mở';
 
-        const compactSystem = `Bạn là trợ lý AI trong ứng dụng ReqX. ReqX là ứng dụng kiểm thử API offline (giống Postman nhưng chạy bằng Rust/Tauri siêu nhẹ).
-Ngữ cảnh Workspace hiện tại:
-- Danh sách Flow hiện có: [${currentFlowNames}]
-- Danh sách Collection hiện có: [${currentCollectionNames}]
+        const compactSystem = `Bạn là trợ lý AI trong ứng dụng ReqX (API Client kiểu Postman).
+Dữ liệu thực tế trong Workspace của người dùng:
+- ${currentReqContext}
+- Danh sách Flow: [${currentFlowNames}]
+- Danh sách Collection: [${currentCollectionNames}]
 
-Các tính năng cốt lõi của ReqX:
+Các tính năng của ReqX:
 1. Builder: Soạn thảo, gửi request HTTP, WebSocket, gRPC, SSE.
 2. Runner: Chạy tự động hàng loạt API, nạp file CSV/JSON test bulk.
-3. Smart Flows: Kéo thả luồng kết nối nhiều API.
+3. Smart Flows: Kéo thả luồng kết nối API.
 4. Mock Server: Dựng server giả lập API trên localhost.
 5. Cây thư mục (Tree Structure) & Git Workspace: Gom nhóm API và commit Git.
 
 Quy tắc BẮT BUỘC:
-- Trả lời 100% bằng TIẾNG VIỆT, tuyệt đối không trả lời bằng tiếng Anh.
-- Khi người dùng hỏi danh sách flow hoặc collection, hãy liệt kê chính xác từ [Ngữ cảnh Workspace hiện tại] ở trên.
-- Trả lời ngắn gọn, chuẩn xác. Tuyệt đối không bịa đặt các thuật ngữ ngoài lề.`;
+- Trả lời 100% bằng TIẾNG VIỆT chuẩn xác. Tuyệt đối KHÔNG trả lời bằng tiếng Anh.
+- Dựa vào [Dữ liệu thực tế trong Workspace] ở trên để trả lời các câu hỏi về danh sách flow, collection, request.
+- Nếu người dùng bảo viết test script hoặc pre-request script: CHỈ dùng cú pháp pm.* (pm.test, pm.expect, pm.environment.set).
+- Trả lời đúng trọng tâm, ngắn gọn. KHÔNG bịa đặt các tính năng ngoài lề.`;
 
         const res = await webLlmChat({
           modelId: live.aiWebLlmModel,

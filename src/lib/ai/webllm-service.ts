@@ -98,8 +98,9 @@ export async function webLlmChat(opts: {
   const chunks = await engine.chat.completions.create({
     messages,
     stream: true,
-    temperature: 0.7,
-    max_tokens: 2048,
+    temperature: 0.2, // Giảm temperature để model nhỏ trả lời chính xác, tránh ảo giác/bịa đặt
+    top_p: 0.8,
+    max_tokens: 1024,
   });
 
   let fullText = '';
